@@ -1,26 +1,61 @@
 {
   "name": "nestworth",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
+  "packageManager": "bun@1.3.14",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "bun run typecheck && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:build": "tauri build --target aarch64-apple-darwin --bundles app,dmg",
+    "version:check": "bun scripts/check-version.ts",
+    "ipc:generate": "cargo run --manifest-path src-tauri/Cargo.toml --bin export-bindings --features export-bindings --",
+    "ipc:check": "cargo run --quiet --manifest-path src-tauri/Cargo.toml --bin export-bindings --features export-bindings -- --check",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css,json}\" \"*.{json,js,ts}\" \"src-tauri/**/*.{json,toml}\"",
+    "rust:test": "cargo test --manifest-path src-tauri/Cargo.toml --all-targets",
+    "fmt": "cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check",
+    "clippy": "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
+    "check": "bun run version:check && bun run ipc:check && bun run lint && bun run typecheck && bun run test && bun run build && bun run rust:test && bun run fmt && bun run clippy"
   },
   "dependencies": {
+    "@base-ui/react": "^1.7.0",
+    "@tanstack/react-query": "^5.101.4",
+    "@tanstack/react-router": "^1.170.29",
+    "@tauri-apps/api": "^2",
+    "i18next": "^26.3.6",
+    "lucide-react": "^1.31.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-opener": "^2"
+    "react-hook-form": "^7.85.0",
+    "react-i18next": "^17.0.11",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@tailwindcss/vite": "^4.3.3",
+    "@tauri-apps/cli": "^2",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.4",
+    "@types/node": "^26.2.0",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
+    "eslint": "^10.8.1",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.11.0",
+    "jsdom": "^30.0.1",
+    "prettier": "^3.9.6",
+    "tailwindcss": "^4.3.3",
     "typescript": "~5.8.3",
+    "typescript-eslint": "^8.67.0",
     "vite": "^7.0.4",
-    "@tauri-apps/cli": "^2"
+    "vitest": "^4.1.10"
   }
 }
