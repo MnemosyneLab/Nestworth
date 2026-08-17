@@ -9,6 +9,7 @@ import { IndexRoute } from "@/routes/index";
 import { InstitutionsRoute } from "@/routes/institutions";
 import { OnboardingRoute } from "@/routes/onboarding";
 import { OverviewRoute } from "@/routes/overview";
+import { SettingsGeneralRoute } from "@/routes/settings-general";
 import { MembersRoute } from "@/routes/settings-members";
 import { StartupErrorRoute } from "@/routes/startup-error";
 
@@ -50,6 +51,11 @@ const groupsRoute = createRoute({
   path: "/groups",
   component: GroupsRoute,
 });
+const settingsGeneralRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings/general",
+  component: SettingsGeneralRoute,
+});
 const membersRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings/members",
@@ -69,6 +75,7 @@ const routeTree = rootRoute.addChildren([
   accountDetailRoute,
   institutionsRoute,
   groupsRoute,
+  settingsGeneralRoute,
   membersRoute,
   startupErrorRoute,
 ]);

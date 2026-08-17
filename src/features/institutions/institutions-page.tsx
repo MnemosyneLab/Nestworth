@@ -6,6 +6,8 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { ImagePicker } from "@/features/media/image-picker";
+import { MediaImage } from "@/features/media/media-image";
 import {
   emptyInstitutionValues,
   institutionSchema,
@@ -114,6 +116,7 @@ export function InstitutionsPage() {
                 </p>
               }
               key={institution.id}
+              leading={<MediaImage alt="" assetId={institution.logoAssetId} />}
               name={institution.name}
             >
               <GhostButton
@@ -292,6 +295,14 @@ function InstitutionEditor({
         </label>
         <Textarea id={`${formId}-note`} {...form.register("note")} />
       </div>
+      {institution ? (
+        <ImagePicker
+          assetId={institution.logoAssetId}
+          entityId={institution.id}
+          kind="institutionLogo"
+          onSaved={onSaved}
+        />
+      ) : null}
       <div className="flex gap-2">
         <Button disabled={mutation.isPending} type="submit">
           {mutation.isPending ? t("references.saving") : t("references.save")}

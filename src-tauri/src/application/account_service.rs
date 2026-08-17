@@ -721,7 +721,7 @@ async fn insert_value(
     Ok(())
 }
 
-async fn load_account_detail(
+pub(crate) async fn load_account_detail(
     tx: &mut Transaction<'_, Sqlite>,
     household_id: &str,
     id: &str,
@@ -742,7 +742,7 @@ async fn load_account_detail(
     Ok(dto)
 }
 
-async fn load_account_domain(
+pub(crate) async fn load_account_domain(
     tx: &mut Transaction<'_, Sqlite>,
     household_id: &str,
     id: &str,

@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --background: #f7f7f8;
   --foreground: #202124;
@@ -13,6 +15,19 @@
   --destructive: #b42318;
 }
 
+.dark {
+  --background: #18191b;
+  --foreground: #f4f4f5;
+  --card: #232528;
+  --card-foreground: #f4f4f5;
+  --primary: #f4f4f5;
+  --primary-foreground: #232528;
+  --muted: #2b2e32;
+  --muted-foreground: #a4a8b0;
+  --ring: #b8bec8;
+  --destructive: #f97066;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -24,21 +39,6 @@
   --color-muted-foreground: var(--muted-foreground);
   --color-ring: var(--ring);
   --color-destructive: var(--destructive);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #18191b;
-    --foreground: #f4f4f5;
-    --card: #232528;
-    --card-foreground: #f4f4f5;
-    --primary: #f4f4f5;
-    --primary-foreground: #232528;
-    --muted: #2b2e32;
-    --muted-foreground: #a4a8b0;
-    --ring: #b8bec8;
-    --destructive: #f97066;
-  }
 }
 
 @layer base {

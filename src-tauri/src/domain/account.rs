@@ -260,6 +260,11 @@ impl Account {
         self.updated_at = now;
     }
 
+    pub fn set_logo(&mut self, logo_asset_id: MediaAssetId, now: Timestamp) {
+        self.logo_asset_id = Some(logo_asset_id);
+        self.updated_at = now;
+    }
+
     pub fn net_worth_contribution(&self, value: Money) -> Result<Decimal, AppError> {
         if value.currency() != self.default_currency {
             return Err(AppError::invalid_money(

@@ -57,7 +57,9 @@
     "shared": "Shared",
     "institutions": "Institutions",
     "groups": "Groups",
-    "members": "Members"
+    "members": "Members",
+    "settings": "Settings",
+    "general": "General"
   },
   "references": {
     "add": "Add",
@@ -184,6 +186,27 @@
       "ownersTotal": "Ownership shares must total 100%.",
       "date": "Use YYYY-MM-DD.",
       "closedOn": "Closed date cannot be earlier than opened date."
+    }
+  },
+  "media": {
+    "avatar": "Avatar",
+    "logo": "Logo",
+    "choose": "Choose image"
+  },
+  "settings": {
+    "title": "Settings",
+    "household": "Household",
+    "language": "Language",
+    "appearance": "Appearance",
+    "languages": {
+      "system": "System",
+      "en": "English",
+      "zh-CN": "简体中文"
+    },
+    "appearances": {
+      "system": "System",
+      "light": "Light",
+      "dark": "Dark"
     }
   },
   "errors": {

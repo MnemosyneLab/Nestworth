@@ -119,6 +119,11 @@ impl AccountGroup {
         self.updated_at = now;
     }
 
+    pub fn set_logo(&mut self, logo_asset_id: MediaAssetId, now: Timestamp) {
+        self.logo_asset_id = Some(logo_asset_id);
+        self.updated_at = now;
+    }
+
     #[must_use]
     pub fn id(&self) -> AccountGroupId {
         self.id

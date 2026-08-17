@@ -4,6 +4,7 @@ import { useState, type ComponentPropsWithoutRef } from "react";
 import { useTranslation } from "react-i18next";
 
 import { AccountForm } from "@/features/accounts/account-form";
+import { AccountMark } from "@/features/accounts/account-mark";
 import { formatMoney, PRIMARY_CATEGORIES } from "@/features/accounts/schema";
 import {
   accountMatchesSearch,
@@ -126,6 +127,12 @@ export function AccountsPage() {
             archived={Boolean(account.archivedAt)}
             details={<AccountSummary account={account} />}
             key={account.id}
+            leading={
+              <AccountMark
+                account={account}
+                institutions={institutions.data ?? []}
+              />
+            }
             name={account.name}
           >
             <Link

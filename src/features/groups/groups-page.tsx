@@ -15,6 +15,8 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { ImagePicker } from "@/features/media/image-picker";
+import { MediaImage } from "@/features/media/media-image";
 import {
   emptyGroupValues,
   GROUP_COLORS,
@@ -134,9 +136,15 @@ export function GroupsPage() {
                 ) : null
               }
               key={group.id}
+              leading={
+                group.logoAssetId ? (
+                  <MediaImage alt="" assetId={group.logoAssetId} />
+                ) : (
+                  <GroupMark color={group.color} iconKey={group.iconKey} />
+                )
+              }
               name={group.name}
             >
-              <GroupMark color={group.color} iconKey={group.iconKey} />
               <GhostButton
                 onClick={() => {
                   setActionError(null);
@@ -187,7 +195,7 @@ function GroupMark({
   return (
     <span
       aria-hidden="true"
-      className="mr-auto flex h-9 w-9 items-center justify-center rounded-lg"
+      className="flex h-10 w-10 items-center justify-center rounded-lg"
       style={{
         backgroundColor: color ?? "var(--muted)",
         color: color ? "#fff" : undefined,
@@ -344,6 +352,14 @@ function GroupEditor({
         </label>
         <Textarea id={`${formId}-description`} {...form.register("description")} />
       </div>
+      {group ? (
+        <ImagePicker
+          assetId={group.logoAssetId}
+          entityId={group.id}
+          kind="groupLogo"
+          onSaved={onSaved}
+        />
+      ) : null}
       <div className="flex gap-2">
         <Button disabled={mutation.isPending} type="submit">
           {mutation.isPending ? t("references.saving") : t("references.save")}

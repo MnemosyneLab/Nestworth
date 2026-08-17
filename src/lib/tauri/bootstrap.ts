@@ -10,6 +10,7 @@ export const APP_ROUTES = [
   "/accounts",
   "/institutions",
   "/groups",
+  "/settings/general",
   "/settings/members",
 ] as const;
 

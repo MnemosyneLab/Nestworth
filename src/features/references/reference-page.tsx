@@ -70,11 +70,13 @@ export function RecordCard({
   name,
   archived,
   details,
+  leading,
   children,
 }: {
   name: string;
   archived: boolean;
   details?: ReactNode;
+  leading?: ReactNode;
   children: ReactNode;
 }) {
   const { t } = useTranslation();
@@ -86,14 +88,17 @@ export function RecordCard({
       )}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-medium">{name}</h2>
-          {archived ? (
-            <p className="mt-1 text-xs uppercase tracking-wide text-muted-foreground">
-              {t("references.archived")}
-            </p>
-          ) : null}
-          {details}
+        <div className="flex min-w-0 items-start gap-3">
+          {leading}
+          <div>
+            <h2 className="text-lg font-medium">{name}</h2>
+            {archived ? (
+              <p className="mt-1 text-xs uppercase tracking-wide text-muted-foreground">
+                {t("references.archived")}
+              </p>
+            ) : null}
+            {details}
+          </div>
         </div>
         <div className="flex flex-wrap gap-2">{children}</div>
       </div>

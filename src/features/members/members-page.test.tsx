@@ -174,6 +174,31 @@ describe("members page", () => {
     pending.resolve({ status: "ok", data: memberRecord("m-3", "Child", 2) });
   });
 
+  it("uploads an avatar from the member editor", async () => {
+    const user = userEvent.setup();
+    const members = [memberRecord("m-1", "Walt", 0)];
+    mockMemberStore(members);
+    const { pickImagePath } = await import("@/lib/tauri/pick-image");
+    vi.mocked(pickImagePath).mockResolvedValue("/tmp/walt.png");
+    vi.mocked(commands.getMedia).mockResolvedValue({
+      status: "ok",
+      data: {
+        mimeType: "image/png",
+        data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      },
+    });
+    await renderReadyApp();
+    await user.click(screen.getByRole("link", { name: "Members" }));
+    await user.click((await screen.findAllByRole("button", { name: "Edit" }))[0]);
+    await user.click(screen.getByRole("button", { name: "Choose image" }));
+    await waitFor(() => {
+      expect(commands.setMemberAvatar).toHaveBeenCalledWith({
+        id: "m-1",
+        path: "/tmp/walt.png",
+      });
+    });
+  });
+
   it("can add a member with the keyboard", async () => {
     const user = userEvent.setup();
     const members: MemberRecordDto[] = [];
@@ -234,6 +259,17 @@ function mockMemberStore(members: MemberRecordDto[]) {
       };
     }
     member.archivedAt = null;
+    return { status: "ok", data: member };
+  });
+  vi.mocked(commands.setMemberAvatar).mockImplementation(async (input) => {
+    const member = members.find((item) => item.id === input.id);
+    if (!member) {
+      return {
+        status: "error",
+        error: commandError("NOT_FOUND", "missing"),
+      };
+    }
+    member.avatarAssetId = "media-1";
     return { status: "ok", data: member };
   });
 }

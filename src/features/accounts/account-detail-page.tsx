@@ -8,6 +8,7 @@ import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AccountForm, translateAccountError } from "@/features/accounts/account-form";
+import { AccountMark } from "@/features/accounts/account-mark";
 import {
   formatMoney,
   updateValueSchema,
@@ -93,7 +94,12 @@ export function AccountDetailPage({ accountId }: { accountId: string }) {
         {account && household ? (
           <div className="mt-6 space-y-6">
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
+              <div className="flex min-w-0 items-start gap-3">
+                <AccountMark
+                  account={account}
+                  institutions={institutions.data ?? []}
+                />
+                <div>
                 <h1 className="text-3xl font-semibold tracking-tight">
                   {account.name}
                 </h1>
@@ -113,6 +119,7 @@ export function AccountDetailPage({ accountId }: { accountId: string }) {
                 <p className="mt-1 text-sm text-muted-foreground">
                   {t(`accounts.categories.${account.secondaryCategory}`)}
                 </p>
+                </div>
               </div>
               <div className="flex flex-wrap gap-2">
                 <GhostButton

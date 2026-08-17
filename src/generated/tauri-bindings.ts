@@ -205,6 +205,62 @@ async getOverview() : Promise<Result<OverviewDto, CommandError>> {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+async setMemberAvatar(input: SetMediaInput) : Promise<Result<MemberRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_member_avatar", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async setInstitutionLogo(input: SetMediaInput) : Promise<Result<InstitutionRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_institution_logo", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async setGroupLogo(input: SetMediaInput) : Promise<Result<GroupRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_group_logo", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async setAccountLogo(input: SetMediaInput) : Promise<Result<AccountRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_account_logo", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getMedia(input: GetMediaInput) : Promise<Result<MediaAssetDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_media", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getSettings() : Promise<Result<AppSettingsDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_settings") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async updateSettings(input: UpdateSettingsInput) : Promise<Result<AppSettingsDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_settings", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -230,22 +286,26 @@ export type CreateGroupInput = { name: string; iconKey: string | null; color: st
 export type CreateInstitutionInput = { name: string; institutionType: string | null; countryCode: string | null; website: string | null; note: string | null }
 export type CreateMemberInput = { name: string; note: string | null }
 export type ErrorCode = "VALIDATION_ERROR" | "NOT_FOUND" | "CONFLICT" | "ALREADY_ONBOARDED" | "OWNERSHIP_TOTAL_INVALID" | "BASE_CURRENCY_CHANGE_NOT_ALLOWED" | "INVALID_CATEGORY" | "INVALID_MONEY" | "MEDIA_INVALID" | "DATABASE_ERROR" | "DATABASE_UNAVAILABLE" | "UNSUPPORTED_NEWER_DATABASE" | "MIGRATION_FAILED" | "INTERNAL_ERROR"
+export type GetMediaInput = { assetId: string }
 export type GroupRecordDto = { id: string; name: string; iconKey: string | null; color: string | null; description: string | null; logoAssetId: string | null; sortOrder: number; createdAt: string; updatedAt: string; archivedAt: string | null }
 export type HouseholdDto = { id: string; name: string; baseCurrency: string }
 export type IdInput = { id: string }
 export type InstitutionRecordDto = { id: string; name: string; institutionType: string | null; countryCode: string | null; website: string | null; note: string | null; logoAssetId: string | null; sortOrder: number; createdAt: string; updatedAt: string; archivedAt: string | null }
 export type ListFilterInput = { includeArchived: boolean }
+export type MediaAssetDto = { mimeType: string; data: string }
 export type MemberDto = { id: string; name: string }
 export type MemberRecordDto = { id: string; name: string; note: string | null; avatarAssetId: string | null; sortOrder: number; createdAt: string; updatedAt: string; archivedAt: string | null }
 export type MoneyDto = { amount: string; currency: string }
 export type OnboardingMemberInput = { name: string }
 export type OverviewDto = { baseCurrency: string; accountCount: number; assets: MoneyDto; liabilities: MoneyDto; netWorth: MoneyDto; byCategory: BreakdownRowDto[]; byMember: BreakdownRowDto[]; byInstitution: BreakdownRowDto[]; byGroup: BreakdownRowDto[] }
 export type OwnershipShareInput = { memberId: string; percent: string | null; shareBps: number | null }
+export type SetMediaInput = { id: string; path: string }
 export type UpdateAccountInput = { id: string; name: string; primaryCategory: string; secondaryCategory: string; institutionId: string | null; groupId: string | null; trackingMode: string | null; note: string | null; includeInNetWorth: boolean; includeInInvestment: boolean; includeInLiquidAssets: boolean; openedOn: string | null; closedOn: string | null; owners: OwnershipShareInput[] }
 export type UpdateAccountValueInput = { id: string; amount: string }
 export type UpdateGroupInput = { id: string; name: string; iconKey: string | null; color: string | null; description: string | null }
 export type UpdateInstitutionInput = { id: string; name: string; institutionType: string | null; countryCode: string | null; website: string | null; note: string | null }
 export type UpdateMemberInput = { id: string; name: string; note: string | null }
+export type UpdateSettingsInput = { language: string; appearance: string }
 
 /** tauri-specta globals **/
 

@@ -1,7 +1,10 @@
 pub mod account_service;
 pub mod group_service;
+pub mod image;
 pub mod institution_service;
+pub mod media_service;
 pub mod member_service;
 pub mod onboarding_service;
 pub mod overview_service;
 pub mod reference;
+pub mod settings_service;

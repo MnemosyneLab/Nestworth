@@ -11,6 +11,8 @@ pub mod ipc;
 pub mod state;
 
 #[cfg(test)]
+mod capabilities_test;
+#[cfg(test)]
 pub mod test_support;
 
 fn init_tracing() {

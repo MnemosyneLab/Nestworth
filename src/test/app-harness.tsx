@@ -182,6 +182,42 @@ export function resetCommandMocks() {
     status: "ok",
     data: emptyOverview(),
   });
+  vi.mocked(commands.getSettings).mockResolvedValue({
+    status: "ok",
+    data: {
+      language: "system",
+      appearance: "system",
+      lastHouseholdId: "hh-1",
+    },
+  });
+  vi.mocked(commands.updateSettings).mockResolvedValue({
+    status: "ok",
+    data: {
+      language: "system",
+      appearance: "system",
+      lastHouseholdId: "hh-1",
+    },
+  });
+  vi.mocked(commands.getMedia).mockResolvedValue({
+    status: "error",
+    error: commandError("NOT_FOUND", "missing"),
+  });
+  vi.mocked(commands.setMemberAvatar).mockResolvedValue({
+    status: "error",
+    error: commandError("NOT_FOUND", "missing"),
+  });
+  vi.mocked(commands.setInstitutionLogo).mockResolvedValue({
+    status: "error",
+    error: commandError("NOT_FOUND", "missing"),
+  });
+  vi.mocked(commands.setGroupLogo).mockResolvedValue({
+    status: "error",
+    error: commandError("NOT_FOUND", "missing"),
+  });
+  vi.mocked(commands.setAccountLogo).mockResolvedValue({
+    status: "error",
+    error: commandError("NOT_FOUND", "missing"),
+  });
 }
 
 export async function resetApp() {

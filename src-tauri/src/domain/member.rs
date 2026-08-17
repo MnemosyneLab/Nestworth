@@ -97,6 +97,11 @@ impl Member {
         self.updated_at = now;
     }
 
+    pub fn set_avatar(&mut self, avatar_asset_id: MediaAssetId, now: Timestamp) {
+        self.avatar_asset_id = Some(avatar_asset_id);
+        self.updated_at = now;
+    }
+
     #[must_use]
     pub fn id(&self) -> MemberId {
         self.id

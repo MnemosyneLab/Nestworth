@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Minimal capability for the main Nestworth window",
   "windows": ["main"],
-  "permissions": []
+  "permissions": ["dialog:allow-open"]
 }

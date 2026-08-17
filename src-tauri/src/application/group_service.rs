@@ -258,7 +258,7 @@ async fn mutate_archive_in_tx(
     load_group(tx, &household_id, &group.id().to_string()).await
 }
 
-async fn load_group(
+pub(crate) async fn load_group(
     tx: &mut Transaction<'_, Sqlite>,
     household_id: &str,
     id: &str,
@@ -276,7 +276,7 @@ async fn load_group(
     group_from_row(row)
 }
 
-async fn load_group_domain(
+pub(crate) async fn load_group_domain(
     tx: &mut Transaction<'_, Sqlite>,
     household_id: &str,
     id: &str,

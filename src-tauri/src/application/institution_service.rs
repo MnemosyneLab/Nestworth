@@ -285,7 +285,7 @@ async fn mutate_archive_in_tx(
     load_institution(tx, &household_id, &institution.id().to_string()).await
 }
 
-async fn load_institution(
+pub(crate) async fn load_institution(
     tx: &mut Transaction<'_, Sqlite>,
     household_id: &str,
     id: &str,
@@ -303,7 +303,7 @@ async fn load_institution(
     institution_from_row(row)
 }
 
-async fn load_institution_domain(
+pub(crate) async fn load_institution_domain(
     tx: &mut Transaction<'_, Sqlite>,
     household_id: &str,
     id: &str,

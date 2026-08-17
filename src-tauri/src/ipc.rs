@@ -10,10 +10,12 @@ use crate::{
         institution_service::{
             CreateInstitutionInput, InstitutionRecordDto, UpdateInstitutionInput,
         },
+        media_service::{GetMediaInput, MediaAssetDto, SetMediaInput},
         member_service::{CreateMemberInput, MemberRecordDto, UpdateMemberInput},
         onboarding_service::CompleteOnboardingInput,
         overview_service::OverviewDto,
         reference::{IdInput, ListFilterInput},
+        settings_service::{AppSettingsDto, UpdateSettingsInput},
     },
     commands::{
         accounts::{
@@ -29,12 +31,17 @@ use crate::{
             archive_institution_impl, create_institution_impl, list_institutions_impl,
             restore_institution_impl, update_institution_impl,
         },
+        media::{
+            get_media_impl, set_account_logo_impl, set_group_logo_impl, set_institution_logo_impl,
+            set_member_avatar_impl,
+        },
         members::{
             archive_member_impl, create_member_impl, list_members_impl, restore_member_impl,
             update_member_impl,
         },
         onboarding::complete_onboarding_impl,
         overview::get_overview_impl,
+        settings::{get_settings_impl, update_settings_impl},
     },
     state::AppState,
 };
@@ -262,6 +269,68 @@ pub async fn get_overview(
     get_overview_impl(&state).await
 }
 
+#[tauri::command]
+#[specta::specta]
+pub async fn set_member_avatar(
+    state: State<'_, AppState>,
+    input: SetMediaInput,
+) -> Result<MemberRecordDto, crate::error::CommandError> {
+    set_member_avatar_impl(&state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn set_institution_logo(
+    state: State<'_, AppState>,
+    input: SetMediaInput,
+) -> Result<InstitutionRecordDto, crate::error::CommandError> {
+    set_institution_logo_impl(&state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn set_group_logo(
+    state: State<'_, AppState>,
+    input: SetMediaInput,
+) -> Result<GroupRecordDto, crate::error::CommandError> {
+    set_group_logo_impl(&state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn set_account_logo(
+    state: State<'_, AppState>,
+    input: SetMediaInput,
+) -> Result<AccountRecordDto, crate::error::CommandError> {
+    set_account_logo_impl(&state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn get_media(
+    state: State<'_, AppState>,
+    input: GetMediaInput,
+) -> Result<MediaAssetDto, crate::error::CommandError> {
+    get_media_impl(&state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn get_settings(
+    state: State<'_, AppState>,
+) -> Result<AppSettingsDto, crate::error::CommandError> {
+    get_settings_impl(&state).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn update_settings(
+    state: State<'_, AppState>,
+    input: UpdateSettingsInput,
+) -> Result<AppSettingsDto, crate::error::CommandError> {
+    update_settings_impl(&state, input).await
+}
+
 pub fn command_builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new().commands(collect_commands![
         bootstrap,
@@ -288,6 +357,13 @@ pub fn command_builder() -> Builder<tauri::Wry> {
         update_account_value,
         archive_account,
         restore_account,
-        get_overview
+        get_overview,
+        set_member_avatar,
+        set_institution_logo,
+        set_group_logo,
+        set_account_logo,
+        get_media,
+        get_settings,
+        update_settings
     ])
 }

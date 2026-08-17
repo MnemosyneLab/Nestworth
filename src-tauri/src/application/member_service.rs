@@ -277,7 +277,7 @@ async fn restore_member_in_tx(
     load_member(tx, &household_id, &member.id().to_string()).await
 }
 
-async fn load_member(
+pub(crate) async fn load_member(
     tx: &mut Transaction<'_, Sqlite>,
     household_id: &str,
     id: &str,
@@ -295,7 +295,7 @@ async fn load_member(
     member_from_row(row)
 }
 
-async fn load_member_domain(
+pub(crate) async fn load_member_domain(
     tx: &mut Transaction<'_, Sqlite>,
     household_id: &str,
     id: &str,

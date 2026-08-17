@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { ImagePicker } from "@/features/media/image-picker";
 import {
   accountSchema,
   accountToFormValues,
@@ -325,6 +326,14 @@ export function AccountForm({
         </label>
         <Textarea id={`${formId}-note`} {...form.register("note")} />
       </div>
+      {account ? (
+        <ImagePicker
+          assetId={account.logoAssetId}
+          entityId={account.id}
+          kind="accountLogo"
+          onSaved={onSaved}
+        />
+      ) : null}
       <div className="flex gap-2">
         <Button disabled={mutation.isPending} type="submit">
           {mutation.isPending ? t("references.saving") : t("references.save")}

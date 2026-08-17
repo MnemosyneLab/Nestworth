@@ -14,7 +14,6 @@ import { cn } from "@/lib/utils";
 const TOP_NAV = [
   { to: "/groups", key: "groups" },
   { to: "/institutions", key: "institutions" },
-  { to: "/settings/members", key: "members" },
 ] as const;
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -90,6 +89,28 @@ export function AppShell({ children }: { children: ReactNode }) {
             {t(`nav.${item.key}`)}
           </NavLink>
         ))}
+        <div>
+          <NavLink
+            active={pathname.startsWith("/settings")}
+            to="/settings/general"
+          >
+            {t("nav.settings")}
+          </NavLink>
+          <div className="mt-1 ml-3 flex flex-col gap-0.5">
+            <NavLink
+              active={pathname === "/settings/general"}
+              to="/settings/general"
+            >
+              {t("nav.general")}
+            </NavLink>
+            <NavLink
+              active={pathname === "/settings/members"}
+              to="/settings/members"
+            >
+              {t("nav.members")}
+            </NavLink>
+          </div>
+        </div>
       </nav>
       <div className="min-w-0 flex-1">{children}</div>
     </div>
@@ -105,7 +126,13 @@ function NavLink({
   active: boolean;
   children: ReactNode;
   search?: AccountSearch | ((prev: AccountSearch) => AccountSearch);
-  to: "/overview" | "/accounts" | "/groups" | "/institutions" | "/settings/members";
+  to:
+    | "/overview"
+    | "/accounts"
+    | "/groups"
+    | "/institutions"
+    | "/settings/general"
+    | "/settings/members";
 }) {
   return (
     <Link

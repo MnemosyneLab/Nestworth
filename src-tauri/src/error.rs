@@ -18,6 +18,8 @@ pub enum AppError {
     InvalidCategory { message: String },
     #[error("invalid money")]
     InvalidMoney { message: String },
+    #[error("the selected image is invalid")]
+    MediaInvalid { message: String },
     #[error("household is already onboarded")]
     AlreadyOnboarded,
     #[error("{entity} was not found")]
@@ -75,6 +77,12 @@ impl AppError {
         }
     }
 
+    pub fn media_invalid(message: &str) -> Self {
+        Self::MediaInvalid {
+            message: message.to_owned(),
+        }
+    }
+
     pub fn from_bootstrap_status(status: &DatabaseBootstrapStatus) -> Self {
         match status {
             DatabaseBootstrapStatus::Ready | DatabaseBootstrapStatus::Migrated => Self::Internal,
@@ -126,6 +134,15 @@ impl AppError {
                 CommandError {
                     code: ErrorCode::InvalidMoney,
                     message: "The amount is invalid.".to_owned(),
+                    fields: Some(fields),
+                }
+            }
+            Self::MediaInvalid { message } => {
+                let mut fields = HashMap::new();
+                fields.insert("image".to_owned(), message.clone());
+                CommandError {
+                    code: ErrorCode::MediaInvalid,
+                    message: "The selected image is invalid.".to_owned(),
                     fields: Some(fields),
                 }
             }

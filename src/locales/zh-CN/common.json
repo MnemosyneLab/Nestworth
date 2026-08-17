@@ -57,7 +57,9 @@
     "shared": "共同",
     "institutions": "机构",
     "groups": "分组",
-    "members": "成员"
+    "members": "成员",
+    "settings": "设置",
+    "general": "通用"
   },
   "references": {
     "add": "添加",
@@ -184,6 +186,27 @@
       "ownersTotal": "所有权份额合计必须为 100%。",
       "date": "请使用 YYYY-MM-DD。",
       "closedOn": "关闭日期不能早于开户日期。"
+    }
+  },
+  "media": {
+    "avatar": "头像",
+    "logo": "标志",
+    "choose": "选择图片"
+  },
+  "settings": {
+    "title": "设置",
+    "household": "家庭",
+    "language": "语言",
+    "appearance": "外观",
+    "languages": {
+      "system": "跟随系统",
+      "en": "English",
+      "zh-CN": "简体中文"
+    },
+    "appearances": {
+      "system": "跟随系统",
+      "light": "浅色",
+      "dark": "深色"
     }
   },
   "errors": {

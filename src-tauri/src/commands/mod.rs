@@ -2,6 +2,8 @@ pub mod accounts;
 pub mod bootstrap;
 pub mod groups;
 pub mod institutions;
+pub mod media;
 pub mod members;
 pub mod onboarding;
 pub mod overview;
+pub mod settings;

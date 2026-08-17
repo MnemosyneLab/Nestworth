@@ -3,6 +3,15 @@ import { cleanup } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
 
 import { queryClient } from "@/app/query-client";
+import { i18n } from "@/lib/i18n";
+
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  open: vi.fn(),
+}));
+
+vi.mock("@/lib/tauri/pick-image", () => ({
+  pickImagePath: vi.fn(),
+}));
 
 vi.mock("@/generated/tauri-bindings", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/generated/tauri-bindings")>();
@@ -34,6 +43,13 @@ vi.mock("@/generated/tauri-bindings", async (importOriginal) => {
       archiveAccount: vi.fn(),
       restoreAccount: vi.fn(),
       getOverview: vi.fn(),
+      setMemberAvatar: vi.fn(),
+      setInstitutionLogo: vi.fn(),
+      setGroupLogo: vi.fn(),
+      setAccountLogo: vi.fn(),
+      getMedia: vi.fn(),
+      getSettings: vi.fn(),
+      updateSettings: vi.fn(),
     },
   };
 });
@@ -43,7 +59,24 @@ Object.defineProperty(window, "scrollTo", {
   value: () => undefined,
 });
 
+Object.defineProperty(window, "matchMedia", {
+  configurable: true,
+  writable: true,
+  value: (query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+    addListener: () => undefined,
+    removeListener: () => undefined,
+    dispatchEvent: () => false,
+  }),
+});
+
 afterEach(() => {
   queryClient.clear();
+  document.documentElement.classList.remove("dark");
+  void i18n.changeLanguage("en");
   cleanup();
 });
