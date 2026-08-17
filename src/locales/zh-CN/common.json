@@ -32,7 +32,15 @@
   "overview": {
     "eyebrow": "总览",
     "baseCurrency": "基础货币 {{currency}}",
-    "empty": "还没有账户。你可以稍后添加。"
+    "empty": "这个家庭的资产负债表还是空的。",
+    "emptyHint": "添加第一个账户，开始跟踪净资产。",
+    "netWorth": "净资产",
+    "assets": "资产",
+    "liabilities": "负债",
+    "byCategory": "按类别",
+    "byMember": "按成员",
+    "byInstitution": "按机构",
+    "byGroup": "按分组"
   },
   "startup": {
     "eyebrow": "启动",

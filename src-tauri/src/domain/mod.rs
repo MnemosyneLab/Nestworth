@@ -24,5 +24,5 @@ pub use ids::{
 pub use institution::{Institution, NewInstitution, PersistedInstitution};
 pub use member::{Member, PersistedMember};
 pub use money::Money;
-pub use ownership::{percent_to_basis_points, Ownership, OwnershipShare};
+pub use ownership::{percent_to_basis_points, Ownership, OwnershipShare, TOTAL_BPS};
 pub use time::{CalendarDate, Timestamp};

@@ -7,10 +7,5 @@ export function OverviewRoute() {
     return null;
   }
 
-  return (
-    <OverviewPage
-      household={bootstrap.data.household}
-      members={bootstrap.data.members}
-    />
-  );
+  return <OverviewPage household={bootstrap.data.household} />;
 }

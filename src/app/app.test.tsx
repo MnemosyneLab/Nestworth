@@ -33,7 +33,7 @@ describe("startup routing", () => {
       await screen.findByRole("heading", { name: "Wang Family" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("No accounts yet. You can add them later."),
+      await screen.findByText("Your household balance sheet is empty."),
     ).toBeInTheDocument();
   });
 

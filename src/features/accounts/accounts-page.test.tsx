@@ -26,7 +26,7 @@ describe("accounts page", () => {
     const accounts: AccountRecordDto[] = [];
     mockAccountStore(accounts);
     await renderReadyApp();
-    await user.click(screen.getByRole("link", { name: "Add account" }));
+    await user.click(await screen.findByRole("link", { name: "Add account" }));
     expect(
       await screen.findByText("Add an account to start tracking net worth."),
     ).toBeInTheDocument();

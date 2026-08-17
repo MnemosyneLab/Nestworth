@@ -47,5 +47,6 @@ describe("account schema helpers", () => {
   it("formats money from canonical amount strings", () => {
     expect(formatMoney("100000", "CNY")).toBe("CNY 100,000");
     expect(formatMoney("125000.5", "CNY")).toBe("CNY 125,000.5");
+    expect(formatMoney("-1600000", "CNY")).toBe("CNY -1,600,000");
   });
 });

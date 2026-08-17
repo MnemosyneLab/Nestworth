@@ -12,6 +12,7 @@ use crate::{
         },
         member_service::{CreateMemberInput, MemberRecordDto, UpdateMemberInput},
         onboarding_service::CompleteOnboardingInput,
+        overview_service::OverviewDto,
         reference::{IdInput, ListFilterInput},
     },
     commands::{
@@ -33,6 +34,7 @@ use crate::{
             update_member_impl,
         },
         onboarding::complete_onboarding_impl,
+        overview::get_overview_impl,
     },
     state::AppState,
 };
@@ -252,6 +254,14 @@ pub async fn restore_account(
     restore_account_impl(&state, input).await
 }
 
+#[tauri::command]
+#[specta::specta]
+pub async fn get_overview(
+    state: State<'_, AppState>,
+) -> Result<OverviewDto, crate::error::CommandError> {
+    get_overview_impl(&state).await
+}
+
 pub fn command_builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new().commands(collect_commands![
         bootstrap,
@@ -277,6 +287,7 @@ pub fn command_builder() -> Builder<tauri::Wry> {
         update_account,
         update_account_value,
         archive_account,
-        restore_account
+        restore_account,
+        get_overview
     ])
 }

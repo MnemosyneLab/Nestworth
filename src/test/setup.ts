@@ -33,6 +33,7 @@ vi.mock("@/generated/tauri-bindings", async (importOriginal) => {
       updateAccountValue: vi.fn(),
       archiveAccount: vi.fn(),
       restoreAccount: vi.fn(),
+      getOverview: vi.fn(),
     },
   };
 });

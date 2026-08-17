@@ -12,6 +12,7 @@ import type {
   GroupRecordDto,
   InstitutionRecordDto,
   MemberRecordDto,
+  OverviewDto,
 } from "@/generated/tauri-bindings";
 import { commands } from "@/generated/tauri-bindings";
 
@@ -138,6 +139,21 @@ export function accountRecord(
   };
 }
 
+export function emptyOverview(currency = "CNY"): OverviewDto {
+  const zero = { amount: "0", currency };
+  return {
+    baseCurrency: currency,
+    accountCount: 0,
+    assets: zero,
+    liabilities: zero,
+    netWorth: zero,
+    byCategory: [],
+    byMember: [],
+    byInstitution: [],
+    byGroup: [],
+  };
+}
+
 export function commandError(
   code: ErrorCode,
   message: string,
@@ -161,6 +177,10 @@ export function resetCommandMocks() {
   vi.mocked(commands.getAccount).mockResolvedValue({
     status: "error",
     error: commandError("NOT_FOUND", "missing"),
+  });
+  vi.mocked(commands.getOverview).mockResolvedValue({
+    status: "ok",
+    data: emptyOverview(),
   });
 }
 

@@ -32,7 +32,15 @@
   "overview": {
     "eyebrow": "Overview",
     "baseCurrency": "Base currency {{currency}}",
-    "empty": "No accounts yet. You can add them later."
+    "empty": "Your household balance sheet is empty.",
+    "emptyHint": "Add your first account to start tracking your net worth.",
+    "netWorth": "Net worth",
+    "assets": "Assets",
+    "liabilities": "Liabilities",
+    "byCategory": "By category",
+    "byMember": "By member",
+    "byInstitution": "By institution",
+    "byGroup": "By group"
   },
   "startup": {
     "eyebrow": "Startup",

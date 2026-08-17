@@ -160,13 +160,20 @@ export function equalSplitPercents(count: number): string[] {
 }
 
 export function formatMoneyAmount(amount: string): string {
-  const [integer, fraction] = amount.split(".");
+  const negative = amount.startsWith("-");
+  const unsigned = negative ? amount.slice(1) : amount;
+  const [integer, fraction] = unsigned.split(".");
   const grouped = integer.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  return fraction === undefined ? grouped : `${grouped}.${fraction}`;
+  const body = fraction === undefined ? grouped : `${grouped}.${fraction}`;
+  return negative ? `-${body}` : body;
 }
 
 export function formatMoney(amount: string, currency: string): string {
-  return `${currency} ${formatMoneyAmount(amount)}`;
+  const formatted = formatMoneyAmount(amount);
+  if (formatted.startsWith("-")) {
+    return `${currency} -${formatted.slice(1)}`;
+  }
+  return `${currency} ${formatted}`;
 }
 
 function optionalDate(value: string) {
