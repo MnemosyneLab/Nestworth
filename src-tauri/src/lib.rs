@@ -10,6 +10,9 @@ pub mod infrastructure;
 pub mod ipc;
 pub mod state;
 
+#[cfg(test)]
+pub mod test_support;
+
 fn init_tracing() {
     let subscriber = tracing_subscriber::fmt().with_ansi(false).finish();
     let _ = tracing::subscriber::set_global_default(subscriber);

@@ -21,6 +21,126 @@ async completeOnboarding(input: CompleteOnboardingInput) : Promise<Result<null, 
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+async listMembers(input: ListFilterInput) : Promise<Result<MemberRecordDto[], CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_members", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async createMember(input: CreateMemberInput) : Promise<Result<MemberRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_member", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async updateMember(input: UpdateMemberInput) : Promise<Result<MemberRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_member", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async archiveMember(input: IdInput) : Promise<Result<MemberRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("archive_member", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async restoreMember(input: IdInput) : Promise<Result<MemberRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("restore_member", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async listInstitutions(input: ListFilterInput) : Promise<Result<InstitutionRecordDto[], CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_institutions", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async createInstitution(input: CreateInstitutionInput) : Promise<Result<InstitutionRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_institution", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async updateInstitution(input: UpdateInstitutionInput) : Promise<Result<InstitutionRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_institution", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async archiveInstitution(input: IdInput) : Promise<Result<InstitutionRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("archive_institution", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async restoreInstitution(input: IdInput) : Promise<Result<InstitutionRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("restore_institution", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async listGroups(input: ListFilterInput) : Promise<Result<GroupRecordDto[], CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_groups", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async createGroup(input: CreateGroupInput) : Promise<Result<GroupRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_group", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async updateGroup(input: UpdateGroupInput) : Promise<Result<GroupRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_group", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async archiveGroup(input: IdInput) : Promise<Result<GroupRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("archive_group", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async restoreGroup(input: IdInput) : Promise<Result<GroupRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("restore_group", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -38,10 +158,21 @@ export type AppSettingsDto = { language: string; appearance: string; lastHouseho
 export type BootstrapDto = { status: "ready"; onboardingRequired: boolean; settings: AppSettingsDto; household: HouseholdDto | null; members: MemberDto[] } | { status: "blocked"; error: CommandError; databasePath: string; foundMigration: number | null; supportedMigration: number | null }
 export type CommandError = { code: ErrorCode; message: string; fields: Partial<{ [key in string]: string }> | null }
 export type CompleteOnboardingInput = { householdName: string; baseCurrency: string; members: OnboardingMemberInput[] }
+export type CreateGroupInput = { name: string; iconKey: string | null; color: string | null; description: string | null }
+export type CreateInstitutionInput = { name: string; institutionType: string | null; countryCode: string | null; website: string | null; note: string | null }
+export type CreateMemberInput = { name: string; note: string | null }
 export type ErrorCode = "VALIDATION_ERROR" | "NOT_FOUND" | "CONFLICT" | "ALREADY_ONBOARDED" | "OWNERSHIP_TOTAL_INVALID" | "BASE_CURRENCY_CHANGE_NOT_ALLOWED" | "INVALID_CATEGORY" | "INVALID_MONEY" | "MEDIA_INVALID" | "DATABASE_ERROR" | "DATABASE_UNAVAILABLE" | "UNSUPPORTED_NEWER_DATABASE" | "MIGRATION_FAILED" | "INTERNAL_ERROR"
+export type GroupRecordDto = { id: string; name: string; iconKey: string | null; color: string | null; description: string | null; logoAssetId: string | null; sortOrder: number; createdAt: string; updatedAt: string; archivedAt: string | null }
 export type HouseholdDto = { id: string; name: string; baseCurrency: string }
+export type IdInput = { id: string }
+export type InstitutionRecordDto = { id: string; name: string; institutionType: string | null; countryCode: string | null; website: string | null; note: string | null; logoAssetId: string | null; sortOrder: number; createdAt: string; updatedAt: string; archivedAt: string | null }
+export type ListFilterInput = { includeArchived: boolean }
 export type MemberDto = { id: string; name: string }
+export type MemberRecordDto = { id: string; name: string; note: string | null; avatarAssetId: string | null; sortOrder: number; createdAt: string; updatedAt: string; archivedAt: string | null }
 export type OnboardingMemberInput = { name: string }
+export type UpdateGroupInput = { id: string; name: string; iconKey: string | null; color: string | null; description: string | null }
+export type UpdateInstitutionInput = { id: string; name: string; institutionType: string | null; countryCode: string | null; website: string | null; note: string | null }
+export type UpdateMemberInput = { id: string; name: string; note: string | null }
 
 /** tauri-specta globals **/
 

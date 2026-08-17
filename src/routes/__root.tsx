@@ -20,6 +20,7 @@ export function RootRoute() {
   const target = destinationForBootstrap(
     bootstrap.data,
     bootstrap.error ? commandErrorFromUnknown(bootstrap.error) : null,
+    pathname,
   );
   if (pathname !== target) {
     return <Navigate replace to={target} />;

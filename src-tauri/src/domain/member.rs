@@ -5,6 +5,18 @@ use super::{
 };
 use crate::error::AppError;
 
+pub struct PersistedMember {
+    pub id: MemberId,
+    pub household_id: HouseholdId,
+    pub name: String,
+    pub avatar_asset_id: Option<MediaAssetId>,
+    pub note: Option<String>,
+    pub sort_order: i64,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
+    pub archived_at: Option<Timestamp>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Member {
     id: MemberId,
@@ -40,8 +52,35 @@ impl Member {
         })
     }
 
+    #[must_use]
+    pub fn from_persisted(row: PersistedMember) -> Self {
+        Self {
+            id: row.id,
+            household_id: row.household_id,
+            name: row.name,
+            avatar_asset_id: row.avatar_asset_id,
+            note: row.note,
+            sort_order: row.sort_order,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+            archived_at: row.archived_at,
+        }
+    }
+
     pub fn rename(&mut self, name: &str, now: Timestamp) -> Result<(), AppError> {
         self.name = parse_name(name)?;
+        self.updated_at = now;
+        Ok(())
+    }
+
+    pub fn update(
+        &mut self,
+        name: &str,
+        note: Option<&str>,
+        now: Timestamp,
+    ) -> Result<(), AppError> {
+        self.name = parse_name(name)?;
+        self.note = parse_optional_note(note)?;
         self.updated_at = now;
         Ok(())
     }
@@ -121,6 +160,11 @@ mod tests {
         let mut member = Member::new(HouseholdId::new(), "Walt", None, Some(" primary "), 0, now)
             .expect("valid member");
         assert_eq!(member.note(), Some("primary"));
+        member
+            .update(" Walt Wang ", Some(" spouse "), Timestamp::now())
+            .expect("update should succeed");
+        assert_eq!(member.name(), "Walt Wang");
+        assert_eq!(member.note(), Some("spouse"));
         member.archive(Timestamp::now());
         assert!(member.is_archived());
         member.restore(Timestamp::now());

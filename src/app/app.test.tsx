@@ -3,13 +3,33 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "@/App";
-import type { BootstrapDto, CommandError } from "@/generated/tauri-bindings";
+import { router } from "@/app/router";
+import type {
+  BootstrapDto,
+  CommandError,
+  MemberRecordDto,
+} from "@/generated/tauri-bindings";
 import { commands } from "@/generated/tauri-bindings";
 
 vi.mock("@/generated/tauri-bindings", () => ({
   commands: {
     bootstrap: vi.fn(),
     completeOnboarding: vi.fn(),
+    listMembers: vi.fn(),
+    createMember: vi.fn(),
+    updateMember: vi.fn(),
+    archiveMember: vi.fn(),
+    restoreMember: vi.fn(),
+    listInstitutions: vi.fn(),
+    createInstitution: vi.fn(),
+    updateInstitution: vi.fn(),
+    archiveInstitution: vi.fn(),
+    restoreInstitution: vi.fn(),
+    listGroups: vi.fn(),
+    createGroup: vi.fn(),
+    updateGroup: vi.fn(),
+    archiveGroup: vi.fn(),
+    restoreGroup: vi.fn(),
   },
 }));
 
@@ -44,8 +64,41 @@ const blockedBootstrap: BootstrapDto = {
   supportedMigration: 1,
 };
 
+function memberRecord(
+  id: string,
+  name: string,
+  sortOrder: number,
+  archivedAt: string | null = null,
+): MemberRecordDto {
+  return {
+    id,
+    name,
+    note: null,
+    avatarAssetId: null,
+    sortOrder,
+    createdAt: "2026-08-17T00:00:00.000Z",
+    updatedAt: "2026-08-17T00:00:00.000Z",
+    archivedAt,
+  };
+}
+
 function mockBootstrap(data: BootstrapDto) {
   vi.mocked(commands.bootstrap).mockResolvedValue({ status: "ok", data });
+}
+
+async function resetApp() {
+  resetCommandMocks();
+  router.history.replace("/");
+  window.history.replaceState(null, "", "/");
+}
+
+function resetCommandMocks() {
+  for (const command of Object.values(commands)) {
+    vi.mocked(command).mockReset();
+  }
+  vi.mocked(commands.listMembers).mockResolvedValue({ status: "ok", data: [] });
+  vi.mocked(commands.listInstitutions).mockResolvedValue({ status: "ok", data: [] });
+  vi.mocked(commands.listGroups).mockResolvedValue({ status: "ok", data: [] });
 }
 
 async function renderApp() {
@@ -53,10 +106,8 @@ async function renderApp() {
 }
 
 describe("startup routing", () => {
-  beforeEach(() => {
-    vi.mocked(commands.bootstrap).mockReset();
-    vi.mocked(commands.completeOnboarding).mockReset();
-    window.history.replaceState(null, "", "/");
+  beforeEach(async () => {
+    await resetApp();
   });
 
   it("sends an empty bootstrap into onboarding", async () => {
@@ -94,10 +145,8 @@ describe("startup routing", () => {
 });
 
 describe("onboarding flow", () => {
-  beforeEach(() => {
-    vi.mocked(commands.bootstrap).mockReset();
-    vi.mocked(commands.completeOnboarding).mockReset();
-    window.history.replaceState(null, "", "/");
+  beforeEach(async () => {
+    await resetApp();
     mockBootstrap(emptyBootstrap);
   });
 
@@ -216,6 +265,130 @@ describe("onboarding flow", () => {
     await user.click(screen.getByRole("button", { name: "Remove member 2" }));
     expect(screen.queryByLabelText("Member 2")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove member 1" })).toBeDisabled();
+  });
+});
+
+describe("reference data", () => {
+  beforeEach(async () => {
+    await resetApp();
+    mockBootstrap(readyBootstrap);
+  });
+
+  it("opens members from the sidebar, creates, archives, and restores", async () => {
+    const user = userEvent.setup();
+    const members = [memberRecord("m-1", "Walt", 0), memberRecord("m-2", "Spouse", 1)];
+    vi.mocked(commands.listMembers).mockImplementation(async (input) => ({
+      status: "ok",
+      data: input.includeArchived
+        ? members
+        : members.filter((member) => member.archivedAt === null),
+    }));
+    vi.mocked(commands.createMember).mockImplementation(async (input) => {
+      const created = memberRecord("m-3", input.name, members.length);
+      members.push(created);
+      return { status: "ok", data: created };
+    });
+    vi.mocked(commands.archiveMember).mockImplementation(async (input) => {
+      const member = members.find((item) => item.id === input.id);
+      if (!member) {
+        return {
+          status: "error",
+          error: { code: "NOT_FOUND", message: "missing", fields: null },
+        };
+      }
+      member.archivedAt = "2026-08-17T01:00:00.000Z";
+      return { status: "ok", data: member };
+    });
+    vi.mocked(commands.restoreMember).mockImplementation(async (input) => {
+      const member = members.find((item) => item.id === input.id);
+      if (!member) {
+        return {
+          status: "error",
+          error: { code: "NOT_FOUND", message: "missing", fields: null },
+        };
+      }
+      member.archivedAt = null;
+      return { status: "ok", data: member };
+    });
+
+    await renderApp();
+    await screen.findByRole("heading", { name: "Wang Family" });
+    await user.click(screen.getByRole("link", { name: "Members" }));
+    expect(await screen.findByRole("heading", { name: "Members" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Walt" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Add member" }));
+    await user.type(screen.getByLabelText("Name"), "Child");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByRole("heading", { name: "Child" })).toBeInTheDocument();
+    expect(commands.createMember).toHaveBeenCalledWith({
+      name: "Child",
+      note: null,
+    });
+
+    await user.click(screen.getByRole("button", { name: "Archive Child" }));
+    expect(screen.queryByRole("heading", { name: "Child" })).not.toBeInTheDocument();
+    await user.click(screen.getByLabelText("Show archived"));
+    expect(await screen.findByRole("heading", { name: "Child" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Restore Child" }));
+    await user.click(screen.getByLabelText("Show archived"));
+    expect(await screen.findByRole("heading", { name: "Child" })).toBeInTheDocument();
+  });
+
+  it("creates an institution from the empty state", async () => {
+    const user = userEvent.setup();
+    const institutions: Array<{
+      id: string;
+      name: string;
+      institutionType: string | null;
+      countryCode: string | null;
+      website: string | null;
+      note: string | null;
+      logoAssetId: string | null;
+      sortOrder: number;
+      createdAt: string;
+      updatedAt: string;
+      archivedAt: string | null;
+    }> = [];
+    vi.mocked(commands.listInstitutions).mockImplementation(async () => ({
+      status: "ok",
+      data: institutions,
+    }));
+    vi.mocked(commands.createInstitution).mockImplementation(async (input) => {
+      const created = {
+        id: "i-1",
+        name: input.name,
+        institutionType: input.institutionType,
+        countryCode: input.countryCode,
+        website: input.website,
+        note: input.note,
+        logoAssetId: null,
+        sortOrder: 0,
+        createdAt: "2026-08-17T00:00:00.000Z",
+        updatedAt: "2026-08-17T00:00:00.000Z",
+        archivedAt: null,
+      };
+      institutions.push(created);
+      return { status: "ok", data: created };
+    });
+
+    await renderApp();
+    await user.click(await screen.findByRole("link", { name: "Institutions" }));
+    expect(
+      await screen.findByText("Add an institution before you create accounts."),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Add institution" }));
+    await user.type(screen.getByLabelText("Name"), "DBS");
+    await user.type(screen.getByLabelText("Country"), "SG");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByRole("heading", { name: "DBS" })).toBeInTheDocument();
+    expect(commands.createInstitution).toHaveBeenCalledWith({
+      name: "DBS",
+      institutionType: null,
+      countryCode: "SG",
+      website: null,
+      note: null,
+    });
   });
 });
 

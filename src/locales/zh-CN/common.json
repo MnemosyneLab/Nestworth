@@ -41,6 +41,69 @@
     "unsupportedVersion": "当前数据库迁移版本为 {{found}}，此应用支持 {{supported}}。",
     "databasePath": "数据库路径：{{path}}"
   },
+  "nav": {
+    "label": "家庭",
+    "overview": "总览",
+    "institutions": "机构",
+    "groups": "分组",
+    "members": "成员"
+  },
+  "references": {
+    "add": "添加",
+    "edit": "编辑",
+    "archive": "归档",
+    "restore": "恢复",
+    "showArchived": "显示已归档",
+    "archived": "已归档",
+    "save": "保存",
+    "cancel": "取消",
+    "saving": "正在保存",
+    "loading": "加载中…",
+    "name": "名称",
+    "note": "备注",
+    "errors": {
+      "required": "此项为必填。",
+      "tooLong": "最多 80 个字符。",
+      "noteTooLong": "最多 2000 个字符。",
+      "country": "请使用两个大写字母。",
+      "color": "请使用 #RRGGBB 颜色。"
+    }
+  },
+  "members": {
+    "title": "成员",
+    "empty": "没有可显示的活跃成员。",
+    "add": "添加成员",
+    "archiveName": "归档 {{name}}",
+    "restoreName": "恢复 {{name}}"
+  },
+  "institutions": {
+    "title": "机构",
+    "empty": "先添加机构，再创建账户。",
+    "add": "添加机构",
+    "type": "类型",
+    "country": "国家/地区",
+    "website": "网站",
+    "archiveName": "归档 {{name}}",
+    "restoreName": "恢复 {{name}}"
+  },
+  "groups": {
+    "title": "分组",
+    "empty": "添加分组来整理账户。",
+    "add": "添加分组",
+    "icon": "图标",
+    "color": "颜色",
+    "description": "描述",
+    "archiveName": "归档 {{name}}",
+    "restoreName": "恢复 {{name}}",
+    "icons": {
+      "wallet": "钱包",
+      "home": "家",
+      "shield": "盾牌",
+      "briefcase": "公文包",
+      "heart": "心形",
+      "star": "星星"
+    }
+  },
   "errors": {
     "VALIDATION_ERROR": "请检查标出的字段。",
     "NOT_FOUND": "找不到请求的内容。",
@@ -55,6 +118,9 @@
     "DATABASE_UNAVAILABLE": "数据库不可用。",
     "UNSUPPORTED_NEWER_DATABASE": "这个数据库由更新版本的 Nestworth 创建。",
     "MIGRATION_FAILED": "数据库迁移失败。",
-    "INTERNAL_ERROR": "发生了内部错误。"
+    "INTERNAL_ERROR": "发生了内部错误。",
+    "reasons": {
+      "lastActiveMember": "请至少保留一位活跃成员。"
+    }
   }
 }

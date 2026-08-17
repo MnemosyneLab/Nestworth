@@ -5,6 +5,16 @@ import { commands } from "@/generated/tauri-bindings";
 
 export const bootstrapQueryKey = ["bootstrap"] as const;
 
+export const APP_ROUTES = [
+  "/overview",
+  "/institutions",
+  "/groups",
+  "/settings/members",
+] as const;
+
+export type AppRoute = (typeof APP_ROUTES)[number];
+export type GateRoute = AppRoute | "/onboarding" | "/startup-error";
+
 export async function loadBootstrap(): Promise<BootstrapDto> {
   const result = await commands.bootstrap();
   if (result.status === "error") {
@@ -25,7 +35,8 @@ export function useBootstrapQuery() {
 export function destinationForBootstrap(
   bootstrap: BootstrapDto | undefined,
   error: CommandError | null,
-): "/onboarding" | "/overview" | "/startup-error" {
+  pathname: string,
+): GateRoute {
   if (error || bootstrap?.status === "blocked") {
     return "/startup-error";
   }
@@ -33,6 +44,9 @@ export function destinationForBootstrap(
     return "/onboarding";
   }
   if (bootstrap?.status === "ready") {
+    if ((APP_ROUTES as readonly string[]).includes(pathname)) {
+      return pathname as AppRoute;
+    }
     return "/overview";
   }
   return "/onboarding";

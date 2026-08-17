@@ -41,6 +41,69 @@
     "unsupportedVersion": "This database is at migration {{found}}, but this app supports {{supported}}.",
     "databasePath": "Database path: {{path}}"
   },
+  "nav": {
+    "label": "Household",
+    "overview": "Overview",
+    "institutions": "Institutions",
+    "groups": "Groups",
+    "members": "Members"
+  },
+  "references": {
+    "add": "Add",
+    "edit": "Edit",
+    "archive": "Archive",
+    "restore": "Restore",
+    "showArchived": "Show archived",
+    "archived": "Archived",
+    "save": "Save",
+    "cancel": "Cancel",
+    "saving": "Saving",
+    "loading": "Loading…",
+    "name": "Name",
+    "note": "Note",
+    "errors": {
+      "required": "This field is required.",
+      "tooLong": "Use 80 characters or fewer.",
+      "noteTooLong": "Use 2000 characters or fewer.",
+      "country": "Use two uppercase letters.",
+      "color": "Use a #RRGGBB color."
+    }
+  },
+  "members": {
+    "title": "Members",
+    "empty": "No active members to show.",
+    "add": "Add member",
+    "archiveName": "Archive {{name}}",
+    "restoreName": "Restore {{name}}"
+  },
+  "institutions": {
+    "title": "Institutions",
+    "empty": "Add an institution before you create accounts.",
+    "add": "Add institution",
+    "type": "Type",
+    "country": "Country",
+    "website": "Website",
+    "archiveName": "Archive {{name}}",
+    "restoreName": "Restore {{name}}"
+  },
+  "groups": {
+    "title": "Groups",
+    "empty": "Add a group to organize accounts.",
+    "add": "Add group",
+    "icon": "Icon",
+    "color": "Color",
+    "description": "Description",
+    "archiveName": "Archive {{name}}",
+    "restoreName": "Restore {{name}}",
+    "icons": {
+      "wallet": "Wallet",
+      "home": "Home",
+      "shield": "Shield",
+      "briefcase": "Briefcase",
+      "heart": "Heart",
+      "star": "Star"
+    }
+  },
   "errors": {
     "VALIDATION_ERROR": "Please check the highlighted fields.",
     "NOT_FOUND": "The requested item could not be found.",
@@ -55,6 +118,9 @@
     "DATABASE_UNAVAILABLE": "The database is unavailable.",
     "UNSUPPORTED_NEWER_DATABASE": "This database was created by a newer version of Nestworth.",
     "MIGRATION_FAILED": "Database migration failed.",
-    "INTERNAL_ERROR": "An internal application error occurred."
+    "INTERNAL_ERROR": "An internal application error occurred.",
+    "reasons": {
+      "lastActiveMember": "Keep at least one active member."
+    }
   }
 }

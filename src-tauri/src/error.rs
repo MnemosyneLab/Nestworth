@@ -6,6 +6,8 @@ use thiserror::Error;
 
 use crate::infrastructure::database_bootstrap::DatabaseBootstrapStatus;
 
+pub const LAST_ACTIVE_MEMBER_MESSAGE: &str = "A household must keep at least one active member.";
+
 #[derive(Debug, Clone, Error)]
 pub enum AppError {
     #[error("validation failed for {field}")]
@@ -18,6 +20,10 @@ pub enum AppError {
     InvalidMoney { message: String },
     #[error("household is already onboarded")]
     AlreadyOnboarded,
+    #[error("{entity} was not found")]
+    NotFound { entity: String, id: String },
+    #[error("{message}")]
+    Conflict { message: String },
     #[error("database is unavailable")]
     DatabaseUnavailable,
     #[error("database migration failed")]
@@ -41,6 +47,25 @@ impl AppError {
     pub fn invalid_category(message: &str) -> Self {
         Self::InvalidCategory {
             message: message.to_owned(),
+        }
+    }
+
+    pub fn not_found(entity: &str, id: &str) -> Self {
+        Self::NotFound {
+            entity: entity.to_owned(),
+            id: id.to_owned(),
+        }
+    }
+
+    pub fn conflict(message: &str) -> Self {
+        Self::Conflict {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn last_active_member() -> Self {
+        Self::Conflict {
+            message: LAST_ACTIVE_MEMBER_MESSAGE.to_owned(),
         }
     }
 
@@ -108,6 +133,28 @@ impl AppError {
                 ErrorCode::AlreadyOnboarded,
                 "This household has already been set up.",
             ),
+            Self::NotFound { entity, id } => {
+                let mut fields = HashMap::new();
+                fields.insert("entity".to_owned(), entity.clone());
+                fields.insert("id".to_owned(), id);
+                CommandError {
+                    code: ErrorCode::NotFound,
+                    message: format!("The {entity} could not be found."),
+                    fields: Some(fields),
+                }
+            }
+            Self::Conflict { message } => {
+                let fields = (message == LAST_ACTIVE_MEMBER_MESSAGE).then(|| {
+                    let mut fields = HashMap::new();
+                    fields.insert("reason".to_owned(), "lastActiveMember".to_owned());
+                    fields
+                });
+                CommandError {
+                    code: ErrorCode::Conflict,
+                    message,
+                    fields,
+                }
+            }
             Self::DatabaseUnavailable => CommandError::new(
                 ErrorCode::DatabaseUnavailable,
                 "The database is unavailable.",

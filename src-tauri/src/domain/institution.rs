@@ -5,6 +5,21 @@ use super::{
 };
 use crate::error::AppError;
 
+pub struct PersistedInstitution {
+    pub id: InstitutionId,
+    pub household_id: HouseholdId,
+    pub name: String,
+    pub institution_type: Option<String>,
+    pub country_code: Option<String>,
+    pub website: Option<String>,
+    pub note: Option<String>,
+    pub logo_asset_id: Option<MediaAssetId>,
+    pub sort_order: i64,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
+    pub archived_at: Option<Timestamp>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewInstitution {
     pub household_id: HouseholdId,
@@ -68,6 +83,38 @@ impl Institution {
             updated_at: now,
             archived_at: None,
         })
+    }
+
+    #[must_use]
+    pub fn from_persisted(row: PersistedInstitution) -> Self {
+        Self {
+            id: row.id,
+            household_id: row.household_id,
+            name: row.name,
+            institution_type: row.institution_type,
+            country_code: row.country_code,
+            website: row.website,
+            note: row.note,
+            logo_asset_id: row.logo_asset_id,
+            sort_order: row.sort_order,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+            archived_at: row.archived_at,
+        }
+    }
+
+    pub fn update(&mut self, input: NewInstitution, now: Timestamp) -> Result<(), AppError> {
+        self.name = parse_name(&input.name)?;
+        self.institution_type = parse_optional_text(
+            input.institution_type.as_deref(),
+            NAME_MAX_CHARS,
+            "institutionType",
+        )?;
+        self.country_code = parse_country_code(input.country_code.as_deref())?;
+        self.website = parse_optional_text(input.website.as_deref(), NOTE_MAX_CHARS, "website")?;
+        self.note = parse_optional_note(input.note.as_deref())?;
+        self.updated_at = now;
+        Ok(())
     }
 
     pub fn archive(&mut self, now: Timestamp) {
