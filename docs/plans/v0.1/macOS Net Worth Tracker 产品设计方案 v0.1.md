@@ -4,7 +4,7 @@
 
 ### 1.1 产品目标
 
-开发一款运行于 macOS 的 **个人 / 家庭净资产管理工具（Net Worth Tracker）**。
+开发一款运行于 macOS 26 及以上、首发仅支持 Apple Silicon arm64 的 **个人 / 家庭净资产管理工具（Net Worth Tracker）**。
 
 产品主要用于回答这些问题：
 
@@ -1773,6 +1773,15 @@ closedAt
 ```
 
 会发生变化。
+
+v0.1.1 的产品契约进一步收紧为：
+
+```text
+Member / Institution / Group / Account
+→ Archive / Restore only
+```
+
+v0.1.1 不显示 Permanent Delete，不提供隐藏的 Danger Zone。Permanent Delete 必须等待 Backup/Export 和 Activity 历史引用规则完成后再设计。
 
 ---
 

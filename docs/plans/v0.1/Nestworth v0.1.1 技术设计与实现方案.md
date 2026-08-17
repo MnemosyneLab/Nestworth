@@ -2,9 +2,71 @@
 
 > Product: **Nestworth**  
 > Version: **v0.1.1**  
-> Platform: **macOS**  
+> Platform: **macOS 26+ / Apple Silicon arm64-only**
 > Architecture: **Tauri 2 + Rust + React + TypeScript + SQLite**  
 > Date: 2026-08-17
+
+---
+
+# 0. Implementation Contract
+
+本文件是 v0.1.1 的实现契约。后续章节中仍保留的背景说明，不得覆盖本节锁定的决定。
+
+## 0.1 锁定决定
+
+| 领域 | v0.1.1 契约 |
+|---|---|
+| 包管理器 | Bun 1.3.14；只提交 `bun.lock`，所有本地与 CI 命令使用 `bun` |
+| 平台 | macOS 26 及以上、Apple Silicon arm64-only |
+| 数据所有权 | 一个数据库只允许一个 Household；SQLite 是业务数据与设置唯一 Source of Truth |
+| 数据库写入口 | 只有 Rust Application Service 可以启动业务 Transaction；Frontend、Tauri Command 和 Repository 不得绕过 Service 写入 |
+| SQLite 完整性 | 使用 FK、NOT NULL、UNIQUE、CHECK 和 Rust Transaction；v0.1.1 不使用 Trigger，也不引入复合 Household FK |
+| 金额 | Rust `Decimal` 是权威类型；SQLite 与 IPC 使用规范化十进制字符串；Frontend 不执行金融计算 |
+| 删除 | v0.1.1 只有 Archive / Restore，不提供任何 Permanent Delete |
+| 兼容性 | 旧数据库自动向前 Migration；数据库版本高于当前 Binary 时 fail closed，禁止任何写入 |
+| IPC | Rust DTO/Command 是唯一 Source of Truth；通过 tauri-specta 生成并提交 TypeScript bindings |
+| 质量门 | 每个 Vertical Slice 同时交付测试、错误态、权限与键盘/焦点行为；不得推迟到最终 Hardening |
+
+## 0.2 工程命令
+
+`package.json` 必须锁定：
+
+```json
+{
+  "packageManager": "bun@1.3.14"
+}
+```
+
+统一命令：
+
+```text
+bun install --frozen-lockfile
+bun run tauri dev
+bun run ipc:generate
+bun run ipc:check
+bun run check
+```
+
+`bun run check` 是本地和 CI 的唯一总质量入口，必须覆盖：
+
+```text
+version synchronization
+IPC binding drift
+ESLint
+TypeScript strict
+Vitest
+frontend build
+Rust tests
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+```
+
+## 0.3 版本与工具链
+
+- `package.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`、`src-tauri/tauri.conf.json` 的应用版本必须一致。
+- Bun 锁定为 1.3.14；Rust 使用项目级 `rust-toolchain.toml` 锁定 1.97.1，并安装 `rustfmt`、`clippy`。
+- `tauri.conf.json` 必须设置 `minimumSystemVersion = "26.0"`，Release 只构建 `aarch64-apple-darwin` 的 `.app` 与 `.dmg`。
+- v0.1.1 不构建 x86_64 或 Universal Binary。
 
 ---
 
@@ -250,13 +312,21 @@ SQLx 当前原生支持 SQLite 和内嵌 Migration；`sqlx::migrate!()` 可以�
 
 ---
 
-# 5. 建议增加 tauri-specta
+# 5. tauri-specta IPC Contract
 
-相对于之前的技术栈，我建议从 v0.1.1 就加入：
+v0.1.1 必须加入：
 
 ```text
 specta
 tauri-specta
+```
+
+为避免 Release Candidate 之间不兼容，Foundation Commit 固定精确版本：
+
+```toml
+tauri-specta = { version = "=2.0.0-rc.21", features = ["derive", "typescript"] }
+specta = { version = "=2.0.0-rc.22", features = ["derive", "function"] }
+specta-typescript = "=0.0.9"
 ```
 
 作用：
@@ -285,7 +355,7 @@ CreateAccountInput
 
 当前 `tauri-specta` 已支持从 Tauri Command 和 Rust 类型生成 TypeScript binding。
 
-因此建议 IPC Contract：
+IPC Contract 固定为：
 
 > **Rust 是唯一类型定义 Source of Truth。**
 
@@ -441,7 +511,7 @@ account_values
 
 # 8. Repository Structure
 
-建议项目结构：
+项目结构固定为：
 
 ```text
 nestworth/
@@ -591,7 +661,7 @@ MediaAsset
 
 使用 UUID。
 
-建议直接使用：
+统一使用：
 
 ```text
 UUID v7
@@ -649,7 +719,7 @@ liability
 
 # 12. Secondary Category
 
-建议 v0.1.1 使用：
+v0.1.1 固定使用：
 
 ## Cash Equivalent
 
@@ -911,6 +981,15 @@ Walt     5000
 Spouse   5000
 ```
 
+Ownership 输入与均分规则固定为：
+
+- Frontend 保存百分比字符串，最多两位小数，并通过 `percentToBasisPoints()` 转换为整数。
+- 手工输入在提交时必须已经精确合计 10000；系统不得静默修改用户输入。
+- “平均分配”操作按当前 Owner 行顺序计算：每人先取 `floor(10000 / n)`，余数从第一行开始每行加 1 bps。
+- 三人平均分配固定得到 `3334 / 3333 / 3333`。
+- Rust 在同一个写 Transaction 内重新检查 Owner 唯一、每份大于 0、Owner 属于当前 Household、合计为 10000。
+- SQLite 只负责单行范围、唯一键和 FK；总和约束不使用 Trigger。
+
 ---
 
 # 17. Money
@@ -923,6 +1002,29 @@ pub struct Money {
     pub currency: CurrencyCode,
 }
 ```
+
+v0.1.1 金额字符串契约：
+
+```text
+输入语法：^(0|[1-9][0-9]{0,11})(\.[0-9]{1,4})?$
+整数位：最多 12 位
+小数位：最多 4 位
+范围：0 ～ 999999999999.9999
+禁止：负数、正号、指数、千分位、空白、NaN、Infinity
+```
+
+Rust 解析后统一规范化：
+
+```text
+"0001"      → 拒绝
+"1.2300"    → "1.23"
+"0.0000"    → "0"
+"1e3"       → 拒绝
+```
+
+`AccountValue` 和 Liability 输入都必须非负；Liability 对 Net Worth 的负贡献只由 Category 计算。Frontend 可以保留用户编辑中的临时字符串，但只允许把通过相同语法校验的原始字符串发送给 Rust。
+
+`CurrencyCode` 固定为三个 ASCII 大写字母。v0.1.1 不维护完整 ISO 4217 registry 或 minor-unit 表，金额统一接受最多四位小数；Onboarding 默认列出 `CNY / SGD / USD`，并允许用户输入其他满足语法的三字母代码。
 
 v0.1.1：
 
@@ -942,6 +1044,13 @@ account_values.currency
 ```
 
 为 v0.1.2 做准备。
+
+## 时间格式
+
+- `created_at`、`updated_at`、`effective_at` 和 `archived_at` 由 Rust 生成 UTC RFC 3339 字符串，统一到毫秒并使用 `Z`，例如 `2026-08-17T08:15:30.123Z`。
+- `opened_on`、`closed_on` 是用户所在时区语义下的日历日期，格式固定为 `YYYY-MM-DD`，不得当作 UTC timestamp。
+- v0.1.1 的 Update Value 不允许用户回填时间；`effective_at` 与 `created_at` 使用同一个 Rust `now`。
+- Frontend 只负责按 Locale / Time Zone 显示，禁止生成写入数据库的权威 timestamp。
 
 ---
 
@@ -990,8 +1099,10 @@ v0.1.2 引入 FX 后再重新设计主币种转换。
 数据库文件：
 
 ```text
-<Application Data>/Nestworth/nestworth.sqlite3
+app.path().app_data_dir()/nestworth.sqlite3
 ```
+
+不得手工拼接 `~/Library/Application Support`，也不得在 Tauri 已带应用标识的目录后再追加一个 `Nestworth`。启动时先通过 Tauri Path API 解析目录，再创建目录和数据库。
 
 SQLite 是整个 v0.1.x：
 
@@ -1001,7 +1112,7 @@ SQLite 是整个 v0.1.x：
 
 # 20. SQLite Connection
 
-建议：
+连接参数固定为：
 
 ```rust
 SqliteConnectOptions
@@ -1064,17 +1175,63 @@ SQLx 的 Migration 可以直接嵌入 Binary。
 
 > **禁止修改。**
 
+## 21.1 启动兼容性状态机
+
+数据库启动必须先于业务窗口进入可操作状态，并返回以下内部状态之一：
+
+```rust
+enum DatabaseBootstrapStatus {
+    Ready,
+    Migrated,
+    UnsupportedNewerDatabase { found: i64, supported: i64 },
+    MigrationFailed,
+    Unavailable,
+    Corrupt,
+}
+```
+
+流程固定为：
+
+1. 解析唯一数据库路径并判断文件是否存在。
+2. 对已有数据库先读取 SQLx migration metadata，得到最大已应用版本。
+3. 如果数据库版本高于当前 Binary 的 `MAX_SUPPORTED_MIGRATION`，立即关闭连接并返回 `UNSUPPORTED_DATABASE_VERSION`。
+4. 不得创建新的默认数据库替代它，不得运行 Migration，不得构造 `DatabaseRuntime::Writable`，所有 Mutation Command 保持不可用。
+5. 如果版本受支持且需要升级，先通过同一个 SQLx connection 执行 SQLite `VACUUM INTO` 创建 `nestworth.pre-migration.tmp.sqlite3`；对快照执行 `integrity_check` 后原子替换 `nestworth.pre-migration.sqlite3`。只保留最近一个成功创建的升级前快照，不得为此引入第二套 SQLite Library。
+6. 每个 Migration 必须使用 Transaction；v0.1.x 禁止 SQLx `no_tx` migration。
+7. Migration 失败时不得继续启动业务 UI，不得删除或重建原数据库；向用户展示可恢复错误状态和数据库路径。
+8. 成功后执行 `PRAGMA foreign_key_check` 和 `PRAGMA integrity_check`，通过后才构造 `DatabaseRuntime::Writable`。
+
+内部迁移快照不是 v0.1.5 的用户 Backup 功能，不提供浏览、轮转或恢复 UI。
+
+## 21.2 单 Household 完整性边界
+
+v0.1.1 一个数据库只允许一个 Household。`households` 使用 singleton `UNIQUE + CHECK` 约束阻止第二行；所有业务写入仍验证引用对象的 `household_id`。
+
+不引入 Trigger 或复合 Household FK。基础完整性由以下组合保证：
+
+```text
+single Household database invariant
++ SQLite FK / UNIQUE / NOT NULL / CHECK
++ private Repository writes
++ Rust Service validation
++ one Transaction per Domain mutation
++ integration tests for invalid references and rollback
+```
+
 ---
 
 # 22. Initial Schema
 
-建议 `001_initial.sql`：
+`001_initial.sql` 固定从以下 Schema 开始：
 
 ```sql
 CREATE TABLE households (
     id              TEXT PRIMARY KEY NOT NULL,
+    singleton_key   INTEGER NOT NULL DEFAULT 1
+        UNIQUE CHECK(singleton_key = 1),
     name            TEXT NOT NULL,
-    base_currency   TEXT NOT NULL CHECK(length(base_currency) = 3),
+    base_currency   TEXT NOT NULL
+        CHECK(base_currency GLOB '[A-Z][A-Z][A-Z]'),
 
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL
@@ -1218,7 +1375,7 @@ CREATE TABLE accounts (
         )),
 
     default_currency            TEXT NOT NULL
-        CHECK(length(default_currency) = 3),
+        CHECK(default_currency GLOB '[A-Z][A-Z][A-Z]'),
 
     note                        TEXT,
 
@@ -1310,7 +1467,7 @@ CREATE TABLE account_values (
     amount          TEXT NOT NULL,
 
     currency        TEXT NOT NULL
-        CHECK(length(currency) = 3),
+        CHECK(currency GLOB '[A-Z][A-Z][A-Z]'),
 
     effective_at    TEXT NOT NULL,
     created_at      TEXT NOT NULL,
@@ -1423,6 +1580,16 @@ Account List 可以使用 subquery 一次加载所有 latest values。
 ```
 
 避免 N+1。
+
+所有 List Command 的默认顺序固定为：
+
+```text
+sort_order ASC
+name COLLATE NOCASE ASC
+id ASC
+```
+
+Account Value 的 latest 顺序固定为 `effective_at DESC, created_at DESC, id DESC`。Repository 与对应测试必须使用相同排序，不允许依赖 SQLite 未指定顺序。
 
 ---
 
@@ -1738,13 +1905,20 @@ Load
 
 # 31. Tauri App State
 
-建议：
+运行时状态固定为：
 
 ```rust
+pub enum DatabaseRuntime {
+    Writable { db: SqlitePool },
+    Blocked { status: DatabaseBootstrapStatus, db_path: PathBuf },
+}
+
 pub struct AppState {
-    pub db: SqlitePool,
+    database: DatabaseRuntime,
 }
 ```
+
+`SqlitePool` 不公开为字段。Application Service 通过 `AppState::writable_db()` 获取 Pool；Blocked 状态统一返回对应 Startup Error，Mutation Command 不可能取得写连接。
 
 启动：
 
@@ -1772,6 +1946,16 @@ Tauri manage(AppState)
 open frontend
 ```
 
+`ensure app_settings` 在 Migration 成功且兼容性检查通过后执行：
+
+```sql
+INSERT OR IGNORE INTO app_settings (
+    id, language, appearance, created_at, updated_at
+) VALUES (1, 'system', 'system', ?, ?);
+```
+
+`Ready` 或 `Migrated` 构造 `DatabaseRuntime::Writable`；其他状态构造不含 Pool 的 `DatabaseRuntime::Blocked` 并进入不可写 Startup Recovery View。所有状态都可以被 Tauri manage，因此 Frontend 始终能调用 `bootstrap()` 获取启动结果。
+
 Tauri 本身提供 Managed State，可供 Commands 获取共享状态；Tauri Command 同时支持 async function。
 
 ---
@@ -1787,15 +1971,21 @@ bootstrap()
 返回：
 
 ```ts
-interface BootstrapDto {
-    onboardingRequired: boolean
-
-    settings: AppSettingsDto
-
-    household: HouseholdDto | null
-
-    members: MemberDto[]
-}
+type BootstrapDto =
+    | {
+          status: "ready"
+          onboardingRequired: boolean
+          settings: AppSettingsDto
+          household: HouseholdDto | null
+          members: MemberDto[]
+      }
+    | {
+          status: "blocked"
+          error: CommandError
+          databasePath: string
+          foundMigration?: number
+          supportedMigration?: number
+      }
 ```
 
 流程：
@@ -1809,7 +1999,11 @@ bootstrap()
 
 ↓
 
-onboardingRequired == true
+status == blocked
+
+→ /startup-error（所有 Mutation 禁用）
+
+status == ready && onboardingRequired == true
 
 → /onboarding
 
@@ -1855,15 +2049,15 @@ Create Household
 
 Create Member(s)
 
-Create app_settings
-
 Set last_household_id
 ```
+
+`app_settings` 已由启动阶段创建，Onboarding 只能更新 singleton row。`complete_onboarding` 必须在 Transaction 内先确认 `households` 为空；如果已经存在 Household，返回 `ALREADY_ONBOARDED`，不得创建第二个 Household，也不得覆盖现有 `last_household_id`。
 
 如果用户中途退出：
 
 ```text
-数据库仍然是未初始化状态
+数据库只有默认 app_settings，没有 Household 或 Member
 ```
 
 避免半完成 Household。
@@ -2017,6 +2211,8 @@ NOT_FOUND
 
 CONFLICT
 
+ALREADY_ONBOARDED
+
 OWNERSHIP_TOTAL_INVALID
 
 BASE_CURRENCY_CHANGE_NOT_ALLOWED
@@ -2028,6 +2224,12 @@ INVALID_MONEY
 MEDIA_INVALID
 
 DATABASE_ERROR
+
+DATABASE_UNAVAILABLE
+
+UNSUPPORTED_DATABASE_VERSION
+
+MIGRATION_FAILED
 
 INTERNAL_ERROR
 ```
@@ -2043,6 +2245,8 @@ i18n
 ```
 
 数据库错误信息不能直接显示给用户。
+
+`CommandError.message` 是安全、非敏感的英文 fallback，不是数据库原始错误。Frontend 优先用 `error.code` 和 `fields` 做 i18n；底层错误只进入经过脱敏的 Rust Log。Startup database errors 使用相同 code 集合，但在 `DatabaseRuntime::Writable` 构造前产生。
 
 ---
 
@@ -2095,7 +2299,7 @@ HTML：
 
 # 38. Frontend Routing
 
-推荐：
+路由固定为：
 
 ```text
 /onboarding
@@ -2366,7 +2570,7 @@ Note
 
 # 46. Account Create Form
 
-建议一个 Dialog。
+使用一个可滚动 Dialog；不拆成多步 Wizard。
 
 区域：
 
@@ -2637,6 +2841,14 @@ TanStack Router Search Params
 
 这样已经足够。
 
+Frontend ownership 边界固定为：
+
+- `src/app/providers.tsx` 和 Router 是 Composition Root，只组装 Provider、路由和全局错误边界。
+- Route/Component 不得直接调用 raw `invoke()`；只允许通过 generated bindings 和 feature query/mutation hooks。
+- 每个 feature 维护自己的 Query Keys、DTO mapping、Mutation invalidation 和表单 schema。
+- TanStack Query Cache 不得复制到 Context、Zustand 或自定义全局 Store。
+- `App.tsx` 不拥有业务实体可变状态，不得演变为集中式业务控制器。
+
 ---
 
 # 52. Frontend Feature Structure
@@ -2682,10 +2894,10 @@ components/
 
 # 53. Generated IPC
 
-建议：
+生成文件固定为：
 
 ```text
-src/bindings/commands.ts
+src/generated/tauri-bindings.ts
 ```
 
 由：
@@ -2700,13 +2912,40 @@ tauri-specta
 
 > 禁止手工编辑。
 
-可以在 CI 中执行生成后：
+Rust 必须只维护一个 `command_builder()`，运行时注册和 bindings 导出共同使用它。禁止另外维护 `generate_handler!` 命令列表。
+
+导出 helper 固定放在：
 
 ```text
-git diff --exit-code
+src-tauri/bin/export-bindings.rs
+```
+
+并在 `Cargo.toml` 中通过显式 `[[bin]]` 与 `required-features = ["export-bindings"]` 注册。禁止放进 `src-tauri/src/bin`，防止 Tauri 将 helper 当作应用 Binary 打包。
+
+脚本固定为：
+
+```json
+{
+  "ipc:generate": "cargo run --manifest-path src-tauri/Cargo.toml --bin export-bindings --features export-bindings --",
+  "ipc:check": "cargo run --quiet --manifest-path src-tauri/Cargo.toml --bin export-bindings --features export-bindings -- --check"
+}
+```
+
+`ipc:check` 必须生成到临时文件并逐字节比较已提交文件，不得先覆盖工作区再检查。CI 执行：
+
+```text
+bun run ipc:check
 ```
 
 确保 Rust Command Contract 与提交的 TS Binding 一致。
+
+Release 验证还必须确认：
+
+```text
+cargo build --bins
+```
+
+在不启用 `export-bindings` feature 时只产生 Nestworth App binary。
 
 ---
 
@@ -2876,29 +3115,27 @@ timestamp
 
 # 59. Decimal Display
 
-Frontend 可以：
+Frontend Rendering 也不得把完整 Decimal 先转换为 `number`。统一：
 
 ```text
 Decimal String
 ↓
+formatMoney(decimalString, currency, locale)
+↓
+localized display parts
+```
+
+`formatMoney()` 必须是 string-aware formatter：使用 `Intl.NumberFormat.formatToParts()` 获取 locale 的货币符号、分组和小数分隔布局，但整数和小数数字来自规范化 Decimal String。可以使用 `BigInt` 处理整数部分；不得使用浮点数重新生成金额。
+
+禁止：
+
+```text
 Number
 ↓
 Intl.NumberFormat
 ```
 
-仅用于最终 UI Rendering。
-
-但禁止：
-
-```text
-Number
-↓
-业务计算
-↓
-再写数据库
-```
-
-Authoritative Calculation 仍只存在 Rust。
+作为金额的完整格式化路径。Authoritative Calculation 仍只存在 Rust。
 
 ---
 
@@ -2936,7 +3173,7 @@ shadcn 当前提供 Vite Dark Mode 的 Theme Provider 实现模式。
 
 # 61. Media Asset
 
-头像和 Logo 不建议 v0.1.1 就搞复杂文件目录同步。
+头像和 Logo 在 v0.1.1 不使用外部文件目录或同步。
 
 直接使用：
 
@@ -3005,7 +3242,7 @@ update member.avatar_asset_id
 
 # 63. Image Constraints
 
-建议：
+图片约束固定为：
 
 ```text
 Input max:
@@ -3023,7 +3260,7 @@ Max dimension:
 512 × 512
 ```
 
-Member Avatar 可以裁剪为 Square。
+Member Avatar 解码后按中心裁剪为 Square，再缩放到最大 `512 × 512`。
 
 Logo 保持 Aspect Ratio。
 
@@ -3117,6 +3354,14 @@ Archived：
 
 但数据保留。
 
+引用语义固定为：
+
+- Archived Member / Institution / Group 被 Active Account 引用时，Account Detail 和 Overview breakdown 仍显示并计算该对象，避免汇总不守恒。
+- 新建 Account 的 Picker 不提供 Archived 对象。
+- 编辑已有 Account 时，如果当前引用已 Archived，Picker 必须显示当前值并标记 Archived；用户可以保留或改为 Active 对象。
+- Archive Member 时如果仍有 Ownership，不修改 Ownership；该 Member 仍参与 Member Breakdown。
+- Restore 不自动恢复其他关联对象。
+
 ---
 
 # 67. Restore
@@ -3142,49 +3387,18 @@ Restore
 
 # 68. Permanent Delete
 
-v0.1.1 不把 Permanent Delete 放在主要操作区。
-
-规则：
-
-### Institution
-
-存在 Account：
+v0.1.1 不提供 Permanent Delete：
 
 ```text
-禁止 Permanent Delete
+Member       → Archive / Restore only
+Institution  → Archive / Restore only
+Group        → Archive / Restore only
+Account      → Archive / Restore only
 ```
 
-### Group
+Frontend 不显示 Danger Zone，Rust 不注册 Permanent Delete Command，Repository 不暴露业务实体的 delete function。
 
-存在 Account：
-
-```text
-禁止 Permanent Delete
-```
-
-### Member
-
-存在 Ownership：
-
-```text
-禁止 Permanent Delete
-```
-
-### Account
-
-可以提供 Danger Zone：
-
-```text
-Delete Permanently
-```
-
-需要确认：
-
-```text
-This permanently deletes the account and its value history.
-```
-
-未来 Activity 出现后这里会进一步限制。
+Permanent Delete 只能在用户 Backup/Export 已可用、Activity 历史引用规则已确定后重新设计；不属于 v0.1.1。
 
 ---
 
@@ -3222,6 +3436,28 @@ Clipboard access
 
 除非确实需要。
 
+当前脚手架的 `tauri-plugin-opener` 与 `opener:default` 必须在 Foundation Phase 删除；该 Plugin 按技术路线到 v0.1.5 导出功能需要时再引入。
+
+每个新增 Plugin 必须同时提交：
+
+```text
+Cargo dependency
+Frontend dependency（如需要）
+最小 capability permission
+权限用途测试或 Tauri smoke check
+```
+
+不得用 `*:default` 代替已知的最小 allow permission，除非 Plugin 没有更细权限且计划中记录原因。
+
+## 69.1 v0.1.1 Privacy Threat Model
+
+v0.1.1 的静态数据保护边界固定为：
+
+- SQLite 不使用 SQLCipher，依赖 macOS 用户账户权限与 FileVault 保护磁盘静态数据。
+- App 不上传财务数据，不集成遥测、Crash Upload 或第三方 Analytics。
+- Log 禁止余额、Note、图片、账户号码和完整用户输入。
+- 如果未来要求独立于 FileVault 的 App 级加密，必须作为单独版本设计 Keychain、密钥恢复、Backup 和 Migration；不得在 v0.1.1 中临时加入。
+
 ---
 
 # 70. Frontend 不访问网络
@@ -3251,23 +3487,29 @@ fetch FX API
 
 # 71. CSP
 
-Production 推荐严格 CSP。
-
-大致：
+Production CSP 固定从以下最小策略开始：
 
 ```text
 default-src 'self'
 
 img-src 'self' data:
 
-connect-src ipc:
+connect-src ipc: http://ipc.localhost
 
 script-src 'self'
 
 style-src 'self' 'unsafe-inline'
+
+font-src 'self'
+
+object-src 'none'
+
+base-uri 'none'
+
+frame-src 'none'
 ```
 
-具体以最终 Tauri / Vite Build 验证结果调整。
+`http://ipc.localhost` 仅是 Tauri 内部 IPC endpoint，不代表允许外部 HTTP。只有实际 Tauri Development 或 Production smoke test 证明资源被阻止时才能扩展对应 source；扩展必须附带原因和回归测试。Production 不允许 `csp: null`，也不允许通配的 `http:`、`https:`、`ws:` 或 `wss:` source。
 
 ---
 
@@ -3470,7 +3712,7 @@ test
 测试：
 
 ```text
-CRUD
+Create / Read / Update / Archive / Restore
 
 FK
 
@@ -3481,7 +3723,26 @@ Latest Value
 Ownership
 
 Filtering
+
+second Household rejected
+
+cross-Household reference rejected by Service
+
+deterministic ordering
 ```
+
+Migration test matrix：
+
+```text
+empty path → create 001 → Ready
+001 database → no-op → Ready
+supported old fixture → migrate → Migrated
+future migration version → UnsupportedNewerDatabase + zero writes
+migration failure fixture → MigrationFailed + original database retained
+post-migration foreign_key_check / integrity_check failure → no writable database runtime
+```
+
+测试 future database 时必须记录文件 hash、mtime 和 migration rows 在启动失败前后完全不变。
 
 ---
 
@@ -3568,40 +3829,41 @@ cargo test
 GitHub Actions 至少：
 
 ```text
-Frontend
-
-pnpm install
-pnpm lint
-pnpm typecheck
-pnpm test
-pnpm build
+bun install --frozen-lockfile
+bun run check
 ```
 
-Backend：
+macOS 26 arm64 Runner Job：
 
 ```text
-cargo fmt --check
-cargo clippy
-cargo test
+bun run tauri build --target aarch64-apple-darwin --bundles app,dmg
 ```
 
-最后：
-
-```text
-Tauri macOS build
-```
-
-可以单独作为 macOS Runner Job。
+CI 必须缓存 Bun 与 Cargo 下载目录，但不得缓存或提交应用数据库。PR 必须先通过 `bun run check`，Release Job 再构建 `.app` 与 `.dmg`。
 
 ---
 
 # 81. 开发实施顺序
 
-下面建议严格按顺序进行。
+下面必须严格按顺序进行。每个 Phase 的 Done 同时要求相关测试、错误态、权限和键盘/焦点行为完成；不得留到 Phase 10。
 
 ---
 
 ## Phase 1 — Project Bootstrap
+
+先清理 Tauri 模板并锁定工程：
+
+```text
+删除 greet Command 与模板 React/Tauri assets
+删除 tauri-plugin-opener 与 opener:default
+只保留 bun.lock
+packageManager = bun@1.3.14
+rust-toolchain = 1.97.1 + rustfmt + clippy
+minimumSystemVersion = 26.0
+bundle targets = app,dmg
+release target = aarch64-apple-darwin
+production CSP 非空
+```
 
 建立：
 
@@ -3629,12 +3891,17 @@ TanStack Query
 React Hook Form
 Zod
 i18next
+
+Vitest
+React Testing Library
+ESLint
+Prettier
 ```
 
 完成：
 
 ```text
-pnpm tauri dev
+bun run tauri dev
 ```
 
 能正常启动空 Nestworth Window。
@@ -3646,6 +3913,10 @@ App 能启动
 HMR 正常
 Rust Command 可调用
 Light/Dark 基础 CSS 正常
+bun install --frozen-lockfile 通过
+bun run check 通过
+Capability 中没有 opener / shell / broad filesystem / HTTP permission
+package / Cargo / Tauri / Cargo.lock version check 通过
 ```
 
 ---
@@ -3668,6 +3939,10 @@ AppError
 Tracing
 
 Specta bindings
+
+Database bootstrap status machine
+
+future database write guard
 ```
 
 建立：
@@ -3694,6 +3969,10 @@ nestworth.sqlite3
 自动生成。
 
 再次启动不重复 migration。
+
+Future-version fixture 启动后进入不可写错误页，文件 hash / mtime / migration rows 不变。
+
+`bun run ipc:check` 通过，且普通 `cargo build --bins` 不包含 export-bindings helper。
 
 ---
 
@@ -3734,6 +4013,8 @@ AccountValue
 ### Done
 
 核心 Domain Test 全部通过。
+
+金额规范化、最大边界、非法指数/负数、三人均分和手工 Ownership 合计规则都有测试。
 
 ---
 
@@ -3800,7 +4081,7 @@ Account 依赖这三个对象。
 完成：
 
 ```text
-CRUD
+Create / Read / Update
 Archive
 Restore
 Image/Icon
@@ -3992,35 +4273,24 @@ Dark
 
 # 90. Phase 10 — Hardening
 
-最后集中：
+Phase 10 只处理跨功能回归和 Release Readiness，不接收前面 Phase 遗留的基础正确性工作。
+
+集中验证：
 
 ```text
-Archive behavior
-
-Error handling
-
-Empty state
-
-Loading state
-
-Database errors
-
-Form validation
-
-Keyboard navigation
-
-Logging
-
-Security capability
-
-Tests
-
-CI
+full regression
+archive reference invariants
+future database zero-write invariant
+migration recovery snapshot
+production CSP
+capability audit
+log redaction
+VoiceOver smoke test
+keyboard-only critical flows
+arm64 .app / .dmg launch smoke test
 ```
 
-不要边写每个 Feature 边过度 Polish。
-
-最后统一处理。
+任何 Phase 如果缺少自己的 Test、Error/Loading/Empty State、最小 Capability 或 Keyboard/Focus 行为，不得标记 Done，也不得以 Phase 10 兜底。
 
 ---
 
@@ -4311,37 +4581,42 @@ InstrumentQuote
 - Decimal 不进入 REAL
 - IDs 使用 UUID
 - Account Value append-only
+- 一个数据库只能创建一个 Household
+- Future database 启动失败且零写入
+- Migration failure 不创建默认替代库
+- Migration 后 foreign_key_check / integrity_check 通过
+- 金额遵守规范化字符串、12 位整数和 4 位小数边界
 
 ## Household
 
 - Onboarding
-- Household CRUD
+- Household create-once / read / update
 - Base Currency
 
 ## Member
 
-- CRUD
+- Create / Read / Update
 - Avatar
 - Archive
 - Restore
 
 ## Institution
 
-- CRUD
+- Create / Read / Update
 - Logo
 - Archive
 - Restore
 
 ## Group
 
-- CRUD
+- Create / Read / Update
 - Icon / Logo
 - Archive
 - Restore
 
 ## Account
 
-- CRUD
+- Create / Read / Update
 - Category
 - Institution
 - Group
@@ -4351,6 +4626,7 @@ InstrumentQuote
 - Statistics flags
 - Archive
 - Restore
+- 不存在 Permanent Delete UI / Command / Repository function
 
 ## Overview
 
@@ -4372,6 +4648,8 @@ InstrumentQuote
 - Dark
 - Light
 - System
+- Keyboard-only critical flows
+- VoiceOver smoke test
 
 ## Engineering
 
@@ -4381,15 +4659,19 @@ InstrumentQuote
 - Frontend Form Tests
 - TypeScript Strict
 - ESLint
+- IPC binding drift check
+- Version synchronization check
 - cargo fmt
 - cargo clippy
-- CI Build
+- `bun run check`
+- macOS 26 arm64 `.app` / `.dmg` CI Build
+- Production CSP 与最小 Capability audit
 
 ---
 
-# 99. 建议第一批实际创建的代码文件
+# 99. 第一批代码文件
 
-如果现在准备直接开始开发，我建议第一个 Commit 之后按这个顺序创建：
+Foundation Commit 完成后必须按这个顺序创建：
 
 ```text
 src-tauri/src/state.rs
@@ -4397,6 +4679,8 @@ src-tauri/src/state.rs
 src-tauri/src/error.rs
 
 src-tauri/src/infrastructure/database.rs
+
+src-tauri/src/infrastructure/database_bootstrap.rs
 
 src-tauri/migrations/001_initial.sql
 
@@ -4415,6 +4699,10 @@ src-tauri/src/domain/account.rs
 src-tauri/src/application/onboarding_service.rs
 
 src-tauri/src/commands/bootstrap.rs
+
+src-tauri/src/ipc.rs
+
+src-tauri/bin/export-bindings.rs
 ```
 
 第一条真正应该跑通的业务链路不是 Account，而是：
@@ -4451,7 +4739,7 @@ React Overview
 
 ---
 
-# 100. 推荐的第一个 Vertical Slice
+# 100. Vertical Slices
 
 第一个 Vertical Slice：
 
@@ -4481,6 +4769,17 @@ Create Walt
 ↓
 
 Open empty Overview
+```
+
+第一条 Slice 同时必须证明：
+
+```text
+重复 complete_onboarding → ALREADY_ONBOARDED + zero writes
+第二次启动 → migration no-op
+future database fixture → unsupported + zero writes
+bun run ipc:check → pass
+bun run check → pass
+keyboard-only onboarding → pass
 ```
 
 第二个 Vertical Slice：

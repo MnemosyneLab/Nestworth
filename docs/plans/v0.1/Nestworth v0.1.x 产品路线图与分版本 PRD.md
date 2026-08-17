@@ -2,12 +2,22 @@
 
 > **Product:** Nestworth  
 > **Positioning:** Local-first personal & household net worth tracker  
-> **Platform:** macOS  
+> **Platform:** macOS 26+ / Apple Silicon arm64-only
 > **Desktop Framework:** Tauri  
 > **Backend:** Rust  
 > **Frontend:** TypeScript  
 > **Storage:** SQLite  
 > **Release Line:** v0.1.x
+
+## v0.1.x 工程基线
+
+- 包管理器统一为 Bun 1.3.14，只提交 `bun.lock`；本地与 CI 使用 `bun install --frozen-lockfile` 和 `bun run check`。
+- Rust 工具链锁定 1.97.1，目标为 `aarch64-apple-darwin`；v0.1.x 不构建 x86_64 或 Universal Binary。
+- v0.1.1 一个数据库只允许一个 Household，不使用 Trigger；FK、UNIQUE、NOT NULL、CHECK、Rust Service Validation 与 Transaction 共同保证基础完整性。
+- Rust Command/DTO 是 IPC 唯一 Source of Truth，TypeScript bindings 必须生成、提交并检查 drift。
+- 数据库版本高于当前 Binary 时 fail closed，不运行 Migration、不构造可写 AppState、不创建默认替代库。
+- v0.1.1 只支持 Archive / Restore；Permanent Delete 必须等待 Backup/Export 与历史引用规则完成后另行设计。
+- 测试、错误态、最小权限和键盘/焦点行为属于每个 Vertical Slice 的 Done，不集中推迟到最终 Hardening。
 
 ---
 
@@ -759,7 +769,7 @@ Settings
 
 ---
 
-# 22. Account CRUD
+# 22. Account Lifecycle
 
 支持：
 
@@ -770,7 +780,7 @@ Archive
 Restore
 ```
 
-Delete 可以存在，但默认放在危险操作区域。
+v0.1.1 不存在 Permanent Delete UI、Command 或 Repository function。
 
 ---
 
@@ -864,6 +874,9 @@ holdings
 - SQLite WAL
 - 每次 Migration 可重复验证
 - App Crash 不应造成半完成写入
+- 第二个 Household 被数据库约束拒绝
+- Future database 启动失败且零写入
+- Migration 失败不删除、不重建、不回退为默认数据库
 
 ### UX
 
@@ -3445,21 +3458,31 @@ JSON
 ```text
 Schema
 
++ Schema / Migration tests
+
 ↓
 
 Domain Model
+
++ Domain invariant tests
 
 ↓
 
 Repository
 
++ temporary SQLite integration tests
+
 ↓
 
 Service
 
++ Transaction / rollback tests
+
 ↓
 
 Tauri Commands
+
++ generated IPC drift check
 
 ↓
 
@@ -3469,12 +3492,10 @@ TypeScript API Client
 
 UI
 
-↓
-
-Tests
++ interaction / error / keyboard tests
 ```
 
-不要反过来先写页面，再临时设计 SQLite Schema。
+不要反过来先写页面，再临时设计 SQLite Schema；测试必须随所属层完成，不得作为版本末尾的独立阶段补写。
 
 ---
 
@@ -3622,6 +3643,18 @@ new database
 ```
 
 Migration 必须进入自动测试。
+
+同时必须支持反向兼容保护：
+
+```text
+newer database than current Binary
+↓
+UnsupportedNewerDatabase
+↓
+zero writes / no writable AppState
+```
+
+已有数据库升级前创建一个内部迁移快照；它不等同于 v0.1.5 的用户 Backup 功能。
 
 ---
 

@@ -1,7 +1,16 @@
 # Nestworth 前后端技术库选型调研
 
 > 日期：2026-08-17  
-> 技术基线：macOS + Tauri 2 + Rust + TypeScript + SQLite
+> 技术基线：macOS 26+ arm64-only + Tauri 2 + Rust 1.97.1 + TypeScript + SQLite + Bun 1.3.14
+
+## 0. 已锁定的工程选择
+
+- Bun 1.3.14 是唯一包管理器，只提交 `bun.lock`；不引入 npm、pnpm 或 yarn lockfile。
+- Release target 固定为 `aarch64-apple-darwin`，最低 macOS 版本为 26.0。
+- shadcn/ui 组件统一选择 Base UI primitive；同一类组件不得混用 Radix 与 Base UI 实现。
+- v0.1.1 不引入 Zustand、Recharts、TanStack Table、cmdk、opener 或 updater；到对应版本有实际使用点时再加入。
+- Vitest、React Testing Library、ESLint 和 TypeScript strict 属于 Foundation 依赖，不是后期可选项。
+- tauri-specta、specta、specta-typescript 属于 v0.1.1 Foundation，并使用技术实现方案锁定的精确版本。
 
 ## 1. 推荐技术栈总览
 
@@ -194,15 +203,11 @@ NASDAQ
 
 ## Recharts
 
-**推荐：Recharts。**
+**v0.1.2 起采用 Recharts。**
 
 当前 Recharts 是基于 React Component 的组合式图表库；shadcn/ui 官方 Chart Component 本身也直接建立在 Recharts 之上，因此二者组合很自然。
 
-推荐：
-
-```text
-recharts
-```
+v0.1.1 的 Overview 使用数字卡片和可访问的 Breakdown List，不安装图表库。v0.1.2 出现历史和资产配置图表后再安装 `recharts`。
 
 可以覆盖 Nestworth v0.1.x 几乎所有需求：
 
@@ -1108,11 +1113,19 @@ zod
 
 i18next
 react-i18next
-
-recharts
 ```
 
-## Frontend P1
+## Frontend P0 — Engineering
+
+```text
+vitest
+@testing-library/react
+@testing-library/user-event
+eslint
+prettier
+```
+
+## Frontend P1 — v0.1.2+
 
 ```text
 @tanstack/react-table
@@ -1122,9 +1135,7 @@ zustand
 cmdk
 sonner
 
-vitest
-@testing-library/react
-@testing-library/user-event
+recharts
 ```
 
 ## Rust P0
@@ -1146,6 +1157,10 @@ thiserror
 
 tracing
 tracing-subscriber
+
+tauri-specta = 2.0.0-rc.21
+specta = 2.0.0-rc.22
+specta-typescript = 0.0.9
 ```
 
 ## Rust P1
@@ -1166,8 +1181,8 @@ tauri-plugin-dialog
 tauri-plugin-window-state
 tauri-plugin-log
 
-tauri-plugin-opener
-tauri-plugin-updater
+v0.1.5: tauri-plugin-opener
+release phase: tauri-plugin-updater
 ```
 
 ---
@@ -1206,6 +1221,10 @@ UUID
 Chrono
 thiserror
 tracing
+
+tauri-specta
+specta
+specta-typescript
 
 tauri-plugin-dialog
 tauri-plugin-window-state
