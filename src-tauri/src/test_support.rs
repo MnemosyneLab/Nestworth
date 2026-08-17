@@ -13,6 +13,8 @@ use crate::{
     state::AppState,
 };
 
+pub const UNKNOWN_UUID: &str = "00000000-0000-7000-8000-000000000001";
+
 pub fn test_path(phase: &str, name: &str) -> PathBuf {
     let nonce = SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

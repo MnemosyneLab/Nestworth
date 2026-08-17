@@ -1,15 +1,14 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use sqlx::Row;
+use sqlx::{Row, Sqlite, Transaction};
 
 use super::reference::{
-    map_read_error, map_write_error, next_sort_order, require_household_id, sort_order_i32,
-    SortTable,
+    begin_write_tx, finish_write_tx, map_read_error, map_write_error, next_sort_order,
+    require_household_id, require_household_id_tx, sort_order_i32, SortTable,
 };
 use crate::{
     domain::{HouseholdId, MediaAssetId, Member, MemberId, PersistedMember, Timestamp},
     error::AppError,
-    infrastructure::database::SqlitePool,
     state::AppState,
 };
 
@@ -28,7 +27,7 @@ pub struct UpdateMemberInput {
     pub note: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct MemberRecordDto {
     pub id: String,
@@ -73,8 +72,9 @@ pub async fn create_member(
     input: CreateMemberInput,
 ) -> Result<MemberRecordDto, AppError> {
     let database = state.writable_db()?;
-    let household_id = require_household_id(database).await?;
-    persist_new_member(database, &household_id, input).await
+    let mut tx = begin_write_tx(database).await?;
+    let result = create_member_in_tx(&mut tx, input).await;
+    finish_write_tx(tx, result).await
 }
 
 pub async fn update_member(
@@ -82,87 +82,32 @@ pub async fn update_member(
     input: UpdateMemberInput,
 ) -> Result<MemberRecordDto, AppError> {
     let database = state.writable_db()?;
-    let household_id = require_household_id(database).await?;
-    let member_id = MemberId::parse(&input.id)?;
-    let now = Timestamp::now();
-    let mut member = load_member_domain(database, &household_id, &member_id.to_string()).await?;
-    member.update(&input.name, input.note.as_deref(), now)?;
-    sqlx::query(
-        "UPDATE members SET name = ?, note = ?, updated_at = ? WHERE id = ? AND household_id = ?",
-    )
-    .bind(member.name())
-    .bind(member.note())
-    .bind(member.updated_at().to_rfc3339())
-    .bind(member.id().to_string())
-    .bind(&household_id)
-    .execute(database)
-    .await
-    .map_err(|error| map_write_error("member.update_failed", error))?;
-    load_member(database, &household_id, &member.id().to_string()).await
+    let mut tx = begin_write_tx(database).await?;
+    let result = update_member_in_tx(&mut tx, input).await;
+    finish_write_tx(tx, result).await
 }
 
 pub async fn archive_member(state: &AppState, id: &str) -> Result<MemberRecordDto, AppError> {
     let database = state.writable_db()?;
-    let household_id = require_household_id(database).await?;
-    let member_id = MemberId::parse(id)?;
-    let mut member = load_member_domain(database, &household_id, &member_id.to_string()).await?;
-    if !member.is_archived() {
-        let active_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM members WHERE household_id = ? AND archived_at IS NULL",
-        )
-        .bind(&household_id)
-        .fetch_one(database)
-        .await
-        .map_err(|error| map_read_error("member.active_count_failed", error))?;
-        if active_count <= 1 {
-            return Err(AppError::last_active_member());
-        }
-        member.archive(Timestamp::now());
-        sqlx::query(
-            "UPDATE members SET archived_at = ?, updated_at = ? WHERE id = ? AND household_id = ?",
-        )
-        .bind(member.archived_at().map(Timestamp::to_rfc3339))
-        .bind(member.updated_at().to_rfc3339())
-        .bind(member.id().to_string())
-        .bind(&household_id)
-        .execute(database)
-        .await
-        .map_err(|error| map_write_error("member.archive_failed", error))?;
-    }
-    load_member(database, &household_id, &member.id().to_string()).await
+    let mut tx = begin_write_tx(database).await?;
+    let result = archive_member_in_tx(&mut tx, id).await;
+    finish_write_tx(tx, result).await
 }
 
 pub async fn restore_member(state: &AppState, id: &str) -> Result<MemberRecordDto, AppError> {
     let database = state.writable_db()?;
-    let household_id = require_household_id(database).await?;
-    let member_id = MemberId::parse(id)?;
-    let mut member = load_member_domain(database, &household_id, &member_id.to_string()).await?;
-    if member.is_archived() {
-        member.restore(Timestamp::now());
-        sqlx::query(
-            "UPDATE members SET archived_at = NULL, updated_at = ? WHERE id = ? AND household_id = ?",
-        )
-        .bind(member.updated_at().to_rfc3339())
-        .bind(member.id().to_string())
-        .bind(&household_id)
-        .execute(database)
-        .await
-        .map_err(|error| map_write_error("member.restore_failed", error))?;
-    }
-    load_member(database, &household_id, &member.id().to_string()).await
+    let mut tx = begin_write_tx(database).await?;
+    let result = restore_member_in_tx(&mut tx, id).await;
+    finish_write_tx(tx, result).await
 }
 
-async fn persist_new_member(
-    database: &SqlitePool,
-    household_id: &str,
+async fn create_member_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
     input: CreateMemberInput,
 ) -> Result<MemberRecordDto, AppError> {
-    let mut tx = database
-        .begin()
-        .await
-        .map_err(|error| map_write_error("member.create_begin_failed", error))?;
-    let sort_order = next_sort_order(&mut tx, SortTable::Members, household_id).await?;
-    let household = HouseholdId::parse(household_id).map_err(|_| AppError::Internal)?;
+    let household_id = require_household_id_tx(tx).await?;
+    let sort_order = next_sort_order(tx, SortTable::Members, &household_id).await?;
+    let household = HouseholdId::parse(&household_id).map_err(|_| AppError::Internal)?;
     let member = Member::new(
         household,
         &input.name,
@@ -177,29 +122,145 @@ async fn persist_new_member(
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(member.id().to_string())
-    .bind(household_id)
+    .bind(&household_id)
     .bind(member.name())
     .bind(member.avatar_asset_id().map(|id| id.to_string()))
     .bind(member.note())
     .bind(member.sort_order())
     .bind(&timestamp)
     .bind(&timestamp)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await
     .map_err(|error| map_write_error("member.create_failed", error))?;
-    tx.commit()
-        .await
-        .map_err(|error| map_write_error("member.create_commit_failed", error))?;
     tracing::info!(
         event = "member.create",
         member_id = %member.id(),
         "member created"
     );
-    load_member(database, household_id, &member.id().to_string()).await
+    load_member(tx, &household_id, &member.id().to_string()).await
+}
+
+async fn update_member_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    input: UpdateMemberInput,
+) -> Result<MemberRecordDto, AppError> {
+    let household_id = require_household_id_tx(tx).await?;
+    let member_id = MemberId::parse(&input.id)?;
+    let mut member = load_member_domain(tx, &household_id, &member_id.to_string()).await?;
+    member.update(&input.name, input.note.as_deref(), Timestamp::now())?;
+    let updated = sqlx::query(
+        "UPDATE members SET name = ?, note = ?, updated_at = ? WHERE id = ? AND household_id = ?",
+    )
+    .bind(member.name())
+    .bind(member.note())
+    .bind(member.updated_at().to_rfc3339())
+    .bind(member.id().to_string())
+    .bind(&household_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|error| map_write_error("member.update_failed", error))?;
+    if updated.rows_affected() != 1 {
+        return Err(AppError::not_found("member", &member.id().to_string()));
+    }
+    load_member(tx, &household_id, &member.id().to_string()).await
+}
+
+async fn archive_member_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    id: &str,
+) -> Result<MemberRecordDto, AppError> {
+    let household_id = require_household_id_tx(tx).await?;
+    let member_id = MemberId::parse(id)?;
+    let current = load_member(tx, &household_id, &member_id.to_string()).await?;
+    if current.archived_at.is_some() {
+        return Ok(current);
+    }
+    let mut member = member_from_dto(&household_id, current)?;
+    member.archive(Timestamp::now());
+    let updated = sqlx::query(
+        "UPDATE members
+         SET archived_at = ?, updated_at = ?
+         WHERE id = ?
+           AND household_id = ?
+           AND archived_at IS NULL
+           AND (
+             SELECT COUNT(*)
+             FROM members
+             WHERE household_id = ?
+               AND archived_at IS NULL
+           ) > 1",
+    )
+    .bind(member.archived_at().map(Timestamp::to_rfc3339))
+    .bind(member.updated_at().to_rfc3339())
+    .bind(member.id().to_string())
+    .bind(&household_id)
+    .bind(&household_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|error| map_write_error("member.archive_failed", error))?;
+    if updated.rows_affected() == 1 {
+        return load_member(tx, &household_id, &member.id().to_string()).await;
+    }
+    classify_failed_member_archive(tx, &household_id, &member.id().to_string()).await
+}
+
+async fn classify_failed_member_archive(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    id: &str,
+) -> Result<MemberRecordDto, AppError> {
+    let current = load_member(tx, household_id, id).await?;
+    if current.archived_at.is_some() {
+        return Ok(current);
+    }
+    let active_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM members WHERE household_id = ? AND archived_at IS NULL",
+    )
+    .bind(household_id)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("member.active_count_failed", error))?;
+    if active_count <= 1 {
+        return Err(AppError::last_active_member());
+    }
+    Err(AppError::Internal)
+}
+
+async fn restore_member_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    id: &str,
+) -> Result<MemberRecordDto, AppError> {
+    let household_id = require_household_id_tx(tx).await?;
+    let member_id = MemberId::parse(id)?;
+    let current = load_member(tx, &household_id, &member_id.to_string()).await?;
+    if current.archived_at.is_none() {
+        return Ok(current);
+    }
+    let mut member = member_from_dto(&household_id, current)?;
+    member.restore(Timestamp::now());
+    let updated = sqlx::query(
+        "UPDATE members
+         SET archived_at = NULL, updated_at = ?
+         WHERE id = ? AND household_id = ? AND archived_at IS NOT NULL",
+    )
+    .bind(member.updated_at().to_rfc3339())
+    .bind(member.id().to_string())
+    .bind(&household_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|error| map_write_error("member.restore_failed", error))?;
+    if updated.rows_affected() != 1 {
+        let latest = load_member(tx, &household_id, &member.id().to_string()).await?;
+        if latest.archived_at.is_none() {
+            return Ok(latest);
+        }
+        return Err(AppError::not_found("member", &member.id().to_string()));
+    }
+    load_member(tx, &household_id, &member.id().to_string()).await
 }
 
 async fn load_member(
-    database: &SqlitePool,
+    tx: &mut Transaction<'_, Sqlite>,
     household_id: &str,
     id: &str,
 ) -> Result<MemberRecordDto, AppError> {
@@ -209,7 +270,7 @@ async fn load_member(
     )
     .bind(household_id)
     .bind(id)
-    .fetch_optional(database)
+    .fetch_optional(&mut **tx)
     .await
     .map_err(|error| map_read_error("member.load_failed", error))?
     .ok_or_else(|| AppError::not_found("member", id))?;
@@ -217,11 +278,11 @@ async fn load_member(
 }
 
 async fn load_member_domain(
-    database: &SqlitePool,
+    tx: &mut Transaction<'_, Sqlite>,
     household_id: &str,
     id: &str,
 ) -> Result<Member, AppError> {
-    let dto = load_member(database, household_id, id).await?;
+    let dto = load_member(tx, household_id, id).await?;
     member_from_dto(household_id, dto)
 }
 
@@ -279,13 +340,15 @@ fn member_from_row(row: sqlx::sqlite::SqliteRow) -> Result<MemberRecordDto, AppE
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::{
         archive_member, create_member, list_members, restore_member, update_member,
-        CreateMemberInput, UpdateMemberInput,
+        CreateMemberInput, MemberRecordDto, UpdateMemberInput,
     };
     use crate::{
         error::{AppError, ErrorCode},
-        test_support::{blocked_future_state, cleanup, file_hash, onboarded_state},
+        test_support::{blocked_future_state, cleanup, file_hash, onboarded_state, UNKNOWN_UUID},
     };
 
     fn create_input(name: &str) -> CreateMemberInput {
@@ -293,6 +356,21 @@ mod tests {
             name: name.to_owned(),
             note: None,
         }
+    }
+
+    async fn load_member(state: &crate::state::AppState, id: &str) -> MemberRecordDto {
+        list_members(state, true)
+            .await
+            .expect("list should succeed")
+            .into_iter()
+            .find(|member| member.id == id)
+            .expect("member should exist")
+    }
+
+    async fn all_members(state: &crate::state::AppState) -> Vec<MemberRecordDto> {
+        list_members(state, true)
+            .await
+            .expect("list should succeed")
     }
 
     #[test]
@@ -384,6 +462,34 @@ mod tests {
     }
 
     #[test]
+    fn invalid_update_leaves_row_unchanged() {
+        tauri::async_runtime::block_on(async {
+            let (state, path) = onboarded_state("members-invalid-update").await;
+            let listed = list_members(&state, false)
+                .await
+                .expect("list should succeed");
+            let target = listed[0].clone();
+            let before = target.clone();
+            let error = update_member(
+                &state,
+                UpdateMemberInput {
+                    id: target.id.clone(),
+                    name: "   ".to_owned(),
+                    note: Some("changed".to_owned()),
+                },
+            )
+            .await
+            .expect_err("blank name should fail");
+            assert!(matches!(
+                error,
+                AppError::Validation { field, .. } if field == "name"
+            ));
+            assert_eq!(load_member(&state, &target.id).await, before);
+            cleanup(&path);
+        });
+    }
+
+    #[test]
     fn rejects_archiving_the_last_active_member() {
         tauri::async_runtime::block_on(async {
             let (state, path) = onboarded_state("members-last").await;
@@ -393,7 +499,12 @@ mod tests {
             archive_member(&state, &listed[1].id)
                 .await
                 .expect("archiving a spare member should succeed");
-            let error = archive_member(&state, &listed[0].id)
+            let remaining = list_members(&state, false)
+                .await
+                .expect("active list should succeed");
+            assert_eq!(remaining.len(), 1);
+            let before = remaining[0].clone();
+            let error = archive_member(&state, &remaining[0].id)
                 .await
                 .expect_err("last active member must remain");
             assert!(matches!(error, AppError::Conflict { .. }));
@@ -402,22 +513,112 @@ mod tests {
                 .await
                 .expect("active list should succeed");
             assert_eq!(active.len(), 1);
-            assert_eq!(active[0].id, listed[0].id);
+            assert_eq!(active[0].id, remaining[0].id);
+            assert_eq!(active[0], before);
             cleanup(&path);
         });
     }
 
     #[test]
-    fn unknown_member_is_not_found() {
+    fn concurrent_archives_cannot_remove_the_last_active_member() {
+        tauri::async_runtime::block_on(async {
+            let (state, path) = onboarded_state("members-archive-race").await;
+            let listed = list_members(&state, false)
+                .await
+                .expect("list should succeed");
+            assert_eq!(listed.len(), 2);
+            let state = Arc::new(state);
+            let first = listed[0].id.clone();
+            let second = listed[1].id.clone();
+            let left_state = Arc::clone(&state);
+            let right_state = Arc::clone(&state);
+            let left =
+                tauri::async_runtime::spawn(
+                    async move { archive_member(&left_state, &first).await },
+                );
+            let right =
+                tauri::async_runtime::spawn(
+                    async move { archive_member(&right_state, &second).await },
+                );
+            let left = left.await.expect("left archive task");
+            let right = right.await.expect("right archive task");
+            let outcomes = [left, right];
+            let successes = outcomes.iter().filter(|result| result.is_ok()).count();
+            let conflicts = outcomes
+                .iter()
+                .filter(|result| matches!(result, Err(AppError::Conflict { .. })))
+                .count();
+            assert_eq!(successes, 1);
+            assert_eq!(conflicts, 1);
+            let active = list_members(&state, false)
+                .await
+                .expect("active list should succeed");
+            assert_eq!(active.len(), 1);
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn unknown_member_mutations_are_not_found_and_write_nothing() {
         tauri::async_runtime::block_on(async {
             let (state, path) = onboarded_state("members-missing").await;
-            let error = archive_member(&state, "00000000-0000-7000-8000-000000000001")
+            let before = all_members(&state).await;
+            let error = update_member(
+                &state,
+                UpdateMemberInput {
+                    id: UNKNOWN_UUID.to_owned(),
+                    name: "Ghost".to_owned(),
+                    note: None,
+                },
+            )
+            .await
+            .expect_err("missing member should 404");
+            assert!(matches!(
+                error,
+                AppError::NotFound { entity, .. } if entity == "member"
+            ));
+            let error = archive_member(&state, UNKNOWN_UUID)
                 .await
                 .expect_err("missing member should 404");
             assert!(matches!(
                 error,
                 AppError::NotFound { entity, .. } if entity == "member"
             ));
+            let error = restore_member(&state, UNKNOWN_UUID)
+                .await
+                .expect_err("missing member should 404");
+            assert!(matches!(
+                error,
+                AppError::NotFound { entity, .. } if entity == "member"
+            ));
+            assert_eq!(all_members(&state).await, before);
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn archive_and_restore_are_idempotent_without_touching_updated_at() {
+        tauri::async_runtime::block_on(async {
+            let (state, path) = onboarded_state("members-idempotent").await;
+            let listed = list_members(&state, false)
+                .await
+                .expect("list should succeed");
+            let archived = archive_member(&state, &listed[1].id)
+                .await
+                .expect("archive should succeed");
+            let archived_again = archive_member(&state, &listed[1].id)
+                .await
+                .expect("second archive should succeed");
+            assert_eq!(archived_again, archived);
+
+            let restored = restore_member(&state, &listed[1].id)
+                .await
+                .expect("restore should succeed");
+            assert!(restored.archived_at.is_none());
+            let restored_again = restore_member(&state, &listed[1].id)
+                .await
+                .expect("second restore should succeed");
+            assert_eq!(restored_again, restored);
             cleanup(&path);
         });
     }
@@ -460,6 +661,25 @@ mod tests {
                     supported: 1
                 }
             ));
+            let error = update_member(
+                &state,
+                UpdateMemberInput {
+                    id: UNKNOWN_UUID.to_owned(),
+                    name: "Kid".to_owned(),
+                    note: None,
+                },
+            )
+            .await
+            .expect_err("blocked database must not accept updates");
+            assert!(matches!(error, AppError::UnsupportedNewerDatabase { .. }));
+            let error = archive_member(&state, UNKNOWN_UUID)
+                .await
+                .expect_err("blocked database must not accept archives");
+            assert!(matches!(error, AppError::UnsupportedNewerDatabase { .. }));
+            let error = restore_member(&state, UNKNOWN_UUID)
+                .await
+                .expect_err("blocked database must not accept restores");
+            assert!(matches!(error, AppError::UnsupportedNewerDatabase { .. }));
             assert_eq!(file_hash(&path), before_hash);
             cleanup(&path);
         });

@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use sqlx::Row;
+use sqlx::{Row, Sqlite, Transaction};
 
 use super::reference::{
-    map_read_error, map_write_error, next_sort_order, require_household_id, sort_order_i32,
-    SortTable,
+    begin_write_tx, finish_write_tx, map_read_error, map_write_error, next_sort_order,
+    require_household_id, require_household_id_tx, sort_order_i32, SortTable,
 };
 use crate::{
     domain::{
@@ -12,7 +12,6 @@ use crate::{
         PersistedInstitution, Timestamp,
     },
     error::AppError,
-    infrastructure::database::SqlitePool,
     state::AppState,
 };
 
@@ -37,7 +36,7 @@ pub struct UpdateInstitutionInput {
     pub note: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct InstitutionRecordDto {
     pub id: String,
@@ -85,8 +84,9 @@ pub async fn create_institution(
     input: CreateInstitutionInput,
 ) -> Result<InstitutionRecordDto, AppError> {
     let database = state.writable_db()?;
-    let household_id = require_household_id(database).await?;
-    persist_new_institution(database, &household_id, input).await
+    let mut tx = begin_write_tx(database).await?;
+    let result = create_institution_in_tx(&mut tx, input).await;
+    finish_write_tx(tx, result).await
 }
 
 pub async fn update_institution(
@@ -94,98 +94,38 @@ pub async fn update_institution(
     input: UpdateInstitutionInput,
 ) -> Result<InstitutionRecordDto, AppError> {
     let database = state.writable_db()?;
-    let household_id = require_household_id(database).await?;
-    let institution_id = InstitutionId::parse(&input.id)?;
-    let mut institution =
-        load_institution_domain(database, &household_id, &institution_id.to_string()).await?;
-    let mut update = NewInstitution::required(institution.household_id(), input.name);
-    update.institution_type = input.institution_type;
-    update.country_code = input.country_code;
-    update.website = input.website;
-    update.note = input.note;
-    update.sort_order = institution.sort_order();
-    institution.update(update, Timestamp::now())?;
-    sqlx::query(
-        "UPDATE institutions
-         SET name = ?, institution_type = ?, country_code = ?, website = ?, note = ?, updated_at = ?
-         WHERE id = ? AND household_id = ?",
-    )
-    .bind(institution.name())
-    .bind(institution.institution_type())
-    .bind(institution.country_code())
-    .bind(institution.website())
-    .bind(institution.note())
-    .bind(institution.updated_at().to_rfc3339())
-    .bind(institution.id().to_string())
-    .bind(&household_id)
-    .execute(database)
-    .await
-    .map_err(|error| map_write_error("institution.update_failed", error))?;
-    load_institution(database, &household_id, &institution.id().to_string()).await
+    let mut tx = begin_write_tx(database).await?;
+    let result = update_institution_in_tx(&mut tx, input).await;
+    finish_write_tx(tx, result).await
 }
 
 pub async fn archive_institution(
     state: &AppState,
     id: &str,
 ) -> Result<InstitutionRecordDto, AppError> {
-    mutate_archive(state, id, true).await
+    let database = state.writable_db()?;
+    let mut tx = begin_write_tx(database).await?;
+    let result = mutate_archive_in_tx(&mut tx, id, true).await;
+    finish_write_tx(tx, result).await
 }
 
 pub async fn restore_institution(
     state: &AppState,
     id: &str,
 ) -> Result<InstitutionRecordDto, AppError> {
-    mutate_archive(state, id, false).await
-}
-
-async fn mutate_archive(
-    state: &AppState,
-    id: &str,
-    archive: bool,
-) -> Result<InstitutionRecordDto, AppError> {
     let database = state.writable_db()?;
-    let household_id = require_household_id(database).await?;
-    let institution_id = InstitutionId::parse(id)?;
-    let mut institution =
-        load_institution_domain(database, &household_id, &institution_id.to_string()).await?;
-    if archive && !institution.is_archived() {
-        institution.archive(Timestamp::now());
-        sqlx::query(
-            "UPDATE institutions SET archived_at = ?, updated_at = ? WHERE id = ? AND household_id = ?",
-        )
-        .bind(institution.archived_at().map(Timestamp::to_rfc3339))
-        .bind(institution.updated_at().to_rfc3339())
-        .bind(institution.id().to_string())
-        .bind(&household_id)
-        .execute(database)
-        .await
-        .map_err(|error| map_write_error("institution.archive_failed", error))?;
-    } else if !archive && institution.is_archived() {
-        institution.restore(Timestamp::now());
-        sqlx::query(
-            "UPDATE institutions SET archived_at = NULL, updated_at = ? WHERE id = ? AND household_id = ?",
-        )
-        .bind(institution.updated_at().to_rfc3339())
-        .bind(institution.id().to_string())
-        .bind(&household_id)
-        .execute(database)
-        .await
-        .map_err(|error| map_write_error("institution.restore_failed", error))?;
-    }
-    load_institution(database, &household_id, &institution.id().to_string()).await
+    let mut tx = begin_write_tx(database).await?;
+    let result = mutate_archive_in_tx(&mut tx, id, false).await;
+    finish_write_tx(tx, result).await
 }
 
-async fn persist_new_institution(
-    database: &SqlitePool,
-    household_id: &str,
+async fn create_institution_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
     input: CreateInstitutionInput,
 ) -> Result<InstitutionRecordDto, AppError> {
-    let mut tx = database
-        .begin()
-        .await
-        .map_err(|error| map_write_error("institution.create_begin_failed", error))?;
-    let sort_order = next_sort_order(&mut tx, SortTable::Institutions, household_id).await?;
-    let household = HouseholdId::parse(household_id).map_err(|_| AppError::Internal)?;
+    let household_id = require_household_id_tx(tx).await?;
+    let sort_order = next_sort_order(tx, SortTable::Institutions, &household_id).await?;
+    let household = HouseholdId::parse(&household_id).map_err(|_| AppError::Internal)?;
     let mut new_institution = NewInstitution::required(household, input.name);
     new_institution.institution_type = input.institution_type;
     new_institution.country_code = input.country_code;
@@ -200,7 +140,7 @@ async fn persist_new_institution(
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(institution.id().to_string())
-    .bind(household_id)
+    .bind(&household_id)
     .bind(institution.name())
     .bind(institution.institution_type())
     .bind(institution.country_code())
@@ -210,22 +150,125 @@ async fn persist_new_institution(
     .bind(institution.sort_order())
     .bind(&timestamp)
     .bind(&timestamp)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await
     .map_err(|error| map_write_error("institution.create_failed", error))?;
-    tx.commit()
-        .await
-        .map_err(|error| map_write_error("institution.create_commit_failed", error))?;
     tracing::info!(
         event = "institution.create",
         institution_id = %institution.id(),
         "institution created"
     );
-    load_institution(database, household_id, &institution.id().to_string()).await
+    load_institution(tx, &household_id, &institution.id().to_string()).await
+}
+
+async fn update_institution_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    input: UpdateInstitutionInput,
+) -> Result<InstitutionRecordDto, AppError> {
+    let household_id = require_household_id_tx(tx).await?;
+    let institution_id = InstitutionId::parse(&input.id)?;
+    let mut institution =
+        load_institution_domain(tx, &household_id, &institution_id.to_string()).await?;
+    let mut update = NewInstitution::required(institution.household_id(), input.name);
+    update.institution_type = input.institution_type;
+    update.country_code = input.country_code;
+    update.website = input.website;
+    update.note = input.note;
+    update.sort_order = institution.sort_order();
+    institution.update(update, Timestamp::now())?;
+    let updated = sqlx::query(
+        "UPDATE institutions
+         SET name = ?, institution_type = ?, country_code = ?, website = ?, note = ?, updated_at = ?
+         WHERE id = ? AND household_id = ?",
+    )
+    .bind(institution.name())
+    .bind(institution.institution_type())
+    .bind(institution.country_code())
+    .bind(institution.website())
+    .bind(institution.note())
+    .bind(institution.updated_at().to_rfc3339())
+    .bind(institution.id().to_string())
+    .bind(&household_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|error| map_write_error("institution.update_failed", error))?;
+    if updated.rows_affected() != 1 {
+        return Err(AppError::not_found(
+            "institution",
+            &institution.id().to_string(),
+        ));
+    }
+    load_institution(tx, &household_id, &institution.id().to_string()).await
+}
+
+async fn mutate_archive_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    id: &str,
+    archive: bool,
+) -> Result<InstitutionRecordDto, AppError> {
+    let household_id = require_household_id_tx(tx).await?;
+    let institution_id = InstitutionId::parse(id)?;
+    let current = load_institution(tx, &household_id, &institution_id.to_string()).await?;
+    if archive && current.archived_at.is_some() {
+        return Ok(current);
+    }
+    if !archive && current.archived_at.is_none() {
+        return Ok(current);
+    }
+    let mut institution = institution_from_dto(&household_id, current)?;
+    if archive {
+        institution.archive(Timestamp::now());
+        let updated = sqlx::query(
+            "UPDATE institutions
+             SET archived_at = ?, updated_at = ?
+             WHERE id = ? AND household_id = ? AND archived_at IS NULL",
+        )
+        .bind(institution.archived_at().map(Timestamp::to_rfc3339))
+        .bind(institution.updated_at().to_rfc3339())
+        .bind(institution.id().to_string())
+        .bind(&household_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(|error| map_write_error("institution.archive_failed", error))?;
+        if updated.rows_affected() != 1 {
+            let latest = load_institution(tx, &household_id, &institution.id().to_string()).await?;
+            if latest.archived_at.is_some() {
+                return Ok(latest);
+            }
+            return Err(AppError::not_found(
+                "institution",
+                &institution.id().to_string(),
+            ));
+        }
+    } else {
+        institution.restore(Timestamp::now());
+        let updated = sqlx::query(
+            "UPDATE institutions
+             SET archived_at = NULL, updated_at = ?
+             WHERE id = ? AND household_id = ? AND archived_at IS NOT NULL",
+        )
+        .bind(institution.updated_at().to_rfc3339())
+        .bind(institution.id().to_string())
+        .bind(&household_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(|error| map_write_error("institution.restore_failed", error))?;
+        if updated.rows_affected() != 1 {
+            let latest = load_institution(tx, &household_id, &institution.id().to_string()).await?;
+            if latest.archived_at.is_none() {
+                return Ok(latest);
+            }
+            return Err(AppError::not_found(
+                "institution",
+                &institution.id().to_string(),
+            ));
+        }
+    }
+    load_institution(tx, &household_id, &institution.id().to_string()).await
 }
 
 async fn load_institution(
-    database: &SqlitePool,
+    tx: &mut Transaction<'_, Sqlite>,
     household_id: &str,
     id: &str,
 ) -> Result<InstitutionRecordDto, AppError> {
@@ -235,7 +278,7 @@ async fn load_institution(
     )
     .bind(household_id)
     .bind(id)
-    .fetch_optional(database)
+    .fetch_optional(&mut **tx)
     .await
     .map_err(|error| map_read_error("institution.load_failed", error))?
     .ok_or_else(|| AppError::not_found("institution", id))?;
@@ -243,11 +286,11 @@ async fn load_institution(
 }
 
 async fn load_institution_domain(
-    database: &SqlitePool,
+    tx: &mut Transaction<'_, Sqlite>,
     household_id: &str,
     id: &str,
 ) -> Result<Institution, AppError> {
-    let dto = load_institution(database, household_id, id).await?;
+    let dto = load_institution(tx, household_id, id).await?;
     institution_from_dto(household_id, dto)
 }
 
@@ -322,11 +365,11 @@ fn institution_from_row(row: sqlx::sqlite::SqliteRow) -> Result<InstitutionRecor
 mod tests {
     use super::{
         archive_institution, create_institution, list_institutions, restore_institution,
-        update_institution, CreateInstitutionInput, UpdateInstitutionInput,
+        update_institution, CreateInstitutionInput, InstitutionRecordDto, UpdateInstitutionInput,
     };
     use crate::{
         error::AppError,
-        test_support::{blocked_future_state, cleanup, file_hash, onboarded_state},
+        test_support::{blocked_future_state, cleanup, file_hash, onboarded_state, UNKNOWN_UUID},
     };
 
     fn create_input(name: &str) -> CreateInstitutionInput {
@@ -337,6 +380,12 @@ mod tests {
             website: Some("https://www.dbs.com".to_owned()),
             note: None,
         }
+    }
+
+    async fn all_institutions(state: &crate::state::AppState) -> Vec<InstitutionRecordDto> {
+        list_institutions(state, true)
+            .await
+            .expect("list should succeed")
     }
 
     #[test]
@@ -396,6 +445,109 @@ mod tests {
     }
 
     #[test]
+    fn invalid_update_leaves_row_unchanged() {
+        tauri::async_runtime::block_on(async {
+            let (state, path) = onboarded_state("institutions-invalid-update").await;
+            let created = create_institution(&state, create_input("DBS"))
+                .await
+                .expect("create should succeed");
+            let before = created.clone();
+            let error = update_institution(
+                &state,
+                UpdateInstitutionInput {
+                    id: created.id.clone(),
+                    name: "DBS Bank".to_owned(),
+                    institution_type: Some("bank".to_owned()),
+                    country_code: Some("sg".to_owned()),
+                    website: None,
+                    note: Some("changed".to_owned()),
+                },
+            )
+            .await
+            .expect_err("lowercase country code should fail");
+            assert!(matches!(
+                error,
+                AppError::Validation { field, .. } if field == "countryCode"
+            ));
+            let listed = list_institutions(&state, true)
+                .await
+                .expect("list should succeed");
+            assert_eq!(listed[0], before);
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn unknown_institution_mutations_are_not_found_and_write_nothing() {
+        tauri::async_runtime::block_on(async {
+            let (state, path) = onboarded_state("institutions-missing").await;
+            let created = create_institution(&state, create_input("DBS"))
+                .await
+                .expect("create should succeed");
+            let _ = created;
+            let before = all_institutions(&state).await;
+            let error = update_institution(
+                &state,
+                UpdateInstitutionInput {
+                    id: UNKNOWN_UUID.to_owned(),
+                    name: "Ghost".to_owned(),
+                    institution_type: None,
+                    country_code: None,
+                    website: None,
+                    note: None,
+                },
+            )
+            .await
+            .expect_err("missing institution should 404");
+            assert!(matches!(
+                error,
+                AppError::NotFound { entity, .. } if entity == "institution"
+            ));
+            let error = archive_institution(&state, UNKNOWN_UUID)
+                .await
+                .expect_err("missing institution should 404");
+            assert!(matches!(
+                error,
+                AppError::NotFound { entity, .. } if entity == "institution"
+            ));
+            let error = restore_institution(&state, UNKNOWN_UUID)
+                .await
+                .expect_err("missing institution should 404");
+            assert!(matches!(
+                error,
+                AppError::NotFound { entity, .. } if entity == "institution"
+            ));
+            assert_eq!(all_institutions(&state).await, before);
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn archive_and_restore_are_idempotent_without_touching_updated_at() {
+        tauri::async_runtime::block_on(async {
+            let (state, path) = onboarded_state("institutions-idempotent").await;
+            let created = create_institution(&state, create_input("DBS"))
+                .await
+                .expect("create should succeed");
+            let archived = archive_institution(&state, &created.id)
+                .await
+                .expect("archive should succeed");
+            let archived_again = archive_institution(&state, &created.id)
+                .await
+                .expect("second archive should succeed");
+            assert_eq!(archived_again, archived);
+            let restored = restore_institution(&state, &created.id)
+                .await
+                .expect("restore should succeed");
+            let restored_again = restore_institution(&state, &created.id)
+                .await
+                .expect("second restore should succeed");
+            assert_eq!(restored_again, restored);
+            cleanup(&path);
+        });
+    }
+
+    #[test]
     fn rejects_invalid_country_code_without_insert() {
         tauri::async_runtime::block_on(async {
             let (state, path) = onboarded_state("institutions-invalid").await;
@@ -430,6 +582,28 @@ mod tests {
                     supported: 1
                 }
             ));
+            let error = update_institution(
+                &state,
+                UpdateInstitutionInput {
+                    id: UNKNOWN_UUID.to_owned(),
+                    name: "DBS".to_owned(),
+                    institution_type: None,
+                    country_code: None,
+                    website: None,
+                    note: None,
+                },
+            )
+            .await
+            .expect_err("blocked database must not accept updates");
+            assert!(matches!(error, AppError::UnsupportedNewerDatabase { .. }));
+            let error = archive_institution(&state, UNKNOWN_UUID)
+                .await
+                .expect_err("blocked database must not accept archives");
+            assert!(matches!(error, AppError::UnsupportedNewerDatabase { .. }));
+            let error = restore_institution(&state, UNKNOWN_UUID)
+                .await
+                .expect_err("blocked database must not accept restores");
+            assert!(matches!(error, AppError::UnsupportedNewerDatabase { .. }));
             assert_eq!(file_hash(&path), before_hash);
             cleanup(&path);
         });

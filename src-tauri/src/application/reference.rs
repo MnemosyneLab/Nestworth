@@ -31,6 +31,47 @@ pub async fn require_household_id(database: &SqlitePool) -> Result<String, AppEr
         .ok_or_else(|| AppError::not_found("household", "current"))
 }
 
+pub async fn require_household_id_tx(tx: &mut Transaction<'_, Sqlite>) -> Result<String, AppError> {
+    sqlx::query_scalar::<_, String>("SELECT id FROM households ORDER BY created_at, id LIMIT 1")
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(|error| map_read_error("reference.household_load_failed", error))?
+        .ok_or_else(|| AppError::not_found("household", "current"))
+}
+
+pub async fn begin_write_tx(
+    database: &SqlitePool,
+) -> Result<Transaction<'static, Sqlite>, AppError> {
+    database
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|error| map_write_error("reference.begin_failed", error))
+}
+
+pub async fn finish_write_tx<T>(
+    tx: Transaction<'static, Sqlite>,
+    result: Result<T, AppError>,
+) -> Result<T, AppError> {
+    match result {
+        Ok(value) => {
+            tx.commit()
+                .await
+                .map_err(|error| map_write_error("reference.commit_failed", error))?;
+            Ok(value)
+        }
+        Err(error) => {
+            if let Err(rollback_error) = tx.rollback().await {
+                tracing::error!(
+                    event = "reference.rollback_failed",
+                    error = ?rollback_error,
+                    "failed to roll back reference mutation"
+                );
+            }
+            Err(error)
+        }
+    }
+}
+
 pub async fn next_sort_order(
     tx: &mut Transaction<'_, Sqlite>,
     table: SortTable,

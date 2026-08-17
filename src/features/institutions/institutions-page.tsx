@@ -12,6 +12,8 @@ import {
   type InstitutionFormValues,
 } from "@/features/institutions/schema";
 import {
+  applyServerFieldErrors,
+  applyZodIssues,
   FieldError,
   translateReferenceError,
 } from "@/features/references/form-helpers";
@@ -200,19 +202,13 @@ function InstitutionEditor({
     onError: (error) => {
       const commandError = commandErrorFromUnknown(error);
       setServerError(commandError);
-      if (commandError.fields) {
-        for (const [field, message] of Object.entries(commandError.fields)) {
-          if (
-            field === "name" ||
-            field === "institutionType" ||
-            field === "countryCode" ||
-            field === "website" ||
-            field === "note"
-          ) {
-            form.setError(field, { type: "server", message });
-          }
-        }
-      }
+      applyServerFieldErrors(form, commandError.fields, [
+        "name",
+        "institutionType",
+        "countryCode",
+        "website",
+        "note",
+      ]);
     },
   });
 
@@ -226,22 +222,17 @@ function InstitutionEditor({
           countryCode: values.countryCode.trim().toUpperCase(),
         });
         if (!parsed.success) {
-          for (const issue of parsed.error.issues) {
-            const name = issue.path[0];
-            if (
-              name === "name" ||
-              name === "institutionType" ||
-              name === "countryCode" ||
-              name === "website" ||
-              name === "note"
-            ) {
-              form.setError(name, { type: "zod", message: issue.message });
-            }
-          }
+          applyZodIssues(form, parsed.error.issues, [
+            "name",
+            "institutionType",
+            "countryCode",
+            "website",
+            "note",
+          ]);
           return;
         }
         setServerError(null);
-        void mutation.mutateAsync(parsed.data);
+        mutation.mutate(parsed.data);
       })}
     >
       {serverError ? (

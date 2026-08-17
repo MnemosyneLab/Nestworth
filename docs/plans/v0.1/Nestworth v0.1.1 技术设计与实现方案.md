@@ -4084,8 +4084,18 @@ Account 依赖这三个对象。
 Create / Read / Update
 Archive
 Restore
-Image/Icon
+Group 内置 Icon/Color（icon_key + #RRGGBB）
 ```
+
+DTO / schema 在本阶段保留：
+
+```text
+members.avatar_asset_id
+institutions.logo_asset_id
+account_groups.logo_asset_id
+```
+
+但不实现上传、文件选择、图片解码/裁剪或 Media Asset Command。这些属于 Phase 9。
 
 Frontend 页面：
 
@@ -4236,23 +4246,30 @@ Account Filter。
 完成：
 
 ```text
-Avatar
-
-Institution Logo
-
-Group Logo/Icon
-
+Member Avatar 上传
+Institution Logo 上传
+Group 自定义 Logo
 Account Logo
+Media Asset 读取、处理和持久化
 
 English
-
 简体中文
 
 System Theme
-
 Light
-
 Dark
+```
+
+Phase 5 已完成 Group 内置 Icon/Color。Phase 9 不再重复实现 `icon_key` / `#RRGGBB` 选择器，只补自定义 Logo 与二进制媒体管线。
+
+不要在本阶段之前加入：
+
+```text
+Media Asset Command
+文件选择
+图片解码/裁剪
+Avatar/Logo 上传
+新的 Capability permission
 ```
 
 ### Done
@@ -4596,21 +4613,22 @@ InstrumentQuote
 ## Member
 
 - Create / Read / Update
-- Avatar
+- Avatar（Phase 9 上传；Phase 5 仅保留 avatar_asset_id）
 - Archive
 - Restore
 
 ## Institution
 
 - Create / Read / Update
-- Logo
+- Logo（Phase 9 上传；Phase 5 仅保留 logo_asset_id）
 - Archive
 - Restore
 
 ## Group
 
 - Create / Read / Update
-- Icon / Logo
+- 内置 Icon/Color（Phase 5：icon_key + #RRGGBB）
+- 自定义 Logo（Phase 9 上传；Phase 5 仅保留 logo_asset_id）
 - Archive
 - Restore
 

@@ -23,6 +23,8 @@ import {
   type GroupFormValues,
 } from "@/features/groups/schema";
 import {
+  applyServerFieldErrors,
+  applyZodIssues,
   FieldError,
   translateReferenceError,
 } from "@/features/references/form-helpers";
@@ -240,12 +242,12 @@ function GroupEditor({
     onError: (error) => {
       const commandError = commandErrorFromUnknown(error);
       setServerError(commandError);
-      if (commandError.fields?.name) {
-        form.setError("name", { type: "server", message: commandError.fields.name });
-      }
-      if (commandError.fields?.color) {
-        form.setError("color", { type: "server", message: commandError.fields.color });
-      }
+      applyServerFieldErrors(form, commandError.fields, [
+        "name",
+        "iconKey",
+        "color",
+        "description",
+      ]);
     },
   });
 
@@ -256,21 +258,16 @@ function GroupEditor({
       onSubmit={form.handleSubmit((values) => {
         const parsed = groupSchema.safeParse(values);
         if (!parsed.success) {
-          for (const issue of parsed.error.issues) {
-            const name = issue.path[0];
-            if (
-              name === "name" ||
-              name === "iconKey" ||
-              name === "color" ||
-              name === "description"
-            ) {
-              form.setError(name, { type: "zod", message: issue.message });
-            }
-          }
+          applyZodIssues(form, parsed.error.issues, [
+            "name",
+            "iconKey",
+            "color",
+            "description",
+          ]);
           return;
         }
         setServerError(null);
-        void mutation.mutateAsync(parsed.data);
+        mutation.mutate(parsed.data);
       })}
     >
       {serverError ? (

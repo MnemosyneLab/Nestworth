@@ -12,6 +12,8 @@ import {
   type MemberFormValues,
 } from "@/features/members/schema";
 import {
+  applyServerFieldErrors,
+  applyZodIssues,
   FieldError,
   translateReferenceError,
 } from "@/features/references/form-helpers";
@@ -185,9 +187,7 @@ function MemberEditor({
     onError: (error) => {
       const commandError = commandErrorFromUnknown(error);
       setServerError(commandError);
-      if (commandError.fields?.name) {
-        form.setError("name", { type: "server", message: commandError.fields.name });
-      }
+      applyServerFieldErrors(form, commandError.fields, ["name", "note"]);
     },
   });
 
@@ -198,16 +198,11 @@ function MemberEditor({
       onSubmit={form.handleSubmit((values) => {
         const parsed = memberSchema.safeParse(values);
         if (!parsed.success) {
-          for (const issue of parsed.error.issues) {
-            const name = issue.path[0];
-            if (name === "name" || name === "note") {
-              form.setError(name, { type: "zod", message: issue.message });
-            }
-          }
+          applyZodIssues(form, parsed.error.issues, ["name", "note"]);
           return;
         }
         setServerError(null);
-        void mutation.mutateAsync(parsed.data);
+        mutation.mutate(parsed.data);
       })}
     >
       {serverError ? (

@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use sqlx::Row;
+use sqlx::{Row, Sqlite, Transaction};
 
 use super::reference::{
-    map_read_error, map_write_error, next_sort_order, require_household_id, sort_order_i32,
-    SortTable,
+    begin_write_tx, finish_write_tx, map_read_error, map_write_error, next_sort_order,
+    require_household_id, require_household_id_tx, sort_order_i32, SortTable,
 };
 use crate::{
     domain::{
@@ -12,7 +12,6 @@ use crate::{
         PersistedAccountGroup, Timestamp,
     },
     error::AppError,
-    infrastructure::database::SqlitePool,
     state::AppState,
 };
 
@@ -35,7 +34,7 @@ pub struct UpdateGroupInput {
     pub description: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct GroupRecordDto {
     pub id: String,
@@ -82,8 +81,9 @@ pub async fn create_group(
     input: CreateGroupInput,
 ) -> Result<GroupRecordDto, AppError> {
     let database = state.writable_db()?;
-    let household_id = require_household_id(database).await?;
-    persist_new_group(database, &household_id, input).await
+    let mut tx = begin_write_tx(database).await?;
+    let result = create_group_in_tx(&mut tx, input).await;
+    finish_write_tx(tx, result).await
 }
 
 pub async fn update_group(
@@ -91,88 +91,32 @@ pub async fn update_group(
     input: UpdateGroupInput,
 ) -> Result<GroupRecordDto, AppError> {
     let database = state.writable_db()?;
-    let household_id = require_household_id(database).await?;
-    let group_id = AccountGroupId::parse(&input.id)?;
-    let mut group = load_group_domain(database, &household_id, &group_id.to_string()).await?;
-    let mut update = NewAccountGroup::required(group.household_id(), input.name);
-    update.icon_key = input.icon_key;
-    update.color = input.color;
-    update.description = input.description;
-    update.sort_order = group.sort_order();
-    group.update(update, Timestamp::now())?;
-    sqlx::query(
-        "UPDATE account_groups
-         SET name = ?, icon_key = ?, color = ?, description = ?, updated_at = ?
-         WHERE id = ? AND household_id = ?",
-    )
-    .bind(group.name())
-    .bind(group.icon_key())
-    .bind(group.color())
-    .bind(group.description())
-    .bind(group.updated_at().to_rfc3339())
-    .bind(group.id().to_string())
-    .bind(&household_id)
-    .execute(database)
-    .await
-    .map_err(|error| map_write_error("group.update_failed", error))?;
-    load_group(database, &household_id, &group.id().to_string()).await
+    let mut tx = begin_write_tx(database).await?;
+    let result = update_group_in_tx(&mut tx, input).await;
+    finish_write_tx(tx, result).await
 }
 
 pub async fn archive_group(state: &AppState, id: &str) -> Result<GroupRecordDto, AppError> {
-    mutate_archive(state, id, true).await
+    let database = state.writable_db()?;
+    let mut tx = begin_write_tx(database).await?;
+    let result = mutate_archive_in_tx(&mut tx, id, true).await;
+    finish_write_tx(tx, result).await
 }
 
 pub async fn restore_group(state: &AppState, id: &str) -> Result<GroupRecordDto, AppError> {
-    mutate_archive(state, id, false).await
-}
-
-async fn mutate_archive(
-    state: &AppState,
-    id: &str,
-    archive: bool,
-) -> Result<GroupRecordDto, AppError> {
     let database = state.writable_db()?;
-    let household_id = require_household_id(database).await?;
-    let group_id = AccountGroupId::parse(id)?;
-    let mut group = load_group_domain(database, &household_id, &group_id.to_string()).await?;
-    if archive && !group.is_archived() {
-        group.archive(Timestamp::now());
-        sqlx::query(
-            "UPDATE account_groups SET archived_at = ?, updated_at = ? WHERE id = ? AND household_id = ?",
-        )
-        .bind(group.archived_at().map(Timestamp::to_rfc3339))
-        .bind(group.updated_at().to_rfc3339())
-        .bind(group.id().to_string())
-        .bind(&household_id)
-        .execute(database)
-        .await
-        .map_err(|error| map_write_error("group.archive_failed", error))?;
-    } else if !archive && group.is_archived() {
-        group.restore(Timestamp::now());
-        sqlx::query(
-            "UPDATE account_groups SET archived_at = NULL, updated_at = ? WHERE id = ? AND household_id = ?",
-        )
-        .bind(group.updated_at().to_rfc3339())
-        .bind(group.id().to_string())
-        .bind(&household_id)
-        .execute(database)
-        .await
-        .map_err(|error| map_write_error("group.restore_failed", error))?;
-    }
-    load_group(database, &household_id, &group.id().to_string()).await
+    let mut tx = begin_write_tx(database).await?;
+    let result = mutate_archive_in_tx(&mut tx, id, false).await;
+    finish_write_tx(tx, result).await
 }
 
-async fn persist_new_group(
-    database: &SqlitePool,
-    household_id: &str,
+async fn create_group_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
     input: CreateGroupInput,
 ) -> Result<GroupRecordDto, AppError> {
-    let mut tx = database
-        .begin()
-        .await
-        .map_err(|error| map_write_error("group.create_begin_failed", error))?;
-    let sort_order = next_sort_order(&mut tx, SortTable::AccountGroups, household_id).await?;
-    let household = HouseholdId::parse(household_id).map_err(|_| AppError::Internal)?;
+    let household_id = require_household_id_tx(tx).await?;
+    let sort_order = next_sort_order(tx, SortTable::AccountGroups, &household_id).await?;
+    let household = HouseholdId::parse(&household_id).map_err(|_| AppError::Internal)?;
     let mut new_group = NewAccountGroup::required(household, input.name);
     new_group.icon_key = input.icon_key;
     new_group.color = input.color;
@@ -186,7 +130,7 @@ async fn persist_new_group(
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(group.id().to_string())
-    .bind(household_id)
+    .bind(&household_id)
     .bind(group.name())
     .bind(group.icon_key())
     .bind(group.color())
@@ -195,18 +139,109 @@ async fn persist_new_group(
     .bind(group.sort_order())
     .bind(&timestamp)
     .bind(&timestamp)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await
     .map_err(|error| map_write_error("group.create_failed", error))?;
-    tx.commit()
-        .await
-        .map_err(|error| map_write_error("group.create_commit_failed", error))?;
     tracing::info!(event = "group.create", group_id = %group.id(), "group created");
-    load_group(database, household_id, &group.id().to_string()).await
+    load_group(tx, &household_id, &group.id().to_string()).await
+}
+
+async fn update_group_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    input: UpdateGroupInput,
+) -> Result<GroupRecordDto, AppError> {
+    let household_id = require_household_id_tx(tx).await?;
+    let group_id = AccountGroupId::parse(&input.id)?;
+    let mut group = load_group_domain(tx, &household_id, &group_id.to_string()).await?;
+    let mut update = NewAccountGroup::required(group.household_id(), input.name);
+    update.icon_key = input.icon_key;
+    update.color = input.color;
+    update.description = input.description;
+    update.sort_order = group.sort_order();
+    group.update(update, Timestamp::now())?;
+    let updated = sqlx::query(
+        "UPDATE account_groups
+         SET name = ?, icon_key = ?, color = ?, description = ?, updated_at = ?
+         WHERE id = ? AND household_id = ?",
+    )
+    .bind(group.name())
+    .bind(group.icon_key())
+    .bind(group.color())
+    .bind(group.description())
+    .bind(group.updated_at().to_rfc3339())
+    .bind(group.id().to_string())
+    .bind(&household_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|error| map_write_error("group.update_failed", error))?;
+    if updated.rows_affected() != 1 {
+        return Err(AppError::not_found("group", &group.id().to_string()));
+    }
+    load_group(tx, &household_id, &group.id().to_string()).await
+}
+
+async fn mutate_archive_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    id: &str,
+    archive: bool,
+) -> Result<GroupRecordDto, AppError> {
+    let household_id = require_household_id_tx(tx).await?;
+    let group_id = AccountGroupId::parse(id)?;
+    let current = load_group(tx, &household_id, &group_id.to_string()).await?;
+    if archive && current.archived_at.is_some() {
+        return Ok(current);
+    }
+    if !archive && current.archived_at.is_none() {
+        return Ok(current);
+    }
+    let mut group = group_from_dto(&household_id, current)?;
+    if archive {
+        group.archive(Timestamp::now());
+        let updated = sqlx::query(
+            "UPDATE account_groups
+             SET archived_at = ?, updated_at = ?
+             WHERE id = ? AND household_id = ? AND archived_at IS NULL",
+        )
+        .bind(group.archived_at().map(Timestamp::to_rfc3339))
+        .bind(group.updated_at().to_rfc3339())
+        .bind(group.id().to_string())
+        .bind(&household_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(|error| map_write_error("group.archive_failed", error))?;
+        if updated.rows_affected() != 1 {
+            let latest = load_group(tx, &household_id, &group.id().to_string()).await?;
+            if latest.archived_at.is_some() {
+                return Ok(latest);
+            }
+            return Err(AppError::not_found("group", &group.id().to_string()));
+        }
+    } else {
+        group.restore(Timestamp::now());
+        let updated = sqlx::query(
+            "UPDATE account_groups
+             SET archived_at = NULL, updated_at = ?
+             WHERE id = ? AND household_id = ? AND archived_at IS NOT NULL",
+        )
+        .bind(group.updated_at().to_rfc3339())
+        .bind(group.id().to_string())
+        .bind(&household_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(|error| map_write_error("group.restore_failed", error))?;
+        if updated.rows_affected() != 1 {
+            let latest = load_group(tx, &household_id, &group.id().to_string()).await?;
+            if latest.archived_at.is_none() {
+                return Ok(latest);
+            }
+            return Err(AppError::not_found("group", &group.id().to_string()));
+        }
+    }
+    load_group(tx, &household_id, &group.id().to_string()).await
 }
 
 async fn load_group(
-    database: &SqlitePool,
+    tx: &mut Transaction<'_, Sqlite>,
     household_id: &str,
     id: &str,
 ) -> Result<GroupRecordDto, AppError> {
@@ -216,7 +251,7 @@ async fn load_group(
     )
     .bind(household_id)
     .bind(id)
-    .fetch_optional(database)
+    .fetch_optional(&mut **tx)
     .await
     .map_err(|error| map_read_error("group.load_failed", error))?
     .ok_or_else(|| AppError::not_found("group", id))?;
@@ -224,11 +259,11 @@ async fn load_group(
 }
 
 async fn load_group_domain(
-    database: &SqlitePool,
+    tx: &mut Transaction<'_, Sqlite>,
     household_id: &str,
     id: &str,
 ) -> Result<AccountGroup, AppError> {
-    let dto = load_group(database, household_id, id).await?;
+    let dto = load_group(tx, household_id, id).await?;
     group_from_dto(household_id, dto)
 }
 
@@ -296,11 +331,11 @@ fn group_from_row(row: sqlx::sqlite::SqliteRow) -> Result<GroupRecordDto, AppErr
 mod tests {
     use super::{
         archive_group, create_group, list_groups, restore_group, update_group, CreateGroupInput,
-        UpdateGroupInput,
+        GroupRecordDto, UpdateGroupInput,
     };
     use crate::{
         error::AppError,
-        test_support::{blocked_future_state, cleanup, file_hash, onboarded_state},
+        test_support::{blocked_future_state, cleanup, file_hash, onboarded_state, UNKNOWN_UUID},
     };
 
     fn create_input(name: &str) -> CreateGroupInput {
@@ -310,6 +345,10 @@ mod tests {
             color: Some("#2563eb".to_owned()),
             description: Some("cash buffer".to_owned()),
         }
+    }
+
+    async fn all_groups(state: &crate::state::AppState) -> Vec<GroupRecordDto> {
+        list_groups(state, true).await.expect("list should succeed")
     }
 
     #[test]
@@ -367,6 +406,107 @@ mod tests {
     }
 
     #[test]
+    fn invalid_update_leaves_row_unchanged() {
+        tauri::async_runtime::block_on(async {
+            let (state, path) = onboarded_state("groups-invalid-update").await;
+            let created = create_group(&state, create_input("Emergency"))
+                .await
+                .expect("create should succeed");
+            let before = created.clone();
+            let error = update_group(
+                &state,
+                UpdateGroupInput {
+                    id: created.id.clone(),
+                    name: "Buffer".to_owned(),
+                    icon_key: Some("wallet".to_owned()),
+                    color: Some("blue".to_owned()),
+                    description: Some("changed".to_owned()),
+                },
+            )
+            .await
+            .expect_err("invalid color should fail");
+            assert!(matches!(
+                error,
+                AppError::Validation { field, .. } if field == "color"
+            ));
+            let listed = list_groups(&state, true)
+                .await
+                .expect("list should succeed");
+            assert_eq!(listed[0], before);
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn unknown_group_mutations_are_not_found_and_write_nothing() {
+        tauri::async_runtime::block_on(async {
+            let (state, path) = onboarded_state("groups-missing").await;
+            let created = create_group(&state, create_input("Emergency"))
+                .await
+                .expect("create should succeed");
+            let _ = created;
+            let before = all_groups(&state).await;
+            let error = update_group(
+                &state,
+                UpdateGroupInput {
+                    id: UNKNOWN_UUID.to_owned(),
+                    name: "Ghost".to_owned(),
+                    icon_key: None,
+                    color: None,
+                    description: None,
+                },
+            )
+            .await
+            .expect_err("missing group should 404");
+            assert!(matches!(
+                error,
+                AppError::NotFound { entity, .. } if entity == "group"
+            ));
+            let error = archive_group(&state, UNKNOWN_UUID)
+                .await
+                .expect_err("missing group should 404");
+            assert!(matches!(
+                error,
+                AppError::NotFound { entity, .. } if entity == "group"
+            ));
+            let error = restore_group(&state, UNKNOWN_UUID)
+                .await
+                .expect_err("missing group should 404");
+            assert!(matches!(
+                error,
+                AppError::NotFound { entity, .. } if entity == "group"
+            ));
+            assert_eq!(all_groups(&state).await, before);
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn archive_and_restore_are_idempotent_without_touching_updated_at() {
+        tauri::async_runtime::block_on(async {
+            let (state, path) = onboarded_state("groups-idempotent").await;
+            let created = create_group(&state, create_input("Emergency"))
+                .await
+                .expect("create should succeed");
+            let archived = archive_group(&state, &created.id)
+                .await
+                .expect("archive should succeed");
+            let archived_again = archive_group(&state, &created.id)
+                .await
+                .expect("second archive should succeed");
+            assert_eq!(archived_again, archived);
+            let restored = restore_group(&state, &created.id)
+                .await
+                .expect("restore should succeed");
+            let restored_again = restore_group(&state, &created.id)
+                .await
+                .expect("second restore should succeed");
+            assert_eq!(restored_again, restored);
+            cleanup(&path);
+        });
+    }
+
+    #[test]
     fn rejects_invalid_color_without_insert() {
         tauri::async_runtime::block_on(async {
             let (state, path) = onboarded_state("groups-invalid").await;
@@ -398,6 +538,27 @@ mod tests {
                     supported: 1
                 }
             ));
+            let error = update_group(
+                &state,
+                UpdateGroupInput {
+                    id: UNKNOWN_UUID.to_owned(),
+                    name: "Emergency".to_owned(),
+                    icon_key: None,
+                    color: None,
+                    description: None,
+                },
+            )
+            .await
+            .expect_err("blocked database must not accept updates");
+            assert!(matches!(error, AppError::UnsupportedNewerDatabase { .. }));
+            let error = archive_group(&state, UNKNOWN_UUID)
+                .await
+                .expect_err("blocked database must not accept archives");
+            assert!(matches!(error, AppError::UnsupportedNewerDatabase { .. }));
+            let error = restore_group(&state, UNKNOWN_UUID)
+                .await
+                .expect_err("blocked database must not accept restores");
+            assert!(matches!(error, AppError::UnsupportedNewerDatabase { .. }));
             assert_eq!(file_hash(&path), before_hash);
             cleanup(&path);
         });
