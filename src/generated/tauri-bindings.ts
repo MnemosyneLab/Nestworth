@@ -5,7 +5,14 @@
 
 
 export const commands = {
-
+async bootstrap() : Promise<Result<BootstrapDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("bootstrap") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+}
 }
 
 /** user-defined events **/
@@ -18,7 +25,12 @@ export const commands = {
 
 /** user-defined types **/
 
-
+export type AppSettingsDto = { language: string; appearance: string; lastHouseholdId: string | null }
+export type BootstrapDto = { status: "ready"; onboardingRequired: boolean; settings: AppSettingsDto; household: HouseholdDto | null; members: MemberDto[] } | { status: "blocked"; error: CommandError; databasePath: string; foundMigration: number | null; supportedMigration: number | null }
+export type CommandError = { code: ErrorCode; message: string; fields: Partial<{ [key in string]: string }> | null }
+export type ErrorCode = "VALIDATION_ERROR" | "NOT_FOUND" | "CONFLICT" | "ALREADY_ONBOARDED" | "OWNERSHIP_TOTAL_INVALID" | "BASE_CURRENCY_CHANGE_NOT_ALLOWED" | "INVALID_CATEGORY" | "INVALID_MONEY" | "MEDIA_INVALID" | "DATABASE_ERROR" | "DATABASE_UNAVAILABLE" | "UNSUPPORTED_NEWER_DATABASE" | "MIGRATION_FAILED" | "INTERNAL_ERROR"
+export type HouseholdDto = { id: string; name: string; baseCurrency: string }
+export type MemberDto = { id: string; name: string }
 
 /** tauri-specta globals **/
 
