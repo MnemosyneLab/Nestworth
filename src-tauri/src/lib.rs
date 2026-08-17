@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use tauri::Manager;
 
 pub mod commands;
+pub mod domain;
 pub mod error;
 pub mod infrastructure;
 pub mod ipc;

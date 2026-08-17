@@ -6,8 +6,16 @@ use thiserror::Error;
 
 use crate::infrastructure::database_bootstrap::DatabaseBootstrapStatus;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum AppError {
+    #[error("validation failed for {field}")]
+    Validation { field: String, message: String },
+    #[error("ownership total is invalid")]
+    OwnershipTotalInvalid { actual_bps: i32 },
+    #[error("invalid category")]
+    InvalidCategory { message: String },
+    #[error("invalid money")]
+    InvalidMoney { message: String },
     #[error("database is unavailable")]
     DatabaseUnavailable,
     #[error("database migration failed")]
@@ -21,6 +29,25 @@ pub enum AppError {
 }
 
 impl AppError {
+    pub fn validation(field: &str, message: &str) -> Self {
+        Self::Validation {
+            field: field.to_owned(),
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn invalid_category(message: &str) -> Self {
+        Self::InvalidCategory {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn invalid_money(message: &str) -> Self {
+        Self::InvalidMoney {
+            message: message.to_owned(),
+        }
+    }
+
     pub fn from_bootstrap_status(status: &DatabaseBootstrapStatus) -> Self {
         match status {
             DatabaseBootstrapStatus::Ready | DatabaseBootstrapStatus::Migrated => Self::Internal,
@@ -38,6 +65,43 @@ impl AppError {
 
     pub fn into_command_error(self) -> CommandError {
         match self {
+            Self::Validation { field, message } => {
+                let mut fields = HashMap::new();
+                fields.insert(field, message.clone());
+                CommandError {
+                    code: ErrorCode::ValidationError,
+                    message,
+                    fields: Some(fields),
+                }
+            }
+            Self::OwnershipTotalInvalid { actual_bps } => {
+                let mut fields = HashMap::new();
+                fields.insert("actualBps".to_owned(), actual_bps.to_string());
+                fields.insert("expectedBps".to_owned(), "10000".to_owned());
+                CommandError {
+                    code: ErrorCode::OwnershipTotalInvalid,
+                    message: "Ownership shares must total 10000 basis points.".to_owned(),
+                    fields: Some(fields),
+                }
+            }
+            Self::InvalidCategory { message } => {
+                let mut fields = HashMap::new();
+                fields.insert("category".to_owned(), message);
+                CommandError {
+                    code: ErrorCode::InvalidCategory,
+                    message: "The account category is invalid.".to_owned(),
+                    fields: Some(fields),
+                }
+            }
+            Self::InvalidMoney { message } => {
+                let mut fields = HashMap::new();
+                fields.insert("amount".to_owned(), message);
+                CommandError {
+                    code: ErrorCode::InvalidMoney,
+                    message: "The amount is invalid.".to_owned(),
+                    fields: Some(fields),
+                }
+            }
             Self::DatabaseUnavailable => CommandError::new(
                 ErrorCode::DatabaseUnavailable,
                 "The database is unavailable.",
