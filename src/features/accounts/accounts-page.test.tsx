@@ -1,9 +1,11 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { router } from "@/app/router";
 import type {
   AccountRecordDto,
+  GroupRecordDto,
   InstitutionRecordDto,
 } from "@/generated/tauri-bindings";
 import { commands } from "@/generated/tauri-bindings";
@@ -11,6 +13,7 @@ import {
   accountRecord,
   commandError,
   deferred,
+  groupRecord,
   institutionRecord,
   renderReadyApp,
   resetApp,
@@ -41,7 +44,11 @@ describe("accounts page", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("CNY 100,000")).toBeInTheDocument();
     expect(screen.getByText("Bank Account")).toBeInTheDocument();
-    expect(screen.getByText("Walt")).toBeInTheDocument();
+    expect(
+      within(
+        screen.getByRole("heading", { name: "DBS Savings" }).closest("article")!,
+      ).getByText("Walt"),
+    ).toBeInTheDocument();
     expect(commands.createAccount).toHaveBeenCalledWith({
       name: "DBS Savings",
       primaryCategory: "cash_equivalent",
@@ -137,13 +144,105 @@ describe("accounts page", () => {
     expect(commands.createAccount).toHaveBeenCalledTimes(1);
     pending.resolve({ status: "ok", data: accountRecord("a-1", "DBS Savings") });
   });
+
+  it("nests All, member, and Shared links under Accounts", async () => {
+    await renderReadyApp();
+    const nav = screen.getByRole("navigation", { name: "Household" });
+    expect(within(nav).getByRole("link", { name: "Accounts" })).toBeInTheDocument();
+    expect(within(nav).getByRole("link", { name: "All" })).toBeInTheDocument();
+    expect(within(nav).getByRole("link", { name: "Walt" })).toBeInTheDocument();
+    expect(within(nav).getByRole("link", { name: "Spouse" })).toBeInTheDocument();
+    expect(within(nav).getByRole("link", { name: "Shared" })).toBeInTheDocument();
+  });
+
+  it("filters sole-owned and shared accounts from the sidebar", async () => {
+    const user = userEvent.setup();
+    mockAccountStore(householdAccounts());
+    await renderReadyApp();
+    await user.click(screen.getByRole("link", { name: "Walt" }));
+    expect(await screen.findByRole("heading", { name: "DBS Savings" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "WeChat" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Home" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("link", { name: "Shared" }));
+    expect(await screen.findByRole("heading", { name: "Home" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "DBS Savings" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "WeChat" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("link", { name: "All" }));
+    expect(await screen.findByRole("heading", { name: "DBS Savings" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "WeChat" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Home" })).toBeInTheDocument();
+  });
+
+  it("restores the owner view from the URL on refresh", async () => {
+    mockAccountStore(householdAccounts());
+    await renderReadyApp();
+    router.history.replace("/accounts?owner=m-1");
+    window.history.replaceState(null, "", "/accounts?owner=m-1");
+    expect(await screen.findByRole("heading", { name: "DBS Savings" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Home" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "WeChat" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Walt" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(window.location.search).toContain("owner=m-1");
+  });
+
+  it("filters by category and keeps the owner param", async () => {
+    const user = userEvent.setup();
+    mockAccountStore(householdAccounts());
+    await renderReadyApp();
+    await user.click(screen.getByRole("link", { name: "Shared" }));
+    await screen.findByRole("heading", { name: "Home" });
+    const filters = screen.getByRole("search", { name: "Account filters" });
+    await user.selectOptions(within(filters).getByLabelText("Category"), "property");
+    expect(screen.getByRole("heading", { name: "Home" })).toBeInTheDocument();
+    await user.selectOptions(
+      within(filters).getByLabelText("Category"),
+      "cash_equivalent",
+    );
+    expect(
+      await screen.findByText("No accounts match these filters."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Home" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Add account" }));
+    expect(screen.getByLabelText("Name")).toHaveFocus();
+  });
 });
+
+function householdAccounts(): AccountRecordDto[] {
+  return [
+    accountRecord("a-1", "DBS Savings"),
+    accountRecord("a-2", "WeChat", {
+      institutionId: null,
+      secondaryCategory: "digital_wallet",
+      latestValue: { amount: "10000", currency: "CNY" },
+      owners: [{ memberId: "m-2", memberName: "Spouse", shareBps: 10_000 }],
+    }),
+    accountRecord("a-3", "Home", {
+      primaryCategory: "property",
+      secondaryCategory: "real_estate",
+      institutionId: null,
+      groupId: "g-1",
+      latestValue: { amount: "4000000", currency: "CNY" },
+      owners: [
+        { memberId: "m-1", memberName: "Walt", shareBps: 5_000 },
+        { memberId: "m-2", memberName: "Spouse", shareBps: 5_000 },
+      ],
+    }),
+  ];
+}
 
 function mockAccountStore(accounts: AccountRecordDto[]) {
   const institutions: InstitutionRecordDto[] = [institutionRecord("i-1", "DBS")];
+  const groups: GroupRecordDto[] = [groupRecord("g-1", "Emergency")];
   vi.mocked(commands.listInstitutions).mockResolvedValue({
     status: "ok",
     data: institutions,
+  });
+  vi.mocked(commands.listGroups).mockResolvedValue({
+    status: "ok",
+    data: groups,
   });
   vi.mocked(commands.listAccounts).mockImplementation(async (input) => ({
     status: "ok",

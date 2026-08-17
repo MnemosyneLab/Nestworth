@@ -1,5 +1,6 @@
 import { createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
 
+import { validateAccountSearch } from "@/features/accounts/search";
 import { RootRoute } from "@/routes/__root";
 import { AccountsRoute } from "@/routes/accounts";
 import { AccountDetailRoute } from "@/routes/accounts-detail";
@@ -31,11 +32,13 @@ const accountsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/accounts",
   component: AccountsRoute,
+  validateSearch: validateAccountSearch,
 });
 const accountDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/accounts/$accountId",
   component: AccountDetailRoute,
+  validateSearch: validateAccountSearch,
 });
 const institutionsRoute = createRoute({
   getParentRoute: () => rootRoute,

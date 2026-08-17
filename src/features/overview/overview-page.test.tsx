@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { commands } from "@/generated/tauri-bindings";
@@ -86,10 +86,14 @@ describe("overview page", () => {
     expect(screen.getByText("CNY 1,000,000")).toBeInTheDocument();
     expect(screen.getByText("Cash equivalent")).toBeInTheDocument();
     expect(screen.getByText("CNY 110,000")).toBeInTheDocument();
-    expect(screen.getByText("Walt")).toBeInTheDocument();
-    expect(screen.getByText("CNY 1,600,000")).toBeInTheDocument();
-    expect(screen.getByText("Spouse")).toBeInTheDocument();
-    expect(screen.getByText("CNY 1,510,000")).toBeInTheDocument();
+    const byMember = screen
+      .getByRole("heading", { name: "By member" })
+      .closest("section");
+    expect(byMember).not.toBeNull();
+    expect(within(byMember!).getByText("Walt")).toBeInTheDocument();
+    expect(within(byMember!).getByText("CNY 1,600,000")).toBeInTheDocument();
+    expect(within(byMember!).getByText("Spouse")).toBeInTheDocument();
+    expect(within(byMember!).getByText("CNY 1,510,000")).toBeInTheDocument();
     expect(
       screen.queryByText("Your household balance sheet is empty."),
     ).not.toBeInTheDocument();

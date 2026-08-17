@@ -53,6 +53,8 @@
     "label": "Household",
     "overview": "Overview",
     "accounts": "Accounts",
+    "all": "All",
+    "shared": "Shared",
     "institutions": "Institutions",
     "groups": "Groups",
     "members": "Members"
@@ -116,6 +118,11 @@
   "accounts": {
     "title": "Accounts",
     "empty": "Add an account to start tracking net worth.",
+    "filterEmpty": "No accounts match these filters.",
+    "filters": "Account filters",
+    "allCategories": "All categories",
+    "allInstitutions": "All institutions",
+    "allGroups": "All groups",
     "add": "Add account",
     "open": "Open",
     "back": "Back to accounts",

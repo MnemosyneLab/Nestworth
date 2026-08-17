@@ -75,6 +75,7 @@ export function AccountDetailPage({ accountId }: { accountId: string }) {
       <main className="mx-auto max-w-3xl px-8 py-10">
         <Link
           className="text-sm text-muted-foreground hover:text-foreground"
+          search={(prev) => prev}
           to="/accounts"
         >
           {t("accounts.back")}
