@@ -16,6 +16,8 @@ pub enum AppError {
     InvalidCategory { message: String },
     #[error("invalid money")]
     InvalidMoney { message: String },
+    #[error("household is already onboarded")]
+    AlreadyOnboarded,
     #[error("database is unavailable")]
     DatabaseUnavailable,
     #[error("database migration failed")]
@@ -102,6 +104,10 @@ impl AppError {
                     fields: Some(fields),
                 }
             }
+            Self::AlreadyOnboarded => CommandError::new(
+                ErrorCode::AlreadyOnboarded,
+                "This household has already been set up.",
+            ),
             Self::DatabaseUnavailable => CommandError::new(
                 ErrorCode::DatabaseUnavailable,
                 "The database is unavailable.",
@@ -137,7 +143,7 @@ impl From<sqlx::Error> for AppError {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ErrorCode {
     ValidationError,

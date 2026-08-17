@@ -16,7 +16,12 @@ fn main() {
         .export(Typescript::default(), &temporary)
         .expect("failed to export TypeScript bindings");
 
-    let generated = fs::read(&temporary).expect("failed to read generated bindings");
+    let generated = {
+        let body = fs::read(&temporary).expect("failed to read generated bindings");
+        let mut prefixed = b"// @ts-nocheck\n".to_vec();
+        prefixed.extend(body);
+        prefixed
+    };
     let _ = fs::remove_file(&temporary);
 
     if check {

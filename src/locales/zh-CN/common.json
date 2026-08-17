@@ -1,8 +1,60 @@
 {
-  "foundation": {
-    "eyebrow": "项目基础",
-    "title": "Nestworth",
-    "description": "为家庭资产负债表建立可靠、清晰的基础。",
-    "action": "基础已就绪"
+  "onboarding": {
+    "eyebrow": "欢迎",
+    "title": "创建你的家庭",
+    "step": "第 {{current}} 步，共 {{total}} 步",
+    "householdName": "家庭名称",
+    "baseCurrency": "基础货币",
+    "customCurrency": "货币代码",
+    "members": "成员",
+    "memberName": "成员 {{number}}",
+    "addMember": "添加成员",
+    "remove": "删除",
+    "removeMember": "删除成员 {{number}}",
+    "review": "确认信息",
+    "back": "上一步",
+    "next": "下一步",
+    "finish": "完成",
+    "saving": "正在保存",
+    "currencies": {
+      "CNY": "CNY — 人民币",
+      "SGD": "SGD — 新加坡元",
+      "USD": "USD — 美元",
+      "other": "其他货币"
+    },
+    "errors": {
+      "required": "此项为必填。",
+      "tooLong": "最多 80 个字符。",
+      "currency": "请使用三个大写字母。",
+      "members": "至少添加一位成员。"
+    }
+  },
+  "overview": {
+    "eyebrow": "总览",
+    "baseCurrency": "基础货币 {{currency}}",
+    "empty": "还没有账户。你可以稍后添加。"
+  },
+  "startup": {
+    "eyebrow": "启动",
+    "title": "Nestworth 无法打开这个数据库",
+    "loading": "正在启动 Nestworth…",
+    "unsupportedVersion": "当前数据库迁移版本为 {{found}}，此应用支持 {{supported}}。",
+    "databasePath": "数据库路径：{{path}}"
+  },
+  "errors": {
+    "VALIDATION_ERROR": "请检查标出的字段。",
+    "NOT_FOUND": "找不到请求的内容。",
+    "CONFLICT": "此更改与当前数据冲突。",
+    "ALREADY_ONBOARDED": "这个家庭已经完成设置。",
+    "OWNERSHIP_TOTAL_INVALID": "所有权份额合计必须为 100%。",
+    "BASE_CURRENCY_CHANGE_NOT_ALLOWED": "不能修改基础货币。",
+    "INVALID_CATEGORY": "账户类别无效。",
+    "INVALID_MONEY": "金额无效。",
+    "MEDIA_INVALID": "所选图片无效。",
+    "DATABASE_ERROR": "数据库无法完成此操作。",
+    "DATABASE_UNAVAILABLE": "数据库不可用。",
+    "UNSUPPORTED_NEWER_DATABASE": "这个数据库由更新版本的 Nestworth 创建。",
+    "MIGRATION_FAILED": "数据库迁移失败。",
+    "INTERNAL_ERROR": "发生了内部错误。"
   }
 }

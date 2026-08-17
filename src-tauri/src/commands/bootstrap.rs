@@ -1,7 +1,6 @@
 use serde::Serialize;
 use specta::Type;
 use sqlx::Row;
-use tauri::State;
 
 use crate::{
     error::{AppError, CommandError},
@@ -52,12 +51,12 @@ pub enum BootstrapDto {
         supported_migration: Option<i32>,
     },
 }
-pub async fn bootstrap_impl(state: State<'_, AppState>) -> Result<BootstrapDto, CommandError> {
+pub async fn bootstrap_impl(state: &AppState) -> Result<BootstrapDto, CommandError> {
     if !state.is_writable() {
-        return Ok(blocked_dto(&state));
+        return Ok(blocked_dto(state));
     }
 
-    load_ready_dto(&state).await.map_err(CommandError::from)
+    load_ready_dto(state).await.map_err(CommandError::from)
 }
 
 fn blocked_dto(state: &AppState) -> BootstrapDto {

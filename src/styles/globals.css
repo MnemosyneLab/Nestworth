@@ -10,6 +10,7 @@
   --muted: #ececef;
   --muted-foreground: #6b6f76;
   --ring: #777d87;
+  --destructive: #b42318;
 }
 
 @theme inline {
@@ -22,6 +23,7 @@
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
   --color-ring: var(--ring);
+  --color-destructive: var(--destructive);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -35,6 +37,7 @@
     --muted: #2b2e32;
     --muted-foreground: #a4a8b0;
     --ring: #b8bec8;
+    --destructive: #f97066;
   }
 }
 

@@ -1,8 +1,60 @@
 {
-  "foundation": {
-    "eyebrow": "Project bootstrap",
-    "title": "Nestworth",
-    "description": "A calm foundation for your household balance sheet.",
-    "action": "Foundation ready"
+  "onboarding": {
+    "eyebrow": "Welcome",
+    "title": "Set up your household",
+    "step": "Step {{current}} of {{total}}",
+    "householdName": "Household name",
+    "baseCurrency": "Base currency",
+    "customCurrency": "Currency code",
+    "members": "Members",
+    "memberName": "Member {{number}}",
+    "addMember": "Add member",
+    "remove": "Remove",
+    "removeMember": "Remove member {{number}}",
+    "review": "Review",
+    "back": "Back",
+    "next": "Next",
+    "finish": "Finish",
+    "saving": "Saving",
+    "currencies": {
+      "CNY": "CNY — Chinese Yuan",
+      "SGD": "SGD — Singapore Dollar",
+      "USD": "USD — US Dollar",
+      "other": "Other currency"
+    },
+    "errors": {
+      "required": "This field is required.",
+      "tooLong": "Use 80 characters or fewer.",
+      "currency": "Use three uppercase letters.",
+      "members": "Add at least one member."
+    }
+  },
+  "overview": {
+    "eyebrow": "Overview",
+    "baseCurrency": "Base currency {{currency}}",
+    "empty": "No accounts yet. You can add them later."
+  },
+  "startup": {
+    "eyebrow": "Startup",
+    "title": "Nestworth cannot open this database",
+    "loading": "Starting Nestworth…",
+    "unsupportedVersion": "This database is at migration {{found}}, but this app supports {{supported}}.",
+    "databasePath": "Database path: {{path}}"
+  },
+  "errors": {
+    "VALIDATION_ERROR": "Please check the highlighted fields.",
+    "NOT_FOUND": "The requested item could not be found.",
+    "CONFLICT": "This change conflicts with the current data.",
+    "ALREADY_ONBOARDED": "This household has already been set up.",
+    "OWNERSHIP_TOTAL_INVALID": "Ownership shares must total 100%.",
+    "BASE_CURRENCY_CHANGE_NOT_ALLOWED": "The base currency cannot be changed.",
+    "INVALID_CATEGORY": "The account category is invalid.",
+    "INVALID_MONEY": "The amount is invalid.",
+    "MEDIA_INVALID": "The selected image is invalid.",
+    "DATABASE_ERROR": "The database could not complete this action.",
+    "DATABASE_UNAVAILABLE": "The database is unavailable.",
+    "UNSUPPORTED_NEWER_DATABASE": "This database was created by a newer version of Nestworth.",
+    "MIGRATION_FAILED": "Database migration failed.",
+    "INTERNAL_ERROR": "An internal application error occurred."
   }
 }
