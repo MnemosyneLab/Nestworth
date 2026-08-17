@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   basisPointsToPercent,
+  clampShareBps,
   categoryDefaults,
   equalSplitPercents,
   formatMoney,
@@ -42,6 +43,12 @@ describe("account schema helpers", () => {
       includeInInvestment: false,
       includeInLiquidAssets: true,
     });
+  });
+
+  it("clamps share basis points to 0..=10000", () => {
+    expect(clampShareBps(10_000)).toBe(10_000);
+    expect(clampShareBps(12_000)).toBe(10_000);
+    expect(clampShareBps(-5)).toBe(0);
   });
 
   it("formats money from canonical amount strings", () => {

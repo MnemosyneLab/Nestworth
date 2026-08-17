@@ -55,7 +55,33 @@ pub async fn list_groups(
 ) -> Result<Vec<GroupRecordDto>, AppError> {
     let database = state.writable_db()?;
     let household_id = require_household_id(database).await?;
-    let sql = if include_archived {
+    sqlx::query(list_groups_sql(include_archived))
+        .bind(&household_id)
+        .fetch_all(database)
+        .await
+        .map_err(|error| map_read_error("group.list_failed", error))?
+        .into_iter()
+        .map(group_from_row)
+        .collect()
+}
+
+pub(crate) async fn list_groups_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    include_archived: bool,
+) -> Result<Vec<GroupRecordDto>, AppError> {
+    sqlx::query(list_groups_sql(include_archived))
+        .bind(household_id)
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(|error| map_read_error("group.list_failed", error))?
+        .into_iter()
+        .map(group_from_row)
+        .collect()
+}
+
+fn list_groups_sql(include_archived: bool) -> &'static str {
+    if include_archived {
         "SELECT id, name, icon_key, color, description, logo_asset_id, sort_order, created_at, updated_at, archived_at
          FROM account_groups
          WHERE household_id = ?
@@ -65,15 +91,7 @@ pub async fn list_groups(
          FROM account_groups
          WHERE household_id = ? AND archived_at IS NULL
          ORDER BY sort_order ASC, name COLLATE NOCASE ASC, id ASC"
-    };
-    sqlx::query(sql)
-        .bind(&household_id)
-        .fetch_all(database)
-        .await
-        .map_err(|error| map_read_error("group.list_failed", error))?
-        .into_iter()
-        .map(group_from_row)
-        .collect()
+    }
 }
 
 pub async fn create_group(

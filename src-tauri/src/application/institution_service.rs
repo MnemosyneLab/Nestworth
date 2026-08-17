@@ -58,7 +58,33 @@ pub async fn list_institutions(
 ) -> Result<Vec<InstitutionRecordDto>, AppError> {
     let database = state.writable_db()?;
     let household_id = require_household_id(database).await?;
-    let sql = if include_archived {
+    sqlx::query(list_institutions_sql(include_archived))
+        .bind(&household_id)
+        .fetch_all(database)
+        .await
+        .map_err(|error| map_read_error("institution.list_failed", error))?
+        .into_iter()
+        .map(institution_from_row)
+        .collect()
+}
+
+pub(crate) async fn list_institutions_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    include_archived: bool,
+) -> Result<Vec<InstitutionRecordDto>, AppError> {
+    sqlx::query(list_institutions_sql(include_archived))
+        .bind(household_id)
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(|error| map_read_error("institution.list_failed", error))?
+        .into_iter()
+        .map(institution_from_row)
+        .collect()
+}
+
+fn list_institutions_sql(include_archived: bool) -> &'static str {
+    if include_archived {
         "SELECT id, name, institution_type, country_code, website, note, logo_asset_id, sort_order, created_at, updated_at, archived_at
          FROM institutions
          WHERE household_id = ?
@@ -68,15 +94,7 @@ pub async fn list_institutions(
          FROM institutions
          WHERE household_id = ? AND archived_at IS NULL
          ORDER BY sort_order ASC, name COLLATE NOCASE ASC, id ASC"
-    };
-    sqlx::query(sql)
-        .bind(&household_id)
-        .fetch_all(database)
-        .await
-        .map_err(|error| map_read_error("institution.list_failed", error))?
-        .into_iter()
-        .map(institution_from_row)
-        .collect()
+    }
 }
 
 pub async fn create_institution(

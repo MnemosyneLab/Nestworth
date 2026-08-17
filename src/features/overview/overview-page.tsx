@@ -3,7 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 
 import { AppShell } from "@/components/app-shell";
-import { basisPointsToPercent, formatMoney } from "@/features/accounts/schema";
+import { basisPointsToPercent, clampShareBps, formatMoney } from "@/features/accounts/schema";
 import type {
   BreakdownRowDto,
   HouseholdDto,
@@ -135,7 +135,8 @@ function BreakdownList({
       <ul className="mt-4 space-y-4">
         {rows.map((row) => {
           const label = labelFor(row);
-          const percent = `${basisPointsToPercent(row.shareBps)}%`;
+          const share = clampShareBps(row.shareBps);
+          const percent = `${basisPointsToPercent(share)}%`;
           return (
             <li key={`${row.key}:${row.id ?? "none"}`}>
               <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
@@ -149,13 +150,13 @@ function BreakdownList({
                 aria-label={`${label} ${percent}`}
                 aria-valuemax={10_000}
                 aria-valuemin={0}
-                aria-valuenow={row.shareBps}
+                aria-valuenow={share}
                 className="mt-2 h-2 overflow-hidden rounded-full bg-muted"
                 role="meter"
               >
                 <div
                   className="h-full rounded-full bg-primary"
-                  style={{ width: `${row.shareBps / 100}%` }}
+                  style={{ width: `${share / 100}%` }}
                 />
               </div>
             </li>

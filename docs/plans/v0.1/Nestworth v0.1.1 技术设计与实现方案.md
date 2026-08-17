@@ -878,6 +878,18 @@ v0.1.1 UI 不需要让普通用户选择 Tracking Mode。
 
 减少表单复杂度。
 
+v0.1.1 创建后 `tracking_mode` 不可修改。
+
+Update 提交与现有值相同的 tracking mode 可以成功。
+
+提交不同 tracking mode 返回 `VALIDATION_ERROR`。
+
+失败时 Account 和 Account Values 均保持不变。
+
+Category 修改仍必须符合当前 tracking mode 的 category policy。
+
+v0.1.1 不实现自动转换或历史 Value 重写。
+
 ---
 
 # 15. Liability Value 语义

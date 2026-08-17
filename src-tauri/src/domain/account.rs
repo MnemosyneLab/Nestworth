@@ -214,9 +214,16 @@ impl Account {
         input
             .secondary_category
             .require_primary(input.primary_category)?;
-        let tracking_mode = input
-            .tracking_mode
-            .unwrap_or_else(|| input.primary_category.default_tracking_mode());
+        let tracking_mode = match input.tracking_mode {
+            Some(mode) if mode != self.tracking_mode => {
+                return Err(AppError::validation(
+                    "trackingMode",
+                    "Tracking mode cannot be changed after an account is created.",
+                ));
+            }
+            Some(mode) => mode,
+            None => self.tracking_mode,
+        };
         tracking_mode.require_for_new_account(input.primary_category)?;
         if let (Some(opened_on), Some(closed_on)) = (input.opened_on, input.closed_on) {
             if closed_on < opened_on {
@@ -231,7 +238,6 @@ impl Account {
         self.name = parse_name(&input.name)?;
         self.primary_category = input.primary_category;
         self.secondary_category = input.secondary_category;
-        self.tracking_mode = tracking_mode;
         self.note = parse_optional_note(input.note.as_deref())?;
         self.include_in_net_worth = input.include_in_net_worth;
         self.include_in_investment = input.include_in_investment;
@@ -540,6 +546,39 @@ mod tests {
         input.opened_on = Some(CalendarDate::parse("2026-08-17").expect("opened"));
         input.closed_on = Some(CalendarDate::parse("2026-01-01").expect("closed"));
         assert!(Account::new(input, Timestamp::now()).is_err());
+    }
+
+    #[test]
+    fn keeps_tracking_mode_on_update_when_unchanged() {
+        let mut account = Account::new(bank_account(), Timestamp::now()).expect("account");
+        let mut input = bank_account();
+        input.name = "DBS Joint".to_owned();
+        input.tracking_mode = Some(TrackingMode::Balance);
+        account.update(input, Timestamp::now()).expect("same mode");
+        assert_eq!(account.name(), "DBS Joint");
+        assert_eq!(account.tracking_mode(), TrackingMode::Balance);
+    }
+
+    #[test]
+    fn rejects_tracking_mode_change_after_create() {
+        let mut account = Account::new(bank_account(), Timestamp::now()).expect("account");
+        let mut input = bank_account();
+        input.tracking_mode = Some(TrackingMode::ManualValue);
+        let error = account.update(input, Timestamp::now()).expect_err("locked");
+        assert!(matches!(error, AppError::Validation { field, .. } if field == "trackingMode"));
+        assert_eq!(account.tracking_mode(), TrackingMode::Balance);
+    }
+
+    #[test]
+    fn rejects_category_that_does_not_match_existing_tracking_mode() {
+        let mut account = Account::new(bank_account(), Timestamp::now()).expect("account");
+        let mut input = bank_account();
+        input.primary_category = PrimaryCategory::Investment;
+        input.secondary_category = SecondaryCategory::BrokerageAccount;
+        input.tracking_mode = None;
+        let error = account.update(input, Timestamp::now()).expect_err("policy");
+        assert!(matches!(error, AppError::InvalidCategory { .. }));
+        assert_eq!(account.primary_category(), PrimaryCategory::CashEquivalent);
     }
 
     #[test]

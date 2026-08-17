@@ -46,7 +46,33 @@ pub async fn list_members(
 ) -> Result<Vec<MemberRecordDto>, AppError> {
     let database = state.writable_db()?;
     let household_id = require_household_id(database).await?;
-    let sql = if include_archived {
+    sqlx::query(list_members_sql(include_archived))
+        .bind(&household_id)
+        .fetch_all(database)
+        .await
+        .map_err(|error| map_read_error("member.list_failed", error))?
+        .into_iter()
+        .map(member_from_row)
+        .collect()
+}
+
+pub(crate) async fn list_members_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    include_archived: bool,
+) -> Result<Vec<MemberRecordDto>, AppError> {
+    sqlx::query(list_members_sql(include_archived))
+        .bind(household_id)
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(|error| map_read_error("member.list_failed", error))?
+        .into_iter()
+        .map(member_from_row)
+        .collect()
+}
+
+fn list_members_sql(include_archived: bool) -> &'static str {
+    if include_archived {
         "SELECT id, name, note, avatar_asset_id, sort_order, created_at, updated_at, archived_at
          FROM members
          WHERE household_id = ?
@@ -56,15 +82,7 @@ pub async fn list_members(
          FROM members
          WHERE household_id = ? AND archived_at IS NULL
          ORDER BY sort_order ASC, name COLLATE NOCASE ASC, id ASC"
-    };
-    sqlx::query(sql)
-        .bind(&household_id)
-        .fetch_all(database)
-        .await
-        .map_err(|error| map_read_error("member.list_failed", error))?
-        .into_iter()
-        .map(member_from_row)
-        .collect()
+    }
 }
 
 pub async fn create_member(
@@ -554,6 +572,30 @@ mod tests {
                 .await
                 .expect("active list should succeed");
             assert_eq!(active.len(), 1);
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn bootstrap_lists_only_active_members() {
+        tauri::async_runtime::block_on(async {
+            let (state, path) = onboarded_state("members-bootstrap-active").await;
+            let listed = list_members(&state, false)
+                .await
+                .expect("list should succeed");
+            archive_member(&state, &listed[1].id)
+                .await
+                .expect("archive spare member");
+            let bootstrap = crate::commands::bootstrap::bootstrap_impl(&state)
+                .await
+                .expect("bootstrap");
+            match bootstrap {
+                crate::commands::bootstrap::BootstrapDto::Ready { members, .. } => {
+                    assert_eq!(members.len(), 1);
+                    assert_eq!(members[0].id, listed[0].id);
+                }
+                other => panic!("expected ready bootstrap, got {other:?}"),
+            }
             cleanup(&path);
         });
     }

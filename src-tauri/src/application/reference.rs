@@ -83,6 +83,29 @@ pub async fn begin_write_tx(
         .map_err(|error| map_write_error("reference.begin_failed", error))
 }
 
+pub async fn begin_read_tx(
+    database: &SqlitePool,
+) -> Result<Transaction<'static, Sqlite>, AppError> {
+    database
+        .begin()
+        .await
+        .map_err(|error| map_read_error("reference.begin_read_failed", error))
+}
+
+pub async fn finish_read_tx<T>(
+    tx: Transaction<'static, Sqlite>,
+    result: Result<T, AppError>,
+) -> Result<T, AppError> {
+    if let Err(rollback_error) = tx.rollback().await {
+        tracing::error!(
+            event = "reference.read_rollback_failed",
+            error = ?rollback_error,
+            "failed to roll back read transaction"
+        );
+    }
+    result
+}
+
 pub async fn finish_write_tx<T>(
     tx: Transaction<'static, Sqlite>,
     result: Result<T, AppError>,

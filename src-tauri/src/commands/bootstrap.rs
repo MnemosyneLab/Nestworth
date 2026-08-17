@@ -134,7 +134,7 @@ async fn load_ready_dto(state: &AppState) -> Result<BootstrapDto, AppError> {
         .transpose()?;
 
     let members = if let Some(household) = &household {
-        sqlx::query("SELECT id, name FROM members WHERE household_id = ? ORDER BY sort_order, created_at, id")
+        sqlx::query("SELECT id, name FROM members WHERE household_id = ? AND archived_at IS NULL ORDER BY sort_order, created_at, id")
             .bind(&household.id)
             .fetch_all(database)
             .await

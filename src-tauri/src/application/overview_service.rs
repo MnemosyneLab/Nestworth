@@ -3,13 +3,14 @@ use std::collections::HashMap;
 use rust_decimal::Decimal;
 use serde::Serialize;
 use specta::Type;
+use sqlx::{Sqlite, Transaction};
 
 use super::{
     account_service::{self, AccountRecordDto, MoneyDto},
     group_service::{self, GroupRecordDto},
     institution_service::{self, InstitutionRecordDto},
     member_service::{self, MemberRecordDto},
-    reference::require_household,
+    reference::{begin_read_tx, finish_read_tx, require_household_tx},
 };
 use crate::{
     domain::{CurrencyCode, Money, PrimaryCategory, TOTAL_BPS},
@@ -43,11 +44,18 @@ pub struct OverviewDto {
 
 pub async fn get_overview(state: &AppState) -> Result<OverviewDto, AppError> {
     let database = state.writable_db()?;
-    let household = require_household(database).await?;
-    let accounts = account_service::list_accounts(state, false).await?;
-    let members = member_service::list_members(state, true).await?;
-    let institutions = institution_service::list_institutions(state, true).await?;
-    let groups = group_service::list_groups(state, true).await?;
+    let mut tx = begin_read_tx(database).await?;
+    let result = get_overview_in_tx(&mut tx).await;
+    finish_read_tx(tx, result).await
+}
+
+async fn get_overview_in_tx(tx: &mut Transaction<'_, Sqlite>) -> Result<OverviewDto, AppError> {
+    let household = require_household_tx(tx).await?;
+    let accounts = account_service::list_accounts_in_tx(tx, &household.id, false).await?;
+    let members = member_service::list_members_in_tx(tx, &household.id, true).await?;
+    let institutions =
+        institution_service::list_institutions_in_tx(tx, &household.id, true).await?;
+    let groups = group_service::list_groups_in_tx(tx, &household.id, true).await?;
     compute_overview(
         &household.base_currency,
         &accounts,
@@ -70,6 +78,7 @@ fn compute_overview(
     let mut liabilities = Decimal::ZERO;
     let mut category_assets: HashMap<PrimaryCategory, Decimal> = HashMap::new();
     let mut member_net: HashMap<String, Decimal> = HashMap::new();
+    let mut member_assets: HashMap<String, Decimal> = HashMap::new();
     let mut institution_assets: HashMap<Option<String>, Decimal> = HashMap::new();
     let mut institution_net: HashMap<Option<String>, Decimal> = HashMap::new();
     let mut group_assets: HashMap<Option<String>, Decimal> = HashMap::new();
@@ -78,6 +87,9 @@ fn compute_overview(
     for member in members {
         if member.archived_at.is_none() {
             member_net.entry(member.id.clone()).or_insert(Decimal::ZERO);
+            member_assets
+                .entry(member.id.clone())
+                .or_insert(Decimal::ZERO);
         }
     }
 
@@ -119,6 +131,12 @@ fn compute_overview(
             *member_net
                 .entry(owner.member_id.clone())
                 .or_insert(Decimal::ZERO) += share;
+            if primary != PrimaryCategory::Liability {
+                let asset_share = value * Decimal::from(owner.share_bps) / Decimal::from(TOTAL_BPS);
+                *member_assets
+                    .entry(owner.member_id.clone())
+                    .or_insert(Decimal::ZERO) += asset_share;
+            }
         }
     }
 
@@ -130,7 +148,7 @@ fn compute_overview(
         liabilities: money_dto(liabilities, base_currency),
         net_worth: money_dto(net_worth, base_currency),
         by_category: category_rows(category_assets, assets, base_currency),
-        by_member: member_rows(members, member_net, net_worth, base_currency),
+        by_member: member_rows(members, member_net, member_assets, assets, base_currency),
         by_institution: named_rows(
             institutions
                 .iter()
@@ -197,23 +215,69 @@ fn category_rows(
 fn member_rows(
     members: &[MemberRecordDto],
     totals: HashMap<String, Decimal>,
-    net_worth: Decimal,
+    assets_by_member: HashMap<String, Decimal>,
+    assets: Decimal,
     currency: &str,
 ) -> Vec<BreakdownRowDto> {
-    members
+    let rows: Vec<&MemberRecordDto> = members
         .iter()
         .filter(|member| totals.contains_key(&member.id))
+        .collect();
+    let parts: Vec<Decimal> = rows
+        .iter()
         .map(|member| {
+            assets_by_member
+                .get(&member.id)
+                .copied()
+                .unwrap_or(Decimal::ZERO)
+        })
+        .collect();
+    let shares = allocate_share_bps(&parts, assets);
+    rows.into_iter()
+        .zip(shares)
+        .map(|(member, share_bps)| {
             let amount = totals.get(&member.id).copied().unwrap_or(Decimal::ZERO);
             BreakdownRowDto {
                 key: "member".to_owned(),
                 id: Some(member.id.clone()),
                 name: Some(member.name.clone()),
                 amount: money_dto(amount, currency),
-                share_bps: share_bps(amount.max(Decimal::ZERO), net_worth.max(Decimal::ZERO)),
+                share_bps,
             }
         })
         .collect()
+}
+
+fn allocate_share_bps(parts: &[Decimal], whole: Decimal) -> Vec<i32> {
+    if whole.is_zero() || parts.is_empty() {
+        return vec![0; parts.len()];
+    }
+    let mut floors = vec![0i32; parts.len()];
+    let mut remainders: Vec<(Decimal, usize)> = Vec::with_capacity(parts.len());
+    let mut allocated = 0i32;
+    for (index, part) in parts.iter().enumerate() {
+        if !part.is_sign_positive() || part.is_zero() {
+            remainders.push((Decimal::ZERO, index));
+            continue;
+        }
+        let raw = *part * Decimal::from(TOTAL_BPS) / whole;
+        let floor = clamp_share_bps(canonical_decimal(raw.trunc()).parse().unwrap_or(0));
+        floors[index] = floor;
+        allocated += floor;
+        remainders.push((raw - raw.trunc(), index));
+    }
+    let mut leftover = (TOTAL_BPS - allocated).max(0);
+    remainders.sort_by(|left, right| right.0.cmp(&left.0).then(left.1.cmp(&right.1)));
+    for (_, index) in remainders {
+        if leftover == 0 {
+            break;
+        }
+        if parts[index].is_sign_positive() && !parts[index].is_zero() {
+            floors[index] = clamp_share_bps(floors[index] + 1);
+            leftover -= 1;
+        }
+    }
+    floors
 }
 
 fn named_rows(
@@ -255,11 +319,15 @@ fn named_rows(
 }
 
 fn share_bps(part: Decimal, whole: Decimal) -> i32 {
-    if whole.is_zero() {
+    if whole.is_zero() || !part.is_sign_positive() {
         return 0;
     }
     let bps = (part * Decimal::from(TOTAL_BPS) / whole).round();
-    canonical_decimal(bps).parse().unwrap_or(0)
+    clamp_share_bps(canonical_decimal(bps).parse().unwrap_or(0))
+}
+
+fn clamp_share_bps(value: i32) -> i32 {
+    value.clamp(0, TOTAL_BPS)
 }
 
 fn money_dto(amount: Decimal, currency: &str) -> MoneyDto {
@@ -432,8 +500,71 @@ mod tests {
             assert_eq!(overview.by_category[1].amount.amount, "4000000");
             assert_eq!(overview.by_member[0].name.as_deref(), Some("Walt"));
             assert_eq!(overview.by_member[0].amount.amount, "1600000");
+            assert_eq!(overview.by_member[0].share_bps, 5109);
             assert_eq!(overview.by_member[1].name.as_deref(), Some("Spouse"));
             assert_eq!(overview.by_member[1].amount.amount, "1510000");
+            assert_eq!(overview.by_member[1].share_bps, 4891);
+            assert_eq!(
+                overview
+                    .by_member
+                    .iter()
+                    .map(|row| row.share_bps)
+                    .sum::<i32>(),
+                10_000
+            );
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn member_share_uses_assets_not_net_worth() {
+        tauri::async_runtime::block_on(async {
+            let (state, path) = onboarded_state("overview-member-share").await;
+            let members = list_members(&state, false).await.expect("members");
+            let walt = &members[0].id;
+            let spouse = &members[1].id;
+            create_account(
+                &state,
+                account(
+                    "Cash",
+                    "cash_equivalent",
+                    "cash",
+                    "100",
+                    vec![owner(walt, "100")],
+                    None,
+                    true,
+                    true,
+                ),
+            )
+            .await
+            .expect("asset");
+            create_account(
+                &state,
+                account(
+                    "Debt",
+                    "liability",
+                    "personal_debt",
+                    "90",
+                    vec![owner(spouse, "100")],
+                    None,
+                    true,
+                    false,
+                ),
+            )
+            .await
+            .expect("liability");
+
+            let overview = get_overview(&state).await.expect("overview");
+            assert_eq!(overview.assets.amount, "100");
+            assert_eq!(overview.liabilities.amount, "90");
+            assert_eq!(overview.net_worth.amount, "10");
+            assert_eq!(overview.by_member[0].name.as_deref(), Some("Walt"));
+            assert_eq!(overview.by_member[0].amount.amount, "100");
+            assert_eq!(overview.by_member[0].share_bps, 10_000);
+            assert_eq!(overview.by_member[1].name.as_deref(), Some("Spouse"));
+            assert_eq!(overview.by_member[1].amount.amount, "-90");
+            assert_eq!(overview.by_member[1].share_bps, 0);
+            assert!(overview.by_member.iter().all(|row| row.share_bps <= 10_000));
             cleanup(&path);
         });
     }

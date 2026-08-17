@@ -107,7 +107,7 @@ export function AccountForm({
     mutationFn: async (values: AccountFormValues) => {
       if (account) {
         return unwrapResult(
-          commands.updateAccount(toUpdateAccountInput(account.id, values)),
+          commands.updateAccount(toUpdateAccountInput(account, values)),
         );
       }
       return unwrapResult(

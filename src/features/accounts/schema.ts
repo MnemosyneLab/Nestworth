@@ -10,6 +10,13 @@ import { emptyToNull } from "@/lib/empty-to-null";
 
 export const TOTAL_BPS = 10_000;
 
+export function clampShareBps(shareBps: number): number {
+  if (!Number.isFinite(shareBps)) {
+    return 0;
+  }
+  return Math.min(TOTAL_BPS, Math.max(0, shareBps));
+}
+
 export const AMOUNT_PATTERN = /^(0|[1-9][0-9]{0,11})(\.[0-9]{1,4})?$/;
 export const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -328,18 +335,18 @@ export function toCreateAccountInput(
 }
 
 export function toUpdateAccountInput(
-  id: string,
+  account: AccountRecordDto,
   values: AccountFormValues,
 ): UpdateAccountInput {
   const defaults = categoryDefaults(values.secondaryCategory);
   return {
-    id,
+    id: account.id,
     name: values.name.trim(),
     primaryCategory: defaults.primaryCategory,
     secondaryCategory: values.secondaryCategory,
     institutionId: emptyToNull(values.institutionId),
     groupId: emptyToNull(values.groupId),
-    trackingMode: defaults.trackingMode,
+    trackingMode: account.trackingMode,
     note: emptyToNull(values.note),
     includeInNetWorth: values.includeInNetWorth,
     includeInInvestment: values.includeInInvestment,

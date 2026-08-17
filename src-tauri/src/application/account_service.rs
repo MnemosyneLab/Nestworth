@@ -1,10 +1,13 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use sqlx::{Row, Sqlite, Transaction};
 
 use super::reference::{
-    begin_write_tx, finish_write_tx, map_read_error, map_write_error, next_sort_order,
-    require_household_id, require_household_tx, sort_order_i32, SortTable,
+    begin_read_tx, begin_write_tx, finish_read_tx, finish_write_tx, map_read_error,
+    map_write_error, next_sort_order, require_household_id_tx, require_household_tx,
+    sort_order_i32, SortTable,
 };
 use crate::{
     domain::{
@@ -117,38 +120,109 @@ pub async fn list_accounts(
     include_archived: bool,
 ) -> Result<Vec<AccountRecordDto>, AppError> {
     let database = state.writable_db()?;
-    let household_id = require_household_id(database).await?;
-    let sql = if include_archived {
-        "SELECT id, household_id, institution_id, group_id, name, primary_category, secondary_category, tracking_mode, default_currency, note, logo_asset_id, include_in_net_worth, include_in_investment, include_in_liquid_assets, opened_on, closed_on, sort_order, created_at, updated_at, archived_at
-         FROM accounts
-         WHERE household_id = ?
-         ORDER BY sort_order ASC, name COLLATE NOCASE ASC, id ASC"
-    } else {
-        "SELECT id, household_id, institution_id, group_id, name, primary_category, secondary_category, tracking_mode, default_currency, note, logo_asset_id, include_in_net_worth, include_in_investment, include_in_liquid_assets, opened_on, closed_on, sort_order, created_at, updated_at, archived_at
-         FROM accounts
-         WHERE household_id = ? AND archived_at IS NULL
-         ORDER BY sort_order ASC, name COLLATE NOCASE ASC, id ASC"
-    };
-    let rows = sqlx::query(sql)
-        .bind(&household_id)
-        .fetch_all(database)
+    let mut tx = begin_read_tx(database).await?;
+    let result = async {
+        let household_id = require_household_id_tx(&mut tx).await?;
+        list_accounts_in_tx(&mut tx, &household_id, include_archived).await
+    }
+    .await;
+    finish_read_tx(tx, result).await
+}
+
+pub(crate) async fn list_accounts_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    include_archived: bool,
+) -> Result<Vec<AccountRecordDto>, AppError> {
+    let rows = sqlx::query(list_accounts_sql(include_archived))
+        .bind(household_id)
+        .fetch_all(&mut **tx)
         .await
         .map_err(|error| map_read_error("account.list_failed", error))?;
     let mut accounts = Vec::with_capacity(rows.len());
+    let mut by_id = HashMap::with_capacity(rows.len());
     for row in rows {
-        let mut dto = account_from_row(row)?;
-        dto.latest_value = load_latest_value_pool(database, &dto.id).await?;
-        dto.owners = load_owners_pool(database, &dto.id).await?;
+        let dto = account_from_list_row(row)?;
+        by_id.insert(dto.id.clone(), accounts.len());
         accounts.push(dto);
+    }
+    if accounts.is_empty() {
+        return Ok(accounts);
+    }
+    let owner_rows = sqlx::query(list_owners_sql(include_archived))
+        .bind(household_id)
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(|error| map_read_error("account.owners_load_failed", error))?;
+    for row in owner_rows {
+        let account_id: String = row
+            .try_get("account_id")
+            .map_err(|_| AppError::DatabaseUnavailable)?;
+        if let Some(index) = by_id.get(&account_id).copied() {
+            accounts[index].owners.push(owner_from_row(row)?);
+        }
     }
     Ok(accounts)
 }
 
+fn list_accounts_sql(include_archived: bool) -> &'static str {
+    if include_archived {
+        "SELECT a.id, a.household_id, a.institution_id, a.group_id, a.name, a.primary_category, a.secondary_category, a.tracking_mode, a.default_currency, a.note, a.logo_asset_id, a.include_in_net_worth, a.include_in_investment, a.include_in_liquid_assets, a.opened_on, a.closed_on, a.sort_order, a.created_at, a.updated_at, a.archived_at, v.amount AS latest_amount, v.currency AS latest_currency
+         FROM accounts a
+         LEFT JOIN (
+           SELECT account_id, amount, currency
+           FROM (
+             SELECT account_id, amount, currency,
+                    ROW_NUMBER() OVER (PARTITION BY account_id ORDER BY effective_at DESC, created_at DESC, id DESC) AS rn
+             FROM account_values
+           ) ranked
+           WHERE rn = 1
+         ) v ON v.account_id = a.id
+         WHERE a.household_id = ?
+         ORDER BY a.sort_order ASC, a.name COLLATE NOCASE ASC, a.id ASC"
+    } else {
+        "SELECT a.id, a.household_id, a.institution_id, a.group_id, a.name, a.primary_category, a.secondary_category, a.tracking_mode, a.default_currency, a.note, a.logo_asset_id, a.include_in_net_worth, a.include_in_investment, a.include_in_liquid_assets, a.opened_on, a.closed_on, a.sort_order, a.created_at, a.updated_at, a.archived_at, v.amount AS latest_amount, v.currency AS latest_currency
+         FROM accounts a
+         LEFT JOIN (
+           SELECT account_id, amount, currency
+           FROM (
+             SELECT account_id, amount, currency,
+                    ROW_NUMBER() OVER (PARTITION BY account_id ORDER BY effective_at DESC, created_at DESC, id DESC) AS rn
+             FROM account_values
+           ) ranked
+           WHERE rn = 1
+         ) v ON v.account_id = a.id
+         WHERE a.household_id = ? AND a.archived_at IS NULL
+         ORDER BY a.sort_order ASC, a.name COLLATE NOCASE ASC, a.id ASC"
+    }
+}
+
+fn list_owners_sql(include_archived: bool) -> &'static str {
+    if include_archived {
+        "SELECT o.account_id, o.member_id, m.name, o.share_bps
+         FROM account_ownership o
+         JOIN members m ON m.id = o.member_id
+         JOIN accounts a ON a.id = o.account_id
+         WHERE a.household_id = ?
+         ORDER BY a.sort_order ASC, a.name COLLATE NOCASE ASC, a.id ASC, m.sort_order ASC, m.name COLLATE NOCASE ASC, m.id ASC"
+    } else {
+        "SELECT o.account_id, o.member_id, m.name, o.share_bps
+         FROM account_ownership o
+         JOIN members m ON m.id = o.member_id
+         JOIN accounts a ON a.id = o.account_id
+         WHERE a.household_id = ? AND a.archived_at IS NULL
+         ORDER BY a.sort_order ASC, a.name COLLATE NOCASE ASC, a.id ASC, m.sort_order ASC, m.name COLLATE NOCASE ASC, m.id ASC"
+    }
+}
+
 pub async fn get_account(state: &AppState, id: &str) -> Result<AccountRecordDto, AppError> {
     let database = state.writable_db()?;
-    let household_id = require_household_id(database).await?;
     let mut tx = begin_write_tx(database).await?;
-    let result = load_account_detail(&mut tx, &household_id, id).await;
+    let result = async {
+        let household_id = require_household_id_tx(&mut tx).await?;
+        load_account_detail(&mut tx, &household_id, id).await
+    }
+    .await;
     finish_write_tx(tx, result).await
 }
 
@@ -230,9 +304,11 @@ async fn create_account_in_tx(
         &household.id,
         new_account.institution_id,
         new_account.group_id,
+        None,
+        None,
     )
     .await?;
-    let ownership = parse_ownership(tx, &household.id, &input.owners).await?;
+    let ownership = parse_ownership(tx, &household.id, &input.owners, None).await?;
     let account = Account::new(new_account, Timestamp::now())?;
     let money = Money::parse(&input.initial_amount, account.default_currency())?;
     let value = AccountValue::initial(
@@ -254,7 +330,15 @@ async fn update_account_in_tx(
 ) -> Result<AccountRecordDto, AppError> {
     let household = require_household_tx(tx).await?;
     let account_id = AccountId::parse(&input.id)?;
-    let mut account = load_account_domain(tx, &household.id, &account_id.to_string()).await?;
+    let current = load_account_detail(tx, &household.id, &account_id.to_string()).await?;
+    let retained_members: Vec<String> = current
+        .owners
+        .iter()
+        .map(|owner| owner.member_id.clone())
+        .collect();
+    let retained_institution = current.institution_id.clone();
+    let retained_group = current.group_id.clone();
+    let mut account = account_from_dto(&household.id, current)?;
     let update = new_account_from_input(
         &household.id,
         &input.name,
@@ -272,8 +356,22 @@ async fn update_account_in_tx(
         input.closed_on.as_deref(),
         account.sort_order(),
     )?;
-    validate_references(tx, &household.id, update.institution_id, update.group_id).await?;
-    let ownership = parse_ownership(tx, &household.id, &input.owners).await?;
+    validate_references(
+        tx,
+        &household.id,
+        update.institution_id,
+        update.group_id,
+        retained_institution.as_deref(),
+        retained_group.as_deref(),
+    )
+    .await?;
+    let ownership = parse_ownership(
+        tx,
+        &household.id,
+        &input.owners,
+        Some(retained_members.as_slice()),
+    )
+    .await?;
     account.update(update, Timestamp::now())?;
     let updated = sqlx::query(
         "UPDATE accounts
@@ -435,33 +533,66 @@ async fn validate_references(
     household_id: &str,
     institution_id: Option<InstitutionId>,
     group_id: Option<AccountGroupId>,
+    retained_institution_id: Option<&str>,
+    retained_group_id: Option<&str>,
 ) -> Result<(), AppError> {
     if let Some(institution_id) = institution_id {
-        let exists: Option<i64> =
-            sqlx::query_scalar("SELECT 1 FROM institutions WHERE id = ? AND household_id = ?")
-                .bind(institution_id.to_string())
-                .bind(household_id)
-                .fetch_optional(&mut **tx)
-                .await
-                .map_err(|error| map_read_error("account.institution_lookup_failed", error))?;
-        if exists.is_none() {
-            return Err(AppError::not_found(
-                "institution",
-                &institution_id.to_string(),
-            ));
-        }
+        require_assignable_reference(
+            tx,
+            "institutions",
+            "institution",
+            "institutionId",
+            household_id,
+            &institution_id.to_string(),
+            retained_institution_id,
+        )
+        .await?;
     }
     if let Some(group_id) = group_id {
-        let exists: Option<i64> =
-            sqlx::query_scalar("SELECT 1 FROM account_groups WHERE id = ? AND household_id = ?")
-                .bind(group_id.to_string())
-                .bind(household_id)
-                .fetch_optional(&mut **tx)
-                .await
-                .map_err(|error| map_read_error("account.group_lookup_failed", error))?;
-        if exists.is_none() {
-            return Err(AppError::not_found("group", &group_id.to_string()));
+        require_assignable_reference(
+            tx,
+            "account_groups",
+            "group",
+            "groupId",
+            household_id,
+            &group_id.to_string(),
+            retained_group_id,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+async fn require_assignable_reference(
+    tx: &mut Transaction<'_, Sqlite>,
+    table: &'static str,
+    entity: &'static str,
+    field: &'static str,
+    household_id: &str,
+    id: &str,
+    retained_id: Option<&str>,
+) -> Result<(), AppError> {
+    let sql = match table {
+        "institutions" => "SELECT archived_at FROM institutions WHERE id = ? AND household_id = ?",
+        "account_groups" => {
+            "SELECT archived_at FROM account_groups WHERE id = ? AND household_id = ?"
         }
+        _ => return Err(AppError::Internal),
+    };
+    let archived_at: Option<Option<String>> = sqlx::query_scalar(sql)
+        .bind(id)
+        .bind(household_id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(|error| map_read_error("account.reference_lookup_failed", error))?;
+    let Some(archived_at) = archived_at else {
+        return Err(AppError::not_found(entity, id));
+    };
+    if archived_at.is_some() && retained_id != Some(id) {
+        return Err(AppError::validation(
+            field,
+            "Archived references cannot be assigned to an account.",
+        ));
     }
     Ok(())
 }
@@ -470,19 +601,30 @@ async fn parse_ownership(
     tx: &mut Transaction<'_, Sqlite>,
     household_id: &str,
     owners: &[OwnershipShareInput],
+    retained_member_ids: Option<&[String]>,
 ) -> Result<Ownership, AppError> {
     let mut shares = Vec::with_capacity(owners.len());
     for owner in owners {
         let member_id = MemberId::parse(&owner.member_id)?;
-        let exists: Option<i64> =
-            sqlx::query_scalar("SELECT 1 FROM members WHERE id = ? AND household_id = ?")
+        let archived_at: Option<Option<String>> =
+            sqlx::query_scalar("SELECT archived_at FROM members WHERE id = ? AND household_id = ?")
                 .bind(member_id.to_string())
                 .bind(household_id)
                 .fetch_optional(&mut **tx)
                 .await
                 .map_err(|error| map_read_error("account.owner_lookup_failed", error))?;
-        if exists.is_none() {
+        let Some(archived_at) = archived_at else {
             return Err(AppError::not_found("member", &member_id.to_string()));
+        };
+        if archived_at.is_some() {
+            let retained = retained_member_ids
+                .is_some_and(|ids| ids.iter().any(|id| id == &member_id.to_string()));
+            if !retained {
+                return Err(AppError::validation(
+                    "owners",
+                    "Archived members cannot be assigned to an account.",
+                ));
+            }
         }
         let share_bps = match (owner.share_bps, owner.percent.as_deref()) {
             (Some(share_bps), _) => share_bps,
@@ -627,24 +769,6 @@ async fn load_latest_value(
     row.map(money_from_row).transpose()
 }
 
-async fn load_latest_value_pool(
-    database: &crate::infrastructure::database::SqlitePool,
-    account_id: &str,
-) -> Result<Option<MoneyDto>, AppError> {
-    let row = sqlx::query(
-        "SELECT amount, currency
-         FROM account_values
-         WHERE account_id = ?
-         ORDER BY effective_at DESC, created_at DESC, id DESC
-         LIMIT 1",
-    )
-    .bind(account_id)
-    .fetch_optional(database)
-    .await
-    .map_err(|error| map_read_error("account.value_load_failed", error))?;
-    row.map(money_from_row).transpose()
-}
-
 async fn load_owners(
     tx: &mut Transaction<'_, Sqlite>,
     account_id: &str,
@@ -658,26 +782,6 @@ async fn load_owners(
     )
     .bind(account_id)
     .fetch_all(&mut **tx)
-    .await
-    .map_err(|error| map_read_error("account.owners_load_failed", error))?
-    .into_iter()
-    .map(owner_from_row)
-    .collect()
-}
-
-async fn load_owners_pool(
-    database: &crate::infrastructure::database::SqlitePool,
-    account_id: &str,
-) -> Result<Vec<AccountOwnerDto>, AppError> {
-    sqlx::query(
-        "SELECT o.member_id, m.name, o.share_bps
-         FROM account_ownership o
-         JOIN members m ON m.id = o.member_id
-         WHERE o.account_id = ?
-         ORDER BY m.sort_order ASC, m.name COLLATE NOCASE ASC, m.id ASC",
-    )
-    .bind(account_id)
-    .fetch_all(database)
     .await
     .map_err(|error| map_read_error("account.owners_load_failed", error))?
     .into_iter()
@@ -726,6 +830,23 @@ fn owner_from_row(row: sqlx::sqlite::SqliteRow) -> Result<AccountOwnerDto, AppEr
 
 fn flag(value: i64) -> bool {
     value != 0
+}
+
+fn account_from_list_row(row: sqlx::sqlite::SqliteRow) -> Result<AccountRecordDto, AppError> {
+    let latest_amount: Option<String> = row
+        .try_get("latest_amount")
+        .map_err(|_| AppError::DatabaseUnavailable)?;
+    let latest_currency: Option<String> = row
+        .try_get("latest_currency")
+        .map_err(|_| AppError::DatabaseUnavailable)?;
+    let latest_value = match (latest_amount, latest_currency) {
+        (Some(amount), Some(currency)) => Some(MoneyDto { amount, currency }),
+        (None, None) => None,
+        _ => return Err(AppError::DatabaseUnavailable),
+    };
+    let mut dto = account_from_row(row)?;
+    dto.latest_value = latest_value;
+    Ok(dto)
 }
 
 fn account_from_row(row: sqlx::sqlite::SqliteRow) -> Result<AccountRecordDto, AppError> {
@@ -854,8 +975,11 @@ mod tests {
     };
     use crate::{
         application::{
-            institution_service::{create_institution, CreateInstitutionInput},
-            member_service::list_members,
+            group_service::{archive_group, create_group, CreateGroupInput},
+            institution_service::{
+                archive_institution, create_institution, CreateInstitutionInput,
+            },
+            member_service::{archive_member, list_members},
         },
         error::AppError,
         test_support::{blocked_future_state, cleanup, file_hash, onboarded_state, UNKNOWN_UUID},
@@ -1138,6 +1262,318 @@ mod tests {
                 ));
             }
             assert_eq!(file_hash(&path), before_hash);
+            cleanup(&path);
+        });
+    }
+
+    async fn table_count(state: &crate::state::AppState, sql: &str) -> i64 {
+        sqlx::query_scalar(sql)
+            .fetch_one(state.writable_db().expect("writable"))
+            .await
+            .expect("count")
+    }
+
+    fn cash_input(name: &str, member_id: &str, amount: &str) -> CreateAccountInput {
+        let mut input = bank_input(name, member_id, None, amount);
+        input.secondary_category = "cash".to_owned();
+        input
+    }
+
+    fn account_update(
+        id: &str,
+        name: &str,
+        institution_id: Option<String>,
+        group_id: Option<String>,
+        owners: Vec<OwnershipShareInput>,
+        tracking_mode: Option<&str>,
+    ) -> UpdateAccountInput {
+        UpdateAccountInput {
+            id: id.to_owned(),
+            name: name.to_owned(),
+            primary_category: "cash_equivalent".to_owned(),
+            secondary_category: "bank_account".to_owned(),
+            institution_id,
+            group_id,
+            tracking_mode: tracking_mode.map(ToOwned::to_owned),
+            note: None,
+            include_in_net_worth: true,
+            include_in_investment: false,
+            include_in_liquid_assets: true,
+            opened_on: None,
+            closed_on: None,
+            owners,
+        }
+    }
+
+    #[test]
+    fn list_accounts_keeps_latest_values_and_owners_aligned() {
+        tauri::async_runtime::block_on(async {
+            let (state, path) = onboarded_state("accounts-list-align").await;
+            let (walt, spouse, institution) = seed_bank(&state).await;
+            let dbs = create_account(
+                &state,
+                bank_input("DBS Savings", &walt, Some(institution.id.clone()), "100000"),
+            )
+            .await
+            .expect("dbs");
+            create_account(&state, cash_input("WeChat", &spouse, "10000"))
+                .await
+                .expect("wechat");
+            update_account_value(
+                &state,
+                UpdateAccountValueInput {
+                    id: dbs.id.clone(),
+                    amount: "110000".to_owned(),
+                },
+            )
+            .await
+            .expect("value");
+            let listed = list_accounts(&state, false).await.expect("list");
+            assert_eq!(listed.len(), 2);
+            assert_eq!(listed[0].name, "DBS Savings");
+            assert_eq!(listed[0].latest_value.as_ref().unwrap().amount, "110000");
+            assert_eq!(listed[0].owners.len(), 1);
+            assert_eq!(listed[0].owners[0].member_id, walt);
+            assert_eq!(listed[1].name, "WeChat");
+            assert_eq!(listed[1].latest_value.as_ref().unwrap().amount, "10000");
+            assert_eq!(listed[1].owners[0].member_id, spouse);
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn create_rejects_archived_references_without_writes() {
+        tauri::async_runtime::block_on(async {
+            let (state, path) = onboarded_state("accounts-archived-create").await;
+            let (walt, spouse, institution) = seed_bank(&state).await;
+            archive_institution(&state, &institution.id)
+                .await
+                .expect("archive institution");
+            archive_member(&state, &spouse)
+                .await
+                .expect("archive member");
+            let group = create_group(
+                &state,
+                CreateGroupInput {
+                    name: "Emergency".to_owned(),
+                    icon_key: None,
+                    color: None,
+                    description: None,
+                },
+            )
+            .await
+            .expect("group");
+            archive_group(&state, &group.id)
+                .await
+                .expect("archive group");
+
+            let error = create_account(
+                &state,
+                bank_input("DBS", &walt, Some(institution.id.clone()), "100000"),
+            )
+            .await
+            .expect_err("archived institution");
+            assert!(
+                matches!(error, AppError::Validation { field, .. } if field == "institutionId")
+            );
+
+            let mut member_input = cash_input("WeChat", &spouse, "10000");
+            let error = create_account(&state, member_input.clone())
+                .await
+                .expect_err("archived member");
+            assert!(matches!(error, AppError::Validation { field, .. } if field == "owners"));
+
+            member_input.owners = vec![owner(&walt, "100")];
+            member_input.group_id = Some(group.id);
+            let error = create_account(&state, member_input)
+                .await
+                .expect_err("archived group");
+            assert!(matches!(error, AppError::Validation { field, .. } if field == "groupId"));
+
+            assert!(list_accounts(&state, true).await.expect("list").is_empty());
+            assert_eq!(
+                table_count(&state, "SELECT COUNT(*) FROM account_values").await,
+                0
+            );
+            assert_eq!(
+                table_count(&state, "SELECT COUNT(*) FROM account_ownership").await,
+                0
+            );
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn update_can_keep_but_not_switch_to_archived_references() {
+        tauri::async_runtime::block_on(async {
+            let (state, path) = onboarded_state("accounts-archived-update").await;
+            let (walt, spouse, first) = seed_bank(&state).await;
+            let second = create_institution(
+                &state,
+                CreateInstitutionInput {
+                    name: "OCBC".to_owned(),
+                    institution_type: Some("bank".to_owned()),
+                    country_code: Some("SG".to_owned()),
+                    website: None,
+                    note: None,
+                },
+            )
+            .await
+            .expect("second institution");
+            let created = create_account(
+                &state,
+                bank_input("DBS Savings", &walt, Some(first.id.clone()), "100000"),
+            )
+            .await
+            .expect("create");
+            archive_institution(&state, &first.id)
+                .await
+                .expect("archive current");
+            archive_institution(&state, &second.id)
+                .await
+                .expect("archive other");
+
+            let kept = update_account(
+                &state,
+                account_update(
+                    &created.id,
+                    "DBS Kept",
+                    Some(first.id.clone()),
+                    None,
+                    vec![owner(&walt, "100")],
+                    Some("balance"),
+                ),
+            )
+            .await
+            .expect("retain archived institution");
+            assert_eq!(kept.name, "DBS Kept");
+            assert_eq!(kept.institution_id.as_deref(), Some(first.id.as_str()));
+
+            let before = get_account(&state, &created.id).await.expect("before");
+            let error = update_account(
+                &state,
+                account_update(
+                    &created.id,
+                    "DBS Switch",
+                    Some(second.id.clone()),
+                    None,
+                    vec![owner(&walt, "100")],
+                    Some("balance"),
+                ),
+            )
+            .await
+            .expect_err("switch to other archived institution");
+            assert!(
+                matches!(error, AppError::Validation { field, .. } if field == "institutionId")
+            );
+            let after = get_account(&state, &created.id).await.expect("after");
+            assert_eq!(after, before);
+
+            archive_member(&state, &spouse)
+                .await
+                .expect("archive spouse");
+            let error = update_account(
+                &state,
+                account_update(
+                    &created.id,
+                    "DBS Kept",
+                    Some(first.id.clone()),
+                    None,
+                    vec![owner(&walt, "50"), owner(&spouse, "50")],
+                    Some("balance"),
+                ),
+            )
+            .await
+            .expect_err("new archived owner");
+            assert!(matches!(error, AppError::Validation { field, .. } if field == "owners"));
+            let after_owner = get_account(&state, &created.id)
+                .await
+                .expect("owners unchanged");
+            assert_eq!(after_owner.owners.len(), 1);
+            assert_eq!(after_owner.owners[0].member_id, walt);
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn update_retains_archived_owner_already_on_the_account() {
+        tauri::async_runtime::block_on(async {
+            let (state, path) = onboarded_state("accounts-archived-owner").await;
+            let (walt, spouse, institution) = seed_bank(&state).await;
+            let created = create_account(
+                &state,
+                bank_input("DBS Savings", &walt, Some(institution.id.clone()), "100000"),
+            )
+            .await
+            .expect("create");
+            let joint = update_account(
+                &state,
+                account_update(
+                    &created.id,
+                    "DBS Joint",
+                    Some(institution.id.clone()),
+                    None,
+                    vec![owner(&walt, "50"), owner(&spouse, "50")],
+                    Some("balance"),
+                ),
+            )
+            .await
+            .expect("joint");
+            assert_eq!(joint.owners.len(), 2);
+            archive_member(&state, &spouse)
+                .await
+                .expect("archive spouse");
+            let kept = update_account(
+                &state,
+                account_update(
+                    &created.id,
+                    "DBS Joint Kept",
+                    Some(institution.id.clone()),
+                    None,
+                    vec![owner(&walt, "50"), owner(&spouse, "50")],
+                    Some("balance"),
+                ),
+            )
+            .await
+            .expect("retain archived owner");
+            assert_eq!(kept.name, "DBS Joint Kept");
+            assert_eq!(kept.owners.len(), 2);
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn rejects_tracking_mode_change_without_mutating_values() {
+        tauri::async_runtime::block_on(async {
+            let (state, path) = onboarded_state("accounts-tracking-lock").await;
+            let (walt, _, institution) = seed_bank(&state).await;
+            let created = create_account(
+                &state,
+                bank_input("DBS Savings", &walt, Some(institution.id.clone()), "100000"),
+            )
+            .await
+            .expect("create");
+            let before = get_account(&state, &created.id).await.expect("before");
+            let error = update_account(
+                &state,
+                account_update(
+                    &created.id,
+                    "DBS Savings",
+                    Some(institution.id.clone()),
+                    None,
+                    vec![owner(&walt, "100")],
+                    Some("manual_value"),
+                ),
+            )
+            .await
+            .expect_err("tracking mode locked");
+            assert!(matches!(error, AppError::Validation { field, .. } if field == "trackingMode"));
+            let after = get_account(&state, &created.id).await.expect("after");
+            assert_eq!(after, before);
+            assert_eq!(
+                table_count(&state, "SELECT COUNT(*) FROM account_values").await,
+                1
+            );
             cleanup(&path);
         });
     }

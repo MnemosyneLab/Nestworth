@@ -58,14 +58,14 @@ describe("overview page", () => {
             id: "m-1",
             name: "Walt",
             amount: { amount: "1600000", currency: "CNY" },
-            shareBps: 5145,
+            shareBps: 5109,
           },
           {
             key: "member",
             id: "m-2",
             name: "Spouse",
             amount: { amount: "1510000", currency: "CNY" },
-            shareBps: 4855,
+            shareBps: 4891,
           },
         ],
         byInstitution: [
