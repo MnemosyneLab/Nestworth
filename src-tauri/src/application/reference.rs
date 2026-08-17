@@ -96,10 +96,9 @@ pub async fn finish_read_tx<T>(
     tx: Transaction<'static, Sqlite>,
     result: Result<T, AppError>,
 ) -> Result<T, AppError> {
-    if let Err(rollback_error) = tx.rollback().await {
+    if let Err(_rollback_error) = tx.rollback().await {
         tracing::error!(
             event = "reference.read_rollback_failed",
-            error = ?rollback_error,
             "failed to roll back read transaction"
         );
     }
@@ -118,10 +117,9 @@ pub async fn finish_write_tx<T>(
             Ok(value)
         }
         Err(error) => {
-            if let Err(rollback_error) = tx.rollback().await {
+            if let Err(_rollback_error) = tx.rollback().await {
                 tracing::error!(
                     event = "reference.rollback_failed",
-                    error = ?rollback_error,
                     "failed to roll back reference mutation"
                 );
             }
@@ -157,12 +155,12 @@ pub async fn next_sort_order(
 }
 
 pub fn map_read_error(event: &'static str, error: sqlx::Error) -> AppError {
-    tracing::error!(event, error = ?error, "database read failed");
+    tracing::error!(event, "database read failed");
     AppError::from(error)
 }
 
 pub fn map_write_error(event: &'static str, error: sqlx::Error) -> AppError {
-    tracing::error!(event, error = ?error, "database write failed");
+    tracing::error!(event, "database write failed");
     AppError::from(error)
 }
 

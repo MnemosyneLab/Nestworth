@@ -88,7 +88,7 @@ Build Apple Silicon application and disk-image bundles:
 bun run tauri:build
 ```
 
-The configured target is `aarch64-apple-darwin`, and the supported bundles are `.app` and `.dmg`. A successful compile is not a release smoke test; Phase 10 also requires launching the produced artifacts on a supported Mac.
+The configured target is `aarch64-apple-darwin`, and the supported bundles are `.app` and `.dmg`. A successful compile is not a launch smoke test. Do not launch a local build against the real user database under Application Support.
 
 ## Repository Layout
 
@@ -167,7 +167,7 @@ Use React Hook Form with a feature-owned Zod schema for immediate user feedback.
 - All user-visible strings live in locale resources.
 - English keys are the semantic baseline; Simplified Chinese must have the same key set.
 - Format Money with locale-aware display while preserving the backend amount string.
-- Language and appearance changes must apply without restart once their settings UI is implemented.
+- Language and appearance changes must apply without restart.
 - Every critical flow must work by keyboard.
 - Controls need visible focus, accessible names, and correct disabled state.
 - Loading, error, and empty states must be announced or represented semantically.
@@ -213,9 +213,9 @@ Before publishing a release:
 5. Exercise blocked startup with a future database and verify zero writes.
 6. Verify migration behavior from every supported prior schema.
 7. Build with `bun run tauri:build`.
-8. Launch the arm64 `.app` and mounted `.dmg` on macOS 26 or later.
-9. Complete keyboard-only and VoiceOver smoke tests.
-10. Record signing and notarization status explicitly; do not equate a local build with a distributable release.
+8. Confirm the arm64 `.app` and `.dmg` exist. Do not launch them against the real user database; an isolated data directory is required for any manual launch.
+9. Complete keyboard-only coverage in automated tests and a device VoiceOver smoke test before a notarized public release.
+10. Record signing and notarization status explicitly; do not equate a local unsigned build with a distributable release.
 
 ## Documentation Changes
 

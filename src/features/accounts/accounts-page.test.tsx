@@ -188,6 +188,36 @@ describe("accounts page", () => {
     expect(window.location.search).toContain("owner=m-1");
   });
 
+  it("can add an account with the keyboard", async () => {
+    const user = userEvent.setup();
+    const accounts: AccountRecordDto[] = [];
+    mockAccountStore(accounts);
+    await renderReadyApp();
+    await user.click(screen.getByRole("link", { name: "Accounts" }));
+    await user.click(await screen.findByRole("button", { name: "Add account" }));
+    expect(screen.getByLabelText("Name")).toHaveFocus();
+    await user.keyboard("DBS Savings");
+    await user.type(screen.getByLabelText("Amount"), "100000");
+    await user.keyboard("{Enter}");
+    expect(
+      await screen.findByRole("heading", { name: "DBS Savings" }),
+    ).toBeInTheDocument();
+    expect(commands.createAccount).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows list errors with role=alert", async () => {
+    const user = userEvent.setup();
+    vi.mocked(commands.listAccounts).mockResolvedValue({
+      status: "error",
+      error: commandError("DATABASE_UNAVAILABLE", "The database is unavailable."),
+    });
+    await renderReadyApp();
+    await user.click(screen.getByRole("link", { name: "Accounts" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The database is unavailable.",
+    );
+  });
+
   it("filters by category and keeps the owner param", async () => {
     const user = userEvent.setup();
     mockAccountStore(householdAccounts());

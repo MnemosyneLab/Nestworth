@@ -1,4 +1,7 @@
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use sqlx::migrate::Migrator;
 
@@ -42,8 +45,11 @@ pub async fn initialize_database(path: PathBuf) -> DatabaseBootstrapResult {
     let found_migration = if database_exists {
         match read_migration_version(&path).await {
             Ok(version) => version,
-            Err(error) => {
-                tracing::error!(event = "database.open", error = ?error, "failed to inspect database metadata");
+            Err(_error) => {
+                tracing::error!(
+                    event = "database.open",
+                    "failed to inspect database metadata"
+                );
                 return blocked(DatabaseBootstrapStatus::Corrupt);
             }
         }
@@ -64,10 +70,24 @@ pub async fn initialize_database(path: PathBuf) -> DatabaseBootstrapResult {
         });
     }
 
+    let migration_required = found_migration < supported_migration;
+    if database_exists && migration_required {
+        if let Err(_error) = copy_pre_migration_snapshot(&path, found_migration) {
+            tracing::error!(
+                event = "migration.snapshot_failed",
+                "failed to copy pre-migration snapshot"
+            );
+            return blocked(DatabaseBootstrapStatus::MigrationFailed);
+        }
+    }
+
     if !database_exists {
         if let Some(parent) = path.parent() {
-            if let Err(error) = fs::create_dir_all(parent) {
-                tracing::error!(event = "database.open", error = ?error, "failed to create database directory");
+            if let Err(_error) = fs::create_dir_all(parent) {
+                tracing::error!(
+                    event = "database.open",
+                    "failed to create database directory"
+                );
                 return blocked(DatabaseBootstrapStatus::Unavailable);
             }
         }
@@ -75,27 +95,32 @@ pub async fn initialize_database(path: PathBuf) -> DatabaseBootstrapResult {
 
     let pool = match connect_writable(&path, !database_exists).await {
         Ok(pool) => pool,
-        Err(error) => {
-            tracing::error!(event = "database.open", error = ?error, "failed to open database");
+        Err(_error) => {
+            tracing::error!(event = "database.open", "failed to open database");
             return blocked(DatabaseBootstrapStatus::Unavailable);
         }
     };
 
-    let migration_required = found_migration < supported_migration;
-    if let Err(error) = MIGRATOR.run(&pool).await {
-        tracing::error!(event = "migration.failed", error = ?error, "database migration failed");
+    if let Err(_error) = MIGRATOR.run(&pool).await {
+        tracing::error!(event = "migration.failed", "database migration failed");
         pool.close().await;
         return blocked(DatabaseBootstrapStatus::MigrationFailed);
     }
 
-    if let Err(error) = verify_sqlite_runtime(&pool).await {
-        tracing::error!(event = "database.open", error = ?error, "database integrity verification failed");
+    if let Err(_error) = verify_sqlite_runtime(&pool).await {
+        tracing::error!(
+            event = "database.open",
+            "database integrity verification failed"
+        );
         pool.close().await;
         return blocked(DatabaseBootstrapStatus::Corrupt);
     }
 
-    if let Err(error) = ensure_app_settings(&pool).await {
-        tracing::error!(event = "database.open", error = ?error, "failed to initialize application settings");
+    if let Err(_error) = ensure_app_settings(&pool).await {
+        tracing::error!(
+            event = "database.open",
+            "failed to initialize application settings"
+        );
         pool.close().await;
         return blocked(DatabaseBootstrapStatus::Unavailable);
     }
@@ -121,6 +146,52 @@ fn blocked(status: DatabaseBootstrapStatus) -> DatabaseBootstrapResult {
     DatabaseBootstrapResult { status, pool: None }
 }
 
+pub fn pre_migration_snapshot_path(database_path: &Path, found_migration: i64) -> PathBuf {
+    let name = database_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("nestworth.sqlite3");
+    database_path.with_file_name(format!("{name}.pre-migrate-{found_migration}"))
+}
+
+fn sqlite_sidecar(database_path: &Path, suffix: &str) -> PathBuf {
+    let mut raw = database_path.as_os_str().to_os_string();
+    raw.push(suffix);
+    PathBuf::from(raw)
+}
+
+fn copy_pre_migration_snapshot(path: &Path, found_migration: i64) -> std::io::Result<()> {
+    let snapshot = pre_migration_snapshot_path(path, found_migration);
+    if snapshot.exists() {
+        if !snapshot.is_file() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "pre-migration snapshot path exists and is not a file",
+            ));
+        }
+        tracing::info!(
+            event = "migration.snapshot_reused",
+            found_migration,
+            "existing pre-migration snapshot was kept"
+        );
+        return Ok(());
+    }
+
+    fs::copy(path, &snapshot)?;
+    for suffix in ["-wal", "-shm"] {
+        let source = sqlite_sidecar(path, suffix);
+        if source.exists() {
+            fs::copy(&source, sqlite_sidecar(&snapshot, suffix))?;
+        }
+    }
+    tracing::info!(
+        event = "migration.snapshot_created",
+        found_migration,
+        "created recoverable pre-migration snapshot"
+    );
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -132,8 +203,8 @@ mod tests {
 
     use sqlx::Row;
 
-    use super::{initialize_database, DatabaseBootstrapStatus};
-    use crate::infrastructure::database::connect_writable;
+    use super::{initialize_database, pre_migration_snapshot_path, DatabaseBootstrapStatus};
+    use crate::infrastructure::database::{connect_writable, read_migration_version};
 
     fn test_path(name: &str) -> PathBuf {
         let nonce = SystemTime::now()
@@ -198,7 +269,110 @@ mod tests {
             assert_eq!(settings_count, 1);
             second_pool.close().await;
 
-            fs::remove_file(path).expect("test database should be removable");
+            assert!(
+                !pre_migration_snapshot_path(&path, 0).exists(),
+                "a fresh database must not create a pre-migration snapshot"
+            );
+            remove_database(&path);
+        });
+    }
+
+    #[test]
+    fn existing_unmigrated_database_is_snapshotted_before_migrate() {
+        tauri::async_runtime::block_on(async {
+            let path = test_path("snapshot");
+            remove_database(&path);
+
+            let pool = connect_writable(&path, true)
+                .await
+                .expect("unmigrated fixture database should open");
+            pool.close().await;
+
+            let result = initialize_database(path.clone()).await;
+            assert_eq!(result.status, DatabaseBootstrapStatus::Migrated);
+            let pool = result.pool.expect("migrated startup should be writable");
+            pool.close().await;
+
+            let snapshot = pre_migration_snapshot_path(&path, 0);
+            assert!(snapshot.is_file(), "pre-migration snapshot should exist");
+            assert_eq!(
+                read_migration_version(&snapshot)
+                    .await
+                    .expect("snapshot should remain readable"),
+                0
+            );
+            assert_eq!(
+                read_migration_version(&path)
+                    .await
+                    .expect("migrated database should be readable"),
+                1
+            );
+
+            remove_database(&path);
+            remove_database(&snapshot);
+        });
+    }
+
+    #[test]
+    fn existing_pre_migration_snapshot_is_not_overwritten() {
+        tauri::async_runtime::block_on(async {
+            let path = test_path("snapshot-keep");
+            remove_database(&path);
+
+            let pool = connect_writable(&path, true)
+                .await
+                .expect("unmigrated fixture database should open");
+            pool.close().await;
+
+            let snapshot = pre_migration_snapshot_path(&path, 0);
+            fs::write(&snapshot, b"keep-me").expect("marker snapshot should be written");
+
+            let result = initialize_database(path.clone()).await;
+            assert_eq!(result.status, DatabaseBootstrapStatus::Migrated);
+            result
+                .pool
+                .expect("migrated startup should be writable")
+                .close()
+                .await;
+
+            assert_eq!(
+                fs::read(&snapshot).expect("kept snapshot should be readable"),
+                b"keep-me"
+            );
+
+            remove_database(&path);
+            let _ = fs::remove_file(snapshot);
+        });
+    }
+
+    #[test]
+    fn snapshot_copy_failure_blocks_migration_without_writes() {
+        tauri::async_runtime::block_on(async {
+            let path = test_path("snapshot-fail");
+            remove_database(&path);
+
+            let pool = connect_writable(&path, true)
+                .await
+                .expect("unmigrated fixture database should open");
+            pool.close().await;
+
+            let before_hash = file_hash(&path);
+            let snapshot = pre_migration_snapshot_path(&path, 0);
+            fs::create_dir_all(&snapshot).expect("blocking snapshot directory should be created");
+
+            let result = initialize_database(path.clone()).await;
+            assert_eq!(result.status, DatabaseBootstrapStatus::MigrationFailed);
+            assert!(result.pool.is_none());
+            assert_eq!(file_hash(&path), before_hash);
+            assert_eq!(
+                read_migration_version(&path)
+                    .await
+                    .expect("blocked database should remain readable"),
+                0
+            );
+
+            remove_database(&path);
+            let _ = fs::remove_dir_all(snapshot);
         });
     }
 
@@ -262,8 +436,14 @@ mod tests {
                 })
             ));
 
-            fs::remove_file(path).expect("test database should be removable");
+            remove_database(&path);
         });
+    }
+
+    fn remove_database(path: &Path) {
+        let _ = fs::remove_file(path);
+        let _ = fs::remove_file(format!("{}-wal", path.display()));
+        let _ = fs::remove_file(format!("{}-shm", path.display()));
     }
 
     async fn migration_rows(path: &Path) -> Vec<(i64, String, i64)> {

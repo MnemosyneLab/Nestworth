@@ -64,22 +64,26 @@ flowchart TD
     Launch["Launch application"] --> Resolve["Resolve application data directory"]
     Resolve --> Inspect["Inspect database migration version read-only"]
     Inspect -->|"Newer than supported"| Blocked["Blocked startup state; no writable pool"]
-    Inspect -->|"Supported"| Open["Open SQLite with required pragmas"]
+    Inspect -->|"Supported and current"| Open["Open SQLite with required pragmas"]
+    Inspect -->|"Supported and older"| Snapshot["Copy recoverable pre-migration snapshot"]
+    Snapshot -->|"Copy failed"| Failed["Blocked migration state; no writable pool"]
+    Snapshot -->|"Copy succeeded"| Open
     Open --> Migrate["Run pending embedded migrations"]
     Migrate --> Verify["Verify foreign keys, WAL, foreign-key integrity, and database integrity"]
     Verify --> Bootstrap["Return settings, Household, and active Members"]
     Bootstrap -->|"No Household"| Onboarding["Onboarding route"]
     Bootstrap -->|"Household exists"| Overview["Overview route"]
     Blocked --> ErrorPage["Startup error route"]
+    Failed --> ErrorPage
 ```
 
-The compatibility inspection happens before a writable connection is created. An unsupported future migration version produces a blocked `AppState`; all commands that require the database remain unavailable, and bootstrap returns diagnostic migration numbers and the database path.
+The compatibility inspection happens before a writable connection is created. An older supported database is copied to a sibling snapshot before migrations run. An unsupported future migration version produces a blocked `AppState` with zero writes to that file; all commands that require the database remain unavailable, and bootstrap returns diagnostic migration numbers and the database path.
 
 Onboarding validates the complete request before opening its write transaction, inserts the Household and Members atomically, and updates the singleton application settings row. A Household already present is a conflict rather than a second workspace.
 
 ## Frontend Structure and State
 
-TanStack Router defines explicit routes for startup, onboarding, overview, account list and detail, institutions, groups, and member settings. Account owner, category, institution, and group filters live in URL search parameters so refresh and detail navigation preserve context.
+TanStack Router defines explicit routes for startup, onboarding, overview, account list and detail, institutions, groups, general settings, and member settings. Account owner, category, institution, and group filters live in URL search parameters so refresh and detail navigation preserve context.
 
 State ownership is divided by lifetime:
 
@@ -116,7 +120,7 @@ Dependency versions are owned by the manifests and lockfiles, not this document.
 
 - The frontend has no business-data database access and no required internet connection.
 - The production CSP permits self-hosted application resources, Tauri IPC, and data images; it blocks arbitrary objects, frames, and external content.
-- The main window capability starts with no broad permissions. New permissions must be justified by a user-visible feature and reviewed narrowly.
+- The main window capability grants `core:default`, `dialog:allow-open`, `log:allow-log`, and the window-state restore/save permissions. It does not grant filesystem, opener, shell, clipboard, HTTP, or `dialog:default`.
 - Dialog, window-state, and logging plugins are initialized in Rust; plugin availability does not authorize broad frontend capabilities.
 - Logs identify lifecycle and failure events but must not include balances, notes, ownership input, image bytes, database contents, or other sensitive payloads.
 - User-facing errors expose stable codes and safe context, while detailed database errors remain in local diagnostics.

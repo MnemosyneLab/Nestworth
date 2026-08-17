@@ -82,10 +82,9 @@ async fn persist_onboarding(
     match persist_onboarding_in_transaction(&mut tx, prepared).await {
         Ok(()) => tx.commit().await.map_err(map_write_error),
         Err(error) => {
-            if let Err(rollback_error) = tx.rollback().await {
+            if let Err(_rollback_error) = tx.rollback().await {
                 tracing::error!(
                     event = "onboarding.rollback_failed",
-                    error = ?rollback_error,
                     "failed to roll back onboarding transaction"
                 );
             }
@@ -174,7 +173,7 @@ fn map_write_error(error: sqlx::Error) -> AppError {
     if is_household_unique_conflict(&error) {
         return AppError::AlreadyOnboarded;
     }
-    tracing::error!(event = "onboarding.write_failed", error = ?error, "onboarding write failed");
+    tracing::error!(event = "onboarding.write_failed", "onboarding write failed");
     AppError::from(error)
 }
 

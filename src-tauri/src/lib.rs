@@ -36,8 +36,11 @@ pub fn run() {
                 Ok(path) => tauri::async_runtime::block_on(state::AppState::initialize(
                     path.join(infrastructure::database::DATABASE_FILENAME),
                 )),
-                Err(error) => {
-                    tracing::error!(error = ?error, "failed to resolve application data directory");
+                Err(_error) => {
+                    tracing::error!(
+                        event = "app.start",
+                        "failed to resolve application data directory"
+                    );
                     state::AppState::unavailable(PathBuf::from("<unavailable>"))
                 }
             };

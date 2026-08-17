@@ -75,10 +75,14 @@ fn migration_number(value: i64) -> i32 {
 
 async fn load_ready_dto(state: &AppState) -> Result<BootstrapDto, AppError> {
     let database = state.writable_db()?;
-    let settings = settings_service::load_settings(database).await.map_err(|error| {
-        tracing::error!(event = "database.open", error = ?error, "failed to load application settings");
-        error
-    })?;
+    let settings = settings_service::load_settings(database)
+        .await
+        .inspect_err(|_| {
+            tracing::error!(
+                event = "database.open",
+                "failed to load application settings"
+            );
+        })?;
 
     let household_row = sqlx::query(
         "SELECT id, name, base_currency FROM households ORDER BY created_at, id LIMIT 1",
@@ -86,7 +90,10 @@ async fn load_ready_dto(state: &AppState) -> Result<BootstrapDto, AppError> {
     .fetch_optional(database)
     .await
     .map_err(|error| {
-        tracing::error!(event = "database.open", error = ?error, "failed to load household bootstrap state");
+        tracing::error!(
+            event = "database.open",
+            "failed to load household bootstrap state"
+        );
         AppError::from(error)
     })?;
 
@@ -112,7 +119,7 @@ async fn load_ready_dto(state: &AppState) -> Result<BootstrapDto, AppError> {
             .fetch_all(database)
             .await
             .map_err(|error| {
-                tracing::error!(event = "database.open", error = ?error, "failed to load bootstrap members");
+                tracing::error!(event = "database.open", "failed to load bootstrap members");
                 AppError::from(error)
             })?
             .into_iter()

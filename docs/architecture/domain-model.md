@@ -40,7 +40,7 @@ An Institution identifies where an Account is held, such as a bank, broker, wall
 
 ### Group
 
-A Group is an optional Household-defined classification such as Emergency Fund, Retirement, or a geography. It is independent from Member, Institution, and financial Category. v0.1.1 supports a built-in icon key and `#RRGGBB` color; custom logos belong to the media phase.
+A Group is an optional Household-defined classification such as Emergency Fund, Retirement, or a geography. It is independent from Member, Institution, and financial Category. v0.1.1 supports a built-in icon key, `#RRGGBB` color, and an optional custom logo.
 
 ### Account
 
@@ -58,7 +58,7 @@ An Account Value is an immutable observation, not a mutable balance column. Crea
 
 ### Media Asset
 
-A MediaAsset is Household-scoped binary image data referenced by Members, Institutions, Groups, or Accounts. The schema exists in v0.1.1; import, normalization, commands, and UI are part of the planned media phase.
+A MediaAsset is Household-scoped binary image data referenced by Members, Institutions, Groups, or Accounts. v0.1.1 imports local PNG, JPEG, or WebP files through a native dialog, normalizes them to a bounded PNG, and displays them as data URLs. Clearing an existing avatar or logo is not part of this release.
 
 ## Identity, Money, and Time
 

@@ -26,13 +26,13 @@ Embedded SQLx migrations define the maximum supported migration version.
 | --- | --- |
 | Database absent | Create it, run migrations, verify it, and initialize settings |
 | Database version supported and current | Open and verify it |
-| Database version older | Run pending migrations, then verify it |
+| Database version older | Copy a sibling `{filename}.pre-migrate-{found}` snapshot, including `-wal` and `-shm` sidecars when present; if that copy fails, block with no migration. Then run pending migrations and verify. |
 | Database version newer than supported | Return `UnsupportedNewerDatabase` with no writable pool |
 | Migration failure | Return a blocked migration state |
 | Integrity or metadata failure | Return a blocked corrupt-database state |
 | Path or open failure | Return a blocked unavailable state |
 
-The migration version is inspected through a read-only connection before any writable connection is opened. An unsupported future database must receive zero application writes, including settings initialization, migrations, recovery data, or metadata changes. All business commands obtain their database through `AppState::writable_db`, so the blocked state applies uniformly.
+The migration version is inspected through a read-only connection before any writable connection is opened. An existing database that still needs a migration is copied to a sibling snapshot first; a failed snapshot copy blocks startup without running migrations. An unsupported future database must receive zero application writes, including settings initialization, migrations, recovery data, snapshot copies of that file, or metadata changes. All business commands obtain their database through `AppState::writable_db`, so the blocked state applies uniformly.
 
 ## Current Persistence Responsibilities
 
@@ -92,13 +92,15 @@ The v0.1.1 command surface is grouped by use case:
 | --- | --- |
 | Startup | `bootstrap` |
 | Onboarding | `complete_onboarding` |
-| Members | list, create, update, archive, restore |
-| Institutions | list, create, update, archive, restore |
-| Groups | list, create, update, archive, restore |
-| Accounts | list, get, create, update, update value, archive, restore |
+| Members | list, create, update, archive, restore, `set_member_avatar` |
+| Institutions | list, create, update, archive, restore, `set_institution_logo` |
+| Groups | list, create, update, archive, restore, `set_group_logo` |
+| Accounts | list, get, create, update, update value, archive, restore, `set_account_logo` |
 | Overview | `get_overview` |
+| Media | `get_media` |
+| Settings | `get_settings`, `update_settings` |
 
-Media and settings mutation commands are planned for Phase 9 and are not part of the current command surface.
+v0.1.1 does not expose `get_household`, `update_household`, or media-clear commands. Household name and base currency are displayed from bootstrap; language and appearance are the mutable settings.
 
 Command adapters remain thin. Application services own transactions and domain conversion. Frontend code calls the generated `commands` client rather than using raw Tauri invoke names.
 
@@ -132,14 +134,14 @@ The canonical lifecycle behavior is defined in the [domain model](domain-model.m
 
 ## Media Contract
 
-The current schema stores MediaAsset bytes in SQLite and references them with nullable typed IDs. Phase 9 must add a native import and read boundary with these requirements:
+MediaAsset bytes are stored in SQLite and referenced with nullable typed IDs. The native import and read boundary is:
 
-- Accept only explicitly supported raster image formats.
-- Enforce input and decoded-size limits before persistence.
-- Normalize orientation and metadata, resize to a bounded dimension, and encode to a canonical format.
+- Accept PNG, JPEG, and WebP input up to 5 MB.
+- Decode safely, resize to at most 512×512, and encode as PNG. Avatars are center-cropped to square before downscale; logos keep aspect ratio and are not upscaled.
 - Store only Household-scoped normalized bytes and MIME metadata.
-- Return display-safe data without exposing arbitrary filesystem paths.
-- Replacing or clearing a reference must not delete an asset still referenced elsewhere.
-- Any capability or dialog permission must be minimal and included in the Phase 9 security review.
+- Return `{ mimeType, data }` as a display-safe base64 payload without exposing arbitrary filesystem paths.
+- Choose files through the native dialog (`dialog:allow-open` only). Rust reads the selected path; the frontend has no filesystem plugin.
+- Replacing a reference deletes the previous asset only when nothing else still references it.
+- Invalid, oversized, or undecodable input returns `MEDIA_INVALID` and writes nothing.
 
-Until that boundary exists, the presence of `media_assets` and nullable media IDs is schema preparation, not an implemented upload feature.
+v0.1.1 can set and replace avatars and logos. It does not clear a media reference, and it does not rewrite EXIF orientation as a separate metadata-stripping pass beyond decode and PNG encode.
