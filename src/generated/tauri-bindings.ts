@@ -141,6 +141,62 @@ async restoreGroup(input: IdInput) : Promise<Result<GroupRecordDto, CommandError
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+async listAccounts(input: ListFilterInput) : Promise<Result<AccountRecordDto[], CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_accounts", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getAccount(input: IdInput) : Promise<Result<AccountRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_account", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async createAccount(input: CreateAccountInput) : Promise<Result<AccountRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_account", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async updateAccount(input: UpdateAccountInput) : Promise<Result<AccountRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_account", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async updateAccountValue(input: UpdateAccountValueInput) : Promise<Result<AccountRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_account_value", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async archiveAccount(input: IdInput) : Promise<Result<AccountRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("archive_account", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async restoreAccount(input: IdInput) : Promise<Result<AccountRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("restore_account", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -154,10 +210,13 @@ async restoreGroup(input: IdInput) : Promise<Result<GroupRecordDto, CommandError
 
 /** user-defined types **/
 
+export type AccountOwnerDto = { memberId: string; memberName: string; shareBps: number }
+export type AccountRecordDto = { id: string; name: string; primaryCategory: string; secondaryCategory: string; trackingMode: string; defaultCurrency: string; institutionId: string | null; groupId: string | null; note: string | null; logoAssetId: string | null; includeInNetWorth: boolean; includeInInvestment: boolean; includeInLiquidAssets: boolean; openedOn: string | null; closedOn: string | null; sortOrder: number; createdAt: string; updatedAt: string; archivedAt: string | null; latestValue: MoneyDto | null; owners: AccountOwnerDto[] }
 export type AppSettingsDto = { language: string; appearance: string; lastHouseholdId: string | null }
 export type BootstrapDto = { status: "ready"; onboardingRequired: boolean; settings: AppSettingsDto; household: HouseholdDto | null; members: MemberDto[] } | { status: "blocked"; error: CommandError; databasePath: string; foundMigration: number | null; supportedMigration: number | null }
 export type CommandError = { code: ErrorCode; message: string; fields: Partial<{ [key in string]: string }> | null }
 export type CompleteOnboardingInput = { householdName: string; baseCurrency: string; members: OnboardingMemberInput[] }
+export type CreateAccountInput = { name: string; primaryCategory: string; secondaryCategory: string; defaultCurrency: string; institutionId: string | null; groupId: string | null; trackingMode: string | null; note: string | null; includeInNetWorth: boolean; includeInInvestment: boolean; includeInLiquidAssets: boolean; openedOn: string | null; closedOn: string | null; owners: OwnershipShareInput[]; initialAmount: string }
 export type CreateGroupInput = { name: string; iconKey: string | null; color: string | null; description: string | null }
 export type CreateInstitutionInput = { name: string; institutionType: string | null; countryCode: string | null; website: string | null; note: string | null }
 export type CreateMemberInput = { name: string; note: string | null }
@@ -169,7 +228,11 @@ export type InstitutionRecordDto = { id: string; name: string; institutionType: 
 export type ListFilterInput = { includeArchived: boolean }
 export type MemberDto = { id: string; name: string }
 export type MemberRecordDto = { id: string; name: string; note: string | null; avatarAssetId: string | null; sortOrder: number; createdAt: string; updatedAt: string; archivedAt: string | null }
+export type MoneyDto = { amount: string; currency: string }
 export type OnboardingMemberInput = { name: string }
+export type OwnershipShareInput = { memberId: string; percent: string | null; shareBps: number | null }
+export type UpdateAccountInput = { id: string; name: string; primaryCategory: string; secondaryCategory: string; institutionId: string | null; groupId: string | null; trackingMode: string | null; note: string | null; includeInNetWorth: boolean; includeInInvestment: boolean; includeInLiquidAssets: boolean; openedOn: string | null; closedOn: string | null; owners: OwnershipShareInput[] }
+export type UpdateAccountValueInput = { id: string; amount: string }
 export type UpdateGroupInput = { id: string; name: string; iconKey: string | null; color: string | null; description: string | null }
 export type UpdateInstitutionInput = { id: string; name: string; institutionType: string | null; countryCode: string | null; website: string | null; note: string | null }
 export type UpdateMemberInput = { id: string; name: string; note: string | null }

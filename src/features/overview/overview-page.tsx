@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 
 import { AppShell } from "@/components/app-shell";
@@ -28,6 +29,11 @@ export function OverviewPage({
           ))}
         </ul>
         <p className="mt-10 text-muted-foreground">{t("overview.empty")}</p>
+        <p className="mt-4">
+          <Link className="text-sm font-medium underline" to="/accounts">
+            {t("accounts.add")}
+          </Link>
+        </p>
       </main>
     </AppShell>
   );

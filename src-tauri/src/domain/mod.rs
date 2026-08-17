@@ -11,7 +11,9 @@ mod ownership;
 mod text;
 mod time;
 
-pub use account::{Account, AccountValue, NewAccount, ValueKind};
+pub use account::{
+    Account, AccountValue, NewAccount, PersistedAccount, PersistedAccountValue, ValueKind,
+};
 pub use category::{PrimaryCategory, SecondaryCategory, TrackingMode};
 pub use currency::CurrencyCode;
 pub use group::{AccountGroup, NewAccountGroup, PersistedAccountGroup};

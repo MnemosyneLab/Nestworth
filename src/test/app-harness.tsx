@@ -5,6 +5,7 @@ import { vi } from "vitest";
 import App from "@/App";
 import { router } from "@/app/router";
 import type {
+  AccountRecordDto,
   BootstrapDto,
   CommandError,
   ErrorCode,
@@ -106,6 +107,37 @@ export function groupRecord(
   };
 }
 
+export function accountRecord(
+  id: string,
+  name: string,
+  extras: Partial<AccountRecordDto> = {},
+): AccountRecordDto {
+  return {
+    id,
+    name,
+    primaryCategory: "cash_equivalent",
+    secondaryCategory: "bank_account",
+    trackingMode: "balance",
+    defaultCurrency: "CNY",
+    institutionId: "i-1",
+    groupId: null,
+    note: null,
+    logoAssetId: null,
+    includeInNetWorth: true,
+    includeInInvestment: false,
+    includeInLiquidAssets: true,
+    openedOn: null,
+    closedOn: null,
+    sortOrder: 0,
+    createdAt: TIMESTAMP,
+    updatedAt: TIMESTAMP,
+    archivedAt: null,
+    latestValue: { amount: "100000", currency: "CNY" },
+    owners: [{ memberId: "m-1", memberName: "Walt", shareBps: 10_000 }],
+    ...extras,
+  };
+}
+
 export function commandError(
   code: ErrorCode,
   message: string,
@@ -125,6 +157,11 @@ export function resetCommandMocks() {
   vi.mocked(commands.listMembers).mockResolvedValue({ status: "ok", data: [] });
   vi.mocked(commands.listInstitutions).mockResolvedValue({ status: "ok", data: [] });
   vi.mocked(commands.listGroups).mockResolvedValue({ status: "ok", data: [] });
+  vi.mocked(commands.listAccounts).mockResolvedValue({ status: "ok", data: [] });
+  vi.mocked(commands.getAccount).mockResolvedValue({
+    status: "error",
+    error: commandError("NOT_FOUND", "missing"),
+  });
 }
 
 export async function resetApp() {

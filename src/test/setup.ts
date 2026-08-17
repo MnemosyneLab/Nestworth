@@ -26,6 +26,13 @@ vi.mock("@/generated/tauri-bindings", async (importOriginal) => {
       updateGroup: vi.fn(),
       archiveGroup: vi.fn(),
       restoreGroup: vi.fn(),
+      listAccounts: vi.fn(),
+      getAccount: vi.fn(),
+      createAccount: vi.fn(),
+      updateAccount: vi.fn(),
+      updateAccountValue: vi.fn(),
+      archiveAccount: vi.fn(),
+      restoreAccount: vi.fn(),
     },
   };
 });

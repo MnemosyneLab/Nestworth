@@ -7,6 +7,7 @@ export const bootstrapQueryKey = ["bootstrap"] as const;
 
 export const APP_ROUTES = [
   "/overview",
+  "/accounts",
   "/institutions",
   "/groups",
   "/settings/members",
@@ -14,6 +15,13 @@ export const APP_ROUTES = [
 
 export type AppRoute = (typeof APP_ROUTES)[number];
 export type GateRoute = AppRoute | "/onboarding" | "/startup-error";
+
+function isOnboardedPath(pathname: string): boolean {
+  if ((APP_ROUTES as readonly string[]).includes(pathname)) {
+    return true;
+  }
+  return /^\/accounts\/[^/]+$/.test(pathname);
+}
 
 export async function loadBootstrap(): Promise<BootstrapDto> {
   const result = await commands.bootstrap();
@@ -44,7 +52,7 @@ export function destinationForBootstrap(
     return "/onboarding";
   }
   if (bootstrap?.status === "ready") {
-    if ((APP_ROUTES as readonly string[]).includes(pathname)) {
+    if (isOnboardedPath(pathname)) {
       return pathname as AppRoute;
     }
     return "/overview";

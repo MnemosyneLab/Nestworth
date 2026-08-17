@@ -3,6 +3,9 @@ use tauri_specta::{collect_commands, Builder};
 
 use crate::{
     application::{
+        account_service::{
+            AccountRecordDto, CreateAccountInput, UpdateAccountInput, UpdateAccountValueInput,
+        },
         group_service::{CreateGroupInput, GroupRecordDto, UpdateGroupInput},
         institution_service::{
             CreateInstitutionInput, InstitutionRecordDto, UpdateInstitutionInput,
@@ -12,6 +15,10 @@ use crate::{
         reference::{IdInput, ListFilterInput},
     },
     commands::{
+        accounts::{
+            archive_account_impl, create_account_impl, get_account_impl, list_accounts_impl,
+            restore_account_impl, update_account_impl, update_account_value_impl,
+        },
         bootstrap::{bootstrap_impl, BootstrapDto},
         groups::{
             archive_group_impl, create_group_impl, list_groups_impl, restore_group_impl,
@@ -182,6 +189,69 @@ pub async fn restore_group(
     restore_group_impl(&state, input).await
 }
 
+#[tauri::command]
+#[specta::specta]
+pub async fn list_accounts(
+    state: State<'_, AppState>,
+    input: ListFilterInput,
+) -> Result<Vec<AccountRecordDto>, crate::error::CommandError> {
+    list_accounts_impl(&state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn get_account(
+    state: State<'_, AppState>,
+    input: IdInput,
+) -> Result<AccountRecordDto, crate::error::CommandError> {
+    get_account_impl(&state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn create_account(
+    state: State<'_, AppState>,
+    input: CreateAccountInput,
+) -> Result<AccountRecordDto, crate::error::CommandError> {
+    create_account_impl(&state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn update_account(
+    state: State<'_, AppState>,
+    input: UpdateAccountInput,
+) -> Result<AccountRecordDto, crate::error::CommandError> {
+    update_account_impl(&state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn update_account_value(
+    state: State<'_, AppState>,
+    input: UpdateAccountValueInput,
+) -> Result<AccountRecordDto, crate::error::CommandError> {
+    update_account_value_impl(&state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn archive_account(
+    state: State<'_, AppState>,
+    input: IdInput,
+) -> Result<AccountRecordDto, crate::error::CommandError> {
+    archive_account_impl(&state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn restore_account(
+    state: State<'_, AppState>,
+    input: IdInput,
+) -> Result<AccountRecordDto, crate::error::CommandError> {
+    restore_account_impl(&state, input).await
+}
+
 pub fn command_builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new().commands(collect_commands![
         bootstrap,
@@ -200,6 +270,13 @@ pub fn command_builder() -> Builder<tauri::Wry> {
         create_group,
         update_group,
         archive_group,
-        restore_group
+        restore_group,
+        list_accounts,
+        get_account,
+        create_account,
+        update_account,
+        update_account_value,
+        archive_account,
+        restore_account
     ])
 }

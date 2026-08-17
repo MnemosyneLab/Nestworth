@@ -1,6 +1,8 @@
 import { createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
 
 import { RootRoute } from "@/routes/__root";
+import { AccountsRoute } from "@/routes/accounts";
+import { AccountDetailRoute } from "@/routes/accounts-detail";
 import { GroupsRoute } from "@/routes/groups";
 import { IndexRoute } from "@/routes/index";
 import { InstitutionsRoute } from "@/routes/institutions";
@@ -24,6 +26,16 @@ const overviewRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/overview",
   component: OverviewRoute,
+});
+const accountsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/accounts",
+  component: AccountsRoute,
+});
+const accountDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/accounts/$accountId",
+  component: AccountDetailRoute,
 });
 const institutionsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -50,6 +62,8 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   onboardingRoute,
   overviewRoute,
+  accountsRoute,
+  accountDetailRoute,
   institutionsRoute,
   groupsRoute,
   membersRoute,

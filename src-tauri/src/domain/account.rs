@@ -10,6 +10,29 @@ use super::{
 };
 use crate::error::AppError;
 
+pub struct PersistedAccount {
+    pub id: AccountId,
+    pub household_id: HouseholdId,
+    pub institution_id: Option<InstitutionId>,
+    pub group_id: Option<AccountGroupId>,
+    pub name: String,
+    pub primary_category: PrimaryCategory,
+    pub secondary_category: SecondaryCategory,
+    pub tracking_mode: TrackingMode,
+    pub default_currency: CurrencyCode,
+    pub note: Option<String>,
+    pub logo_asset_id: Option<MediaAssetId>,
+    pub include_in_net_worth: bool,
+    pub include_in_investment: bool,
+    pub include_in_liquid_assets: bool,
+    pub opened_on: Option<CalendarDate>,
+    pub closed_on: Option<CalendarDate>,
+    pub sort_order: i64,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
+    pub archived_at: Option<Timestamp>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ValueKind {
     Balance,
@@ -161,6 +184,64 @@ impl Account {
         })
     }
 
+    #[must_use]
+    pub fn from_persisted(row: PersistedAccount) -> Self {
+        Self {
+            id: row.id,
+            household_id: row.household_id,
+            institution_id: row.institution_id,
+            group_id: row.group_id,
+            name: row.name,
+            primary_category: row.primary_category,
+            secondary_category: row.secondary_category,
+            tracking_mode: row.tracking_mode,
+            default_currency: row.default_currency,
+            note: row.note,
+            logo_asset_id: row.logo_asset_id,
+            include_in_net_worth: row.include_in_net_worth,
+            include_in_investment: row.include_in_investment,
+            include_in_liquid_assets: row.include_in_liquid_assets,
+            opened_on: row.opened_on,
+            closed_on: row.closed_on,
+            sort_order: row.sort_order,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+            archived_at: row.archived_at,
+        }
+    }
+
+    pub fn update(&mut self, input: NewAccount, now: Timestamp) -> Result<(), AppError> {
+        input
+            .secondary_category
+            .require_primary(input.primary_category)?;
+        let tracking_mode = input
+            .tracking_mode
+            .unwrap_or_else(|| input.primary_category.default_tracking_mode());
+        tracking_mode.require_for_new_account(input.primary_category)?;
+        if let (Some(opened_on), Some(closed_on)) = (input.opened_on, input.closed_on) {
+            if closed_on < opened_on {
+                return Err(AppError::validation(
+                    "closedOn",
+                    "Closed date cannot be earlier than opened date.",
+                ));
+            }
+        }
+        self.institution_id = input.institution_id;
+        self.group_id = input.group_id;
+        self.name = parse_name(&input.name)?;
+        self.primary_category = input.primary_category;
+        self.secondary_category = input.secondary_category;
+        self.tracking_mode = tracking_mode;
+        self.note = parse_optional_note(input.note.as_deref())?;
+        self.include_in_net_worth = input.include_in_net_worth;
+        self.include_in_investment = input.include_in_investment;
+        self.include_in_liquid_assets = input.include_in_liquid_assets;
+        self.opened_on = input.opened_on;
+        self.closed_on = input.closed_on;
+        self.updated_at = now;
+        Ok(())
+    }
+
     pub fn archive(&mut self, now: Timestamp) {
         if self.archived_at.is_none() {
             self.archived_at = Some(now.clone());
@@ -292,6 +373,16 @@ impl Account {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PersistedAccountValue {
+    pub id: AccountValueId,
+    pub account_id: AccountId,
+    pub value_kind: ValueKind,
+    pub money: Money,
+    pub effective_at: Timestamp,
+    pub created_at: Timestamp,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AccountValue {
     id: AccountValueId,
     account_id: AccountId,
@@ -316,6 +407,18 @@ impl AccountValue {
             effective_at: now.clone(),
             created_at: now,
         })
+    }
+
+    #[must_use]
+    pub fn from_persisted(row: PersistedAccountValue) -> Self {
+        Self {
+            id: row.id,
+            account_id: row.account_id,
+            value_kind: row.value_kind,
+            money: row.money,
+            effective_at: row.effective_at,
+            created_at: row.created_at,
+        }
     }
 
     #[must_use]

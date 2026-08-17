@@ -1,3 +1,4 @@
+pub mod accounts;
 pub mod bootstrap;
 pub mod groups;
 pub mod institutions;

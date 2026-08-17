@@ -1,14 +1,21 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use sqlx::{Sqlite, Transaction};
+use sqlx::{Row, Sqlite, Transaction};
 
 use crate::{error::AppError, infrastructure::database::SqlitePool};
+
+#[derive(Debug, Clone)]
+pub struct HouseholdRef {
+    pub id: String,
+    pub base_currency: String,
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum SortTable {
     Members,
     Institutions,
     AccountGroups,
+    Accounts,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Type)]
@@ -31,12 +38,27 @@ pub async fn require_household_id(database: &SqlitePool) -> Result<String, AppEr
         .ok_or_else(|| AppError::not_found("household", "current"))
 }
 
+pub async fn require_household_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+) -> Result<HouseholdRef, AppError> {
+    let row =
+        sqlx::query("SELECT id, base_currency FROM households ORDER BY created_at, id LIMIT 1")
+            .fetch_optional(&mut **tx)
+            .await
+            .map_err(|error| map_read_error("reference.household_load_failed", error))?
+            .ok_or_else(|| AppError::not_found("household", "current"))?;
+    Ok(HouseholdRef {
+        id: row
+            .try_get("id")
+            .map_err(|_| AppError::DatabaseUnavailable)?,
+        base_currency: row
+            .try_get("base_currency")
+            .map_err(|_| AppError::DatabaseUnavailable)?,
+    })
+}
+
 pub async fn require_household_id_tx(tx: &mut Transaction<'_, Sqlite>) -> Result<String, AppError> {
-    sqlx::query_scalar::<_, String>("SELECT id FROM households ORDER BY created_at, id LIMIT 1")
-        .fetch_optional(&mut **tx)
-        .await
-        .map_err(|error| map_read_error("reference.household_load_failed", error))?
-        .ok_or_else(|| AppError::not_found("household", "current"))
+    Ok(require_household_tx(tx).await?.id)
 }
 
 pub async fn begin_write_tx(
@@ -86,6 +108,9 @@ pub async fn next_sort_order(
         }
         SortTable::AccountGroups => {
             "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM account_groups WHERE household_id = ?"
+        }
+        SortTable::Accounts => {
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM accounts WHERE household_id = ?"
         }
     };
     sqlx::query_scalar(sql)

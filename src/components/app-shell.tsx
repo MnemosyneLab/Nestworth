@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
   { to: "/overview", key: "overview" },
+  { to: "/accounts", key: "accounts" },
   { to: "/institutions", key: "institutions" },
   { to: "/groups", key: "groups" },
   { to: "/settings/members", key: "members" },
@@ -28,7 +29,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Link
             className={cn(
               "rounded-lg px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              pathname === item.to
+              pathname === item.to || pathname.startsWith(`${item.to}/`)
                 ? "bg-muted font-medium text-foreground"
                 : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
             )}
