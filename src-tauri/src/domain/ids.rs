@@ -56,6 +56,7 @@ typed_id!(ActivityLegId);
 typed_id!(HistoryOriginId);
 typed_id!(HistoryOriginItemId);
 typed_id!(AccountStateObservationId);
+typed_id!(HoldingStateObservationId);
 typed_id!(HoldingQuantityValueId);
 typed_id!(QuotePreferenceObservationId);
 typed_id!(ValuationSnapshotId);

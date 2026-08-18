@@ -1028,7 +1028,7 @@ mod tests {
                 error,
                 AppError::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 2
+                    supported: 3
                 }
             ));
             assert_eq!(file_hash(&path), before_hash);

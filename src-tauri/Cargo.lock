@@ -2279,6 +2279,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "futures",
+ "iana-time-zone",
  "image",
  "rust_decimal",
  "serde",

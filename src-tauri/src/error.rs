@@ -72,6 +72,10 @@ pub enum AppError {
     CorruptDatabase,
     #[error("all application data could not be deleted")]
     DataResetFailed,
+    #[error("history origin initialization failed")]
+    HistoryInitializationFailed,
+    #[error("history timezone confirmation is required")]
+    HistoryTimezoneConfirmationRequired,
     #[error("internal application error")]
     Internal,
 }
@@ -179,6 +183,9 @@ impl AppError {
                 }
             }
             DatabaseBootstrapStatus::MigrationFailed => Self::MigrationFailed,
+            DatabaseBootstrapStatus::HistoryInitializationFailed => {
+                Self::HistoryInitializationFailed
+            }
             DatabaseBootstrapStatus::Unavailable => Self::DatabaseUnavailable,
             DatabaseBootstrapStatus::Corrupt => Self::CorruptDatabase,
         }
@@ -379,6 +386,14 @@ impl AppError {
                 ErrorCode::DataResetFailed,
                 "All application data could not be deleted.",
             ),
+            Self::HistoryInitializationFailed => CommandError::new(
+                ErrorCode::HistoryInitializationFailed,
+                "History origin could not be initialized.",
+            ),
+            Self::HistoryTimezoneConfirmationRequired => CommandError::new(
+                ErrorCode::HistoryTimezoneConfirmationRequired,
+                "Confirm the history timezone before recording activity or snapshots.",
+            ),
             Self::Internal => CommandError::new(
                 ErrorCode::InternalError,
                 "An internal application error occurred.",
@@ -429,6 +444,8 @@ pub enum ErrorCode {
     UnsupportedNewerDatabase,
     MigrationFailed,
     DataResetFailed,
+    HistoryInitializationFailed,
+    HistoryTimezoneConfirmationRequired,
     InternalError,
 }
 

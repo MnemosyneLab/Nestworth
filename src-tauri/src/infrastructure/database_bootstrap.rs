@@ -18,6 +18,7 @@ pub enum DatabaseBootstrapStatus {
     Migrated,
     UnsupportedNewerDatabase { found: i64, supported: i64 },
     MigrationFailed,
+    HistoryInitializationFailed,
     Unavailable,
     Corrupt,
 }
@@ -123,6 +124,20 @@ pub async fn initialize_database(path: PathBuf) -> DatabaseBootstrapResult {
         );
         pool.close().await;
         return blocked(DatabaseBootstrapStatus::Unavailable);
+    }
+
+    if let Err(_error) = crate::application::history_origin::initialize_history_origin_if_needed(
+        &pool,
+        supported_migration,
+    )
+    .await
+    {
+        tracing::error!(
+            event = "history.origin_init_failed",
+            "history origin initialization failed"
+        );
+        pool.close().await;
+        return blocked(DatabaseBootstrapStatus::HistoryInitializationFailed);
     }
 
     tracing::info!(
@@ -263,6 +278,23 @@ mod tests {
             .await
             .expect("portfolio schema query should succeed");
             assert_eq!(portfolio_tables, 6);
+            let origin_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM history_origins")
+                .fetch_one(&first_pool)
+                .await
+                .expect("origin count");
+            assert_eq!(origin_count, 0);
+            let history_tables: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('history_origins', 'activities', 'activity_legs', 'daily_valuation_snapshots')",
+            )
+            .fetch_one(&first_pool)
+            .await
+            .expect("history schema query should succeed");
+            assert_eq!(history_tables, 4);
+            let version: i64 = sqlx::query_scalar("SELECT MAX(version) FROM _sqlx_migrations")
+                .fetch_one(&first_pool)
+                .await
+                .expect("version");
+            assert_eq!(version, 3);
             let foreign_keys: i64 = sqlx::query_scalar("PRAGMA foreign_keys")
                 .fetch_one(&first_pool)
                 .await
@@ -321,7 +353,7 @@ mod tests {
                 read_migration_version(&path)
                     .await
                     .expect("migrated database should be readable"),
-                2
+                3
             );
 
             remove_database(&path);
@@ -425,7 +457,7 @@ mod tests {
                 result.status,
                 DatabaseBootstrapStatus::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 2,
+                    supported: 3,
                 }
             );
             assert!(result.pool.is_none());
@@ -439,7 +471,7 @@ mod tests {
                 crate::state::DatabaseRuntime::Blocked {
                     status: DatabaseBootstrapStatus::UnsupportedNewerDatabase {
                         found: 999,
-                        supported: 2,
+                        supported: 3,
                     },
                     ..
                 }
@@ -448,7 +480,7 @@ mod tests {
                 app_state.writable_db(),
                 Err(crate::error::AppError::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 2,
+                    supported: 3,
                 })
             ));
 
@@ -527,7 +559,7 @@ mod tests {
                 .fetch_one(&pool)
                 .await
                 .expect("version");
-            assert_eq!(version, 2);
+            assert_eq!(version, 3);
             for (table, expected) in [
                 ("households", 1),
                 ("app_settings", 1),
@@ -560,6 +592,16 @@ mod tests {
             .await
             .expect("account value history");
             assert_eq!(history, 2);
+            let origin_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM history_origins")
+                .fetch_one(&pool)
+                .await
+                .expect("origin count");
+            assert_eq!(origin_count, 1);
+            let activity_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM activities")
+                .fetch_one(&pool)
+                .await
+                .expect("activity count");
+            assert_eq!(activity_count, 0);
             let foreign_keys = sqlx::query("PRAGMA foreign_key_check")
                 .fetch_all(&pool)
                 .await
@@ -717,9 +759,22 @@ mod tests {
             pool.close().await;
 
             let initialized = initialize_database(path.clone()).await;
-            assert_eq!(initialized.status, DatabaseBootstrapStatus::Ready);
+            assert_eq!(initialized.status, DatabaseBootstrapStatus::Migrated);
             let pool = initialized.pool.expect("loaded fixture should be writable");
+            let version: i64 = sqlx::query_scalar("SELECT MAX(version) FROM _sqlx_migrations")
+                .fetch_one(&pool)
+                .await
+                .expect("migrated version");
+            assert_eq!(version, 3);
+            let activity_id_columns: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM pragma_table_info('account_values') WHERE name = 'activity_id'",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("activity_id column probe after migrate");
+            assert_eq!(activity_id_columns, 1);
             assert_table_counts(&pool, &expected_counts).await;
+            assert_v012_origin_baseline(&pool).await;
             pool.close().await;
 
             let (overview, holdings_detail, portfolio) = {
@@ -761,9 +816,296 @@ mod tests {
             assert_eq!(reopened.status, DatabaseBootstrapStatus::Ready);
             let pool = reopened.pool.expect("reopened pool");
             assert_table_counts(&pool, &expected_counts).await;
+            assert_v012_origin_baseline(&pool).await;
             pool.close().await;
+            let snapshot = pre_migration_snapshot_path(&path, 2);
+            remove_database(&path);
+            remove_database(&snapshot);
+        });
+    }
+
+    #[test]
+    fn schema_002_database_is_snapshotted_before_migrate_to_003() {
+        tauri::async_runtime::block_on(async {
+            let path = test_path("snapshot-002");
+            remove_database(&path);
+            let pool = connect_writable(&path, true)
+                .await
+                .expect("schema 002 fixture should open");
+            for version in [1_i64, 2] {
+                let migration = super::MIGRATOR
+                    .iter()
+                    .find(|item| item.version == version)
+                    .expect("migration 001 and 002 should exist")
+                    .clone();
+                let mut conn = pool.acquire().await.expect("connection");
+                sqlx::migrate::Migrate::ensure_migrations_table(&mut *conn)
+                    .await
+                    .expect("migration metadata table should be created");
+                sqlx::migrate::Migrate::apply(&mut *conn, &migration)
+                    .await
+                    .expect("released schema should apply");
+            }
+            pool.close().await;
+
+            let result = initialize_database(path.clone()).await;
+            assert_eq!(result.status, DatabaseBootstrapStatus::Migrated);
+            result
+                .pool
+                .expect("migrated startup should be writable")
+                .close()
+                .await;
+
+            let snapshot = pre_migration_snapshot_path(&path, 2);
+            assert!(snapshot.is_file(), "pre-migration snapshot should exist");
+            assert_eq!(
+                read_migration_version(&snapshot)
+                    .await
+                    .expect("snapshot should remain readable"),
+                2
+            );
+            assert_eq!(
+                read_migration_version(&path)
+                    .await
+                    .expect("migrated database should be readable"),
+                3
+            );
+
+            remove_database(&path);
+            remove_database(&snapshot);
+        });
+    }
+
+    #[test]
+    fn schema_002_snapshot_copy_failure_blocks_migration_without_writes() {
+        tauri::async_runtime::block_on(async {
+            let path = test_path("snapshot-002-fail");
+            remove_database(&path);
+            let pool = connect_writable(&path, true)
+                .await
+                .expect("schema 002 fixture should open");
+            for version in [1_i64, 2] {
+                let migration = super::MIGRATOR
+                    .iter()
+                    .find(|item| item.version == version)
+                    .expect("migration 001 and 002 should exist")
+                    .clone();
+                let mut conn = pool.acquire().await.expect("connection");
+                sqlx::migrate::Migrate::ensure_migrations_table(&mut *conn)
+                    .await
+                    .expect("migration metadata table should be created");
+                sqlx::migrate::Migrate::apply(&mut *conn, &migration)
+                    .await
+                    .expect("released schema should apply");
+            }
+            pool.close().await;
+
+            let before_hash = file_hash(&path);
+            let snapshot = pre_migration_snapshot_path(&path, 2);
+            fs::create_dir_all(&snapshot).expect("blocking snapshot directory should be created");
+
+            let result = initialize_database(path.clone()).await;
+            assert_eq!(result.status, DatabaseBootstrapStatus::MigrationFailed);
+            assert!(result.pool.is_none());
+            assert_eq!(file_hash(&path), before_hash);
+            assert_eq!(
+                read_migration_version(&path)
+                    .await
+                    .expect("blocked database should remain readable"),
+                2
+            );
+
+            remove_database(&path);
+            let _ = fs::remove_dir_all(snapshot);
+        });
+    }
+
+    #[test]
+    fn future_version_4_is_unchanged_and_writes_no_origin_or_snapshot() {
+        tauri::async_runtime::block_on(async {
+            let path = test_path("future-v4");
+            remove_database(&path);
+            let migrated = initialize_database(path.clone()).await;
+            assert_eq!(migrated.status, DatabaseBootstrapStatus::Migrated);
+            let pool = migrated.pool.expect("schema 3 database");
+            sqlx::query(
+                "INSERT INTO _sqlx_migrations (version, description, installed_on, success, checksum, execution_time) VALUES (4, 'future', CURRENT_TIMESTAMP, 1, zeroblob(32), 1)",
+            )
+            .execute(&pool)
+            .await
+            .expect("version 4 row should be inserted");
+            pool.close().await;
+
+            let before_hash = file_hash(&path);
+            let before_mtime = file_mtime(&path);
+            let before_rows = migration_rows(&path).await;
+
+            let result = initialize_database(path.clone()).await;
+            assert_eq!(
+                result.status,
+                DatabaseBootstrapStatus::UnsupportedNewerDatabase {
+                    found: 4,
+                    supported: 3,
+                }
+            );
+            assert!(result.pool.is_none());
+            assert_eq!(file_hash(&path), before_hash);
+            assert_eq!(file_mtime(&path), before_mtime);
+            assert_eq!(migration_rows(&path).await, before_rows);
+
+            let pool = crate::infrastructure::database::connect_read_only(&path)
+                .await
+                .expect("future database remains readable");
+            let origin_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'history_origins'",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("origin table probe");
+            assert_eq!(origin_count, 1);
+            let origins: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM history_origins")
+                .fetch_one(&pool)
+                .await
+                .expect("origin rows");
+            assert_eq!(origins, 0);
+            let snapshots: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM daily_valuation_snapshots")
+                    .fetch_one(&pool)
+                    .await
+                    .expect("snapshot rows");
+            assert_eq!(snapshots, 0);
+            pool.close().await;
+
             remove_database(&path);
         });
+    }
+
+    async fn assert_v012_origin_baseline(pool: &crate::infrastructure::database::SqlitePool) {
+        let origin_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM history_origins")
+            .fetch_one(pool)
+            .await
+            .expect("origin count");
+        assert_eq!(origin_count, 1);
+        let activity_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM activities")
+            .fetch_one(pool)
+            .await
+            .expect("activity count");
+        assert_eq!(activity_count, 0);
+        let source: String = sqlx::query_scalar("SELECT source FROM history_origins")
+            .fetch_one(pool)
+            .await
+            .expect("origin source");
+        assert_eq!(source, "migrated_v012");
+        let schema_version: i64 = sqlx::query_scalar("SELECT schema_version FROM history_origins")
+            .fetch_one(pool)
+            .await
+            .expect("origin schema version");
+        assert_eq!(schema_version, 3);
+
+        let account_values: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM history_origin_account_values")
+                .fetch_one(pool)
+                .await
+                .expect("origin account values");
+        assert_eq!(account_values, 4);
+        let cash_values: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM history_origin_cash_values")
+                .fetch_one(pool)
+                .await
+                .expect("origin cash");
+        assert_eq!(cash_values, 1);
+        let holdings: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM history_origin_holdings")
+            .fetch_one(pool)
+            .await
+            .expect("origin holdings");
+        assert_eq!(holdings, 3);
+        let states: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM history_origin_account_states")
+            .fetch_one(pool)
+            .await
+            .expect("origin account states");
+        assert_eq!(states, 5);
+        let ownership: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM history_origin_ownership")
+            .fetch_one(pool)
+            .await
+            .expect("origin ownership");
+        assert_eq!(ownership, 6);
+
+        let qqq: String = sqlx::query_scalar(
+            "SELECT quantity FROM history_origin_holdings WHERE holding_id = '30303030-3030-4303-8303-303030303030'",
+        )
+        .fetch_one(pool)
+        .await
+        .expect("qqq quantity");
+        assert_eq!(qqq, "3");
+        let es3: String = sqlx::query_scalar(
+            "SELECT quantity FROM history_origin_holdings WHERE holding_id = '31313131-3131-4313-8313-313131313131'",
+        )
+        .fetch_one(pool)
+        .await
+        .expect("es3 quantity");
+        assert_eq!(es3, "1000");
+        let qqq_observations: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM holding_quantity_values WHERE holding_id = '30303030-3030-4303-8303-303030303030'",
+        )
+        .fetch_one(pool)
+        .await
+        .expect("qqq quantity observations");
+        assert_eq!(qqq_observations, 1);
+        let quantity_with_activity: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM holding_quantity_values WHERE activity_id IS NOT NULL",
+        )
+        .fetch_one(pool)
+        .await
+        .expect("quantity observations with activity");
+        assert_eq!(quantity_with_activity, 0);
+        let cash: (String, String) = sqlx::query_as(
+            "SELECT amount, currency FROM history_origin_cash_values WHERE account_id = '99999999-9999-4999-8999-999999999999'",
+        )
+        .fetch_one(pool)
+        .await
+        .expect("holdings cash");
+        assert_eq!(cash.0, "5000");
+        assert_eq!(cash.1, "SGD");
+        let manual: String = sqlx::query_scalar(
+            "SELECT amount FROM history_origin_account_values WHERE account_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'",
+        )
+        .fetch_one(pool)
+        .await
+        .expect("manual value");
+        assert_eq!(manual, "1000");
+        let operating: String = sqlx::query_scalar(
+            "SELECT amount FROM history_origin_account_values WHERE account_id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'",
+        )
+        .fetch_one(pool)
+        .await
+        .expect("operating cash");
+        assert_eq!(operating, "0");
+        let fx_prefs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM fx_preference_observations")
+            .fetch_one(pool)
+            .await
+            .expect("fx preference observations");
+        assert_eq!(fx_prefs, 3);
+        let instrument_prefs: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM instrument_preference_observations")
+                .fetch_one(pool)
+                .await
+                .expect("instrument preference observations");
+        assert_eq!(instrument_prefs, 4);
+        let snapshot_state: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM history_snapshot_state")
+            .fetch_one(pool)
+            .await
+            .expect("snapshot state");
+        assert_eq!(snapshot_state, 1);
+        let foreign_keys = sqlx::query("PRAGMA foreign_key_check")
+            .fetch_all(pool)
+            .await
+            .expect("foreign key check");
+        assert!(foreign_keys.is_empty());
+        let integrity: String = sqlx::query_scalar("PRAGMA integrity_check")
+            .fetch_one(pool)
+            .await
+            .expect("integrity check");
+        assert_eq!(integrity, "ok");
     }
 
     async fn assert_table_counts(

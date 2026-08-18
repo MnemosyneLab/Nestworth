@@ -460,6 +460,46 @@ impl Activity {
         &self.legs
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_persisted(
+        id: ActivityId,
+        household_id: HouseholdId,
+        kind: ActivityKind,
+        effective_at: Timestamp,
+        effective_local_date: CalendarDate,
+        created_at: Timestamp,
+        note: Option<String>,
+        reverses: Option<ActivityId>,
+        corrects: Option<ActivityId>,
+        correction_group: Option<uuid::Uuid>,
+        income_kind: Option<IncomeKind>,
+        fee_kind: Option<FeeKind>,
+        related_instrument_id: Option<InstrumentId>,
+        legs: Vec<ActivityLeg>,
+    ) -> Result<Self, AppError> {
+        if legs.is_empty() {
+            return Err(AppError::invalid_activity_legs(
+                "An activity must include at least one leg.",
+            ));
+        }
+        Ok(Self {
+            id,
+            household_id,
+            kind,
+            effective_at,
+            effective_local_date,
+            created_at,
+            note,
+            reverses,
+            corrects,
+            correction_group,
+            income_kind,
+            fee_kind,
+            related_instrument_id,
+            legs,
+        })
+    }
+
     #[must_use]
     pub fn classification_for(&self, leg: &ActivityLeg) -> Classification {
         classify(self.kind, leg.role())

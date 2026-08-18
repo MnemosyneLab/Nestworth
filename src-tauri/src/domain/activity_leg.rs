@@ -233,6 +233,35 @@ pub struct ActivityLeg {
 }
 
 impl ActivityLeg {
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_persisted(
+        id: ActivityLegId,
+        activity_id: ActivityId,
+        account_id: AccountId,
+        role: LegRole,
+        direction: Direction,
+        component: LegComponent,
+        fx_rate: Option<FxRate>,
+        sort_order: i64,
+    ) -> Result<Self, AppError> {
+        component.require_positive()?;
+        if fx_rate.is_some() && matches!(component, LegComponent::HoldingQuantity { .. }) {
+            return Err(AppError::invalid_activity_legs(
+                "FX rates apply only to monetary transfer legs.",
+            ));
+        }
+        Ok(Self {
+            id,
+            activity_id,
+            account_id,
+            role,
+            direction,
+            component,
+            fx_rate,
+            sort_order,
+        })
+    }
+
     pub(crate) fn new(
         activity_id: ActivityId,
         account_id: AccountId,

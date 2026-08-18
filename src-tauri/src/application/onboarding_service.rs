@@ -150,6 +150,14 @@ async fn persist_onboarding_in_transaction(
         return Err(AppError::Internal);
     }
 
+    crate::application::history_origin::insert_fresh_origin_in_tx(
+        tx,
+        prepared.household.id(),
+        &prepared.now,
+        crate::infrastructure::database_bootstrap::max_supported_migration(),
+    )
+    .await?;
+
     tracing::info!(
         event = "onboarding.complete",
         household_id = %prepared.household.id(),
@@ -453,7 +461,7 @@ mod tests {
                 state.bootstrap_status(),
                 DatabaseBootstrapStatus::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 2
+                    supported: 3
                 }
             ));
 
@@ -464,7 +472,7 @@ mod tests {
                 error,
                 AppError::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 2
+                    supported: 3
                 }
             ));
             assert_eq!(file_hash(&path), before_hash);

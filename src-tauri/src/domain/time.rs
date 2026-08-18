@@ -88,9 +88,40 @@ impl HistoryTimezone {
     }
 
     #[must_use]
+    pub fn utc() -> Self {
+        Self(chrono_tz::UTC)
+    }
+
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         self.0.name()
     }
+
+    #[must_use]
+    pub fn local_date(self, timestamp: &Timestamp) -> CalendarDate {
+        CalendarDate::from_naive_date(timestamp.as_utc().with_timezone(&self.0).date_naive())
+    }
+}
+
+/// Maps a host IANA name to a History Origin timezone.
+///
+/// A missing, empty, or invalid name falls back to `UTC` with `confirmed = false`.
+/// A name that parses as a `chrono-tz` identifier is stored confirmed.
+#[must_use]
+pub fn origin_timezone_from_iana_name(name: Option<&str>) -> (HistoryTimezone, bool) {
+    match name.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => match HistoryTimezone::parse(value) {
+            Ok(timezone) => (timezone, true),
+            Err(_) => (HistoryTimezone::utc(), false),
+        },
+        None => (HistoryTimezone::utc(), false),
+    }
+}
+
+/// Resolves the host IANA timezone for History Origin initialization.
+#[must_use]
+pub fn resolve_host_origin_timezone() -> (HistoryTimezone, bool) {
+    origin_timezone_from_iana_name(iana_time_zone::get_timezone().ok().as_deref())
 }
 
 /// Explicit choice for a local time that occurs twice during a fall-back transition.
@@ -203,8 +234,8 @@ fn parse_local_clock_time(value: &str) -> Result<NaiveTime, AppError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        resolve_activity_time, resolve_local_datetime, validate_activity_time, AmbiguousOffset,
-        CalendarDate, HistoryTimezone, Timestamp,
+        origin_timezone_from_iana_name, resolve_activity_time, resolve_local_datetime,
+        validate_activity_time, AmbiguousOffset, CalendarDate, HistoryTimezone, Timestamp,
     };
     use crate::error::AppError;
 
@@ -240,6 +271,41 @@ mod tests {
         assert!(CalendarDate::parse("2026/08/17").is_err());
         assert!(CalendarDate::parse("2026-02-30").is_err());
         assert!(CalendarDate::parse("2026-08-17T00:00:00Z").is_err());
+    }
+
+    #[test]
+    fn origin_timezone_falls_back_to_unconfirmed_utc() {
+        let (timezone, confirmed) = origin_timezone_from_iana_name(None);
+        assert_eq!(timezone.as_str(), "UTC");
+        assert!(!confirmed);
+        let (timezone, confirmed) = origin_timezone_from_iana_name(Some(""));
+        assert_eq!(timezone.as_str(), "UTC");
+        assert!(!confirmed);
+        let (timezone, confirmed) = origin_timezone_from_iana_name(Some("Not/A_Zone"));
+        assert_eq!(timezone.as_str(), "UTC");
+        assert!(!confirmed);
+        let (timezone, confirmed) = origin_timezone_from_iana_name(Some("America/New_York"));
+        assert_eq!(timezone.as_str(), "America/New_York");
+        assert!(confirmed);
+        let (timezone, confirmed) = origin_timezone_from_iana_name(Some("UTC"));
+        assert_eq!(timezone.as_str(), "UTC");
+        assert!(confirmed);
+    }
+
+    #[test]
+    fn local_date_uses_origin_timezone() {
+        let utc = Timestamp::parse("2026-01-02T04:30:00.000Z").expect("utc");
+        assert_eq!(
+            HistoryTimezone::utc().local_date(&utc).to_ymd(),
+            "2026-01-02"
+        );
+        assert_eq!(
+            HistoryTimezone::parse("America/New_York")
+                .expect("ny")
+                .local_date(&utc)
+                .to_ymd(),
+            "2026-01-01"
+        );
     }
 
     #[test]
