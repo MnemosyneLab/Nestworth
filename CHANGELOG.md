@@ -2,6 +2,41 @@
 
 All notable changes to Nestworth are recorded here. The project follows semantic versioning once a public release is published.
 
+## [0.1.3] - Unreleased
+
+v0.1.3 is development-complete and is undergoing release-candidate validation. Manifest version numbers remain `0.1.2` until the Phase 10 release closeout.
+
+### Added
+
+- Immutable Activity ledger with kind-specific posting for adjustments, deposits, withdrawals, transfers, trades, income, fees, debt principal, and manual valuations
+- Atomic current-state projection of accepted Activities into Account Value, Account Cash, and Holding Quantity
+- Reversal and atomic correction that preserve the original, reversal, and replacement chain
+- History Origin cutover for migrated v0.1.2 Households and fresh onboarding, with timezone confirmation before the first Activity or snapshot
+- Account timeline combining origin, Activities, legacy observations, and financial-state changes
+- Top-level `/activity` route with URL-backed filters, cursor pagination, type-specific forms, and Rust-produced preview
+- Closed-day append-only valuation snapshots, bounded rebuild, and Overview net-worth trend with a live current point
+- English and Simplified Chinese copy for Activity, timeline, origin, rebuild, and trend workflows
+
+### Engineering
+
+- Migration `003` for History Origin, Activities, legs, Quantity and state observations, and snapshot revisions without rewriting v0.1.2 business rows
+- ActivityService, HistoricalValuationService, snapshot rebuild, and generated Activity/history IPC commands
+- Golden v0.1.1 and v0.1.2 fixtures that keep Overview and portfolio totals after migrate to schema 3
+- Zero-write coverage for unsupported future databases across bootstrap and Activity/history commands
+- `delete_all_data` coverage for schema-3 databases, WAL/SHM sidecars, and `.pre-migrate-*` snapshots
+
+### Accepted v0.1.3 Limitations
+
+- No cost basis, tax lots, realized or unrealized gain, TWR, XIRR, benchmarks, or return attribution
+- Origin and adjustment quantities have unknown basis; v0.1.4 must not manufacture lots from v0.1.2 Holding Quantity
+- No live market-data or FX vendor is configured; production adapters remain unconfigured
+- Pending or future Activities, CSV import/export, backup/restore, and background snapshot generation while closed remain deferred
+
+### Distribution Status
+
+- Automated frontend and Linux-host Rust gates are the development evidence for this revision
+- Isolated-data launch, keyboard navigation, VoiceOver smoke testing, arm64 `.app`/`.dmg` packaging, and the chosen signing/notarization policy remain named Phase 10 macOS release checks
+
 ## [0.1.2] - Unreleased
 
 v0.1.2 is development-complete and is undergoing release-candidate validation.

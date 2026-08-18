@@ -987,6 +987,14 @@ mod tests {
             assert_eq!(snapshots, 0);
             pool.close().await;
 
+            let state = AppState::initialize(path.clone()).await;
+            crate::test_support::assert_activity_history_commands_write_nothing(
+                &state,
+                &path,
+                before_hash,
+            )
+            .await;
+
             remove_database(&path);
         });
     }

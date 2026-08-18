@@ -103,6 +103,15 @@ mod tests {
         "password",
         "sql",
         "query",
+        "quantity",
+        "symbol",
+        "account_name",
+        "instrument_symbol",
+        "quote",
+        "legs",
+        "raw_legs",
+        "unit_price",
+        "unitPrice",
     ];
 
     #[test]
@@ -211,10 +220,36 @@ mod tests {
     }
 
     #[test]
+    fn frontend_does_not_gain_fs_http_clipboard_or_shell_capabilities() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../src");
+        let mut files = Vec::new();
+        collect_source_files(&root, &["ts", "tsx"], &mut files);
+        let mut violations = Vec::new();
+        for path in files {
+            let source = fs::read_to_string(&path).expect("frontend source should be readable");
+            for needle in [
+                "@tauri-apps/plugin-fs",
+                "@tauri-apps/plugin-http",
+                "@tauri-apps/plugin-clipboard",
+                "@tauri-apps/plugin-shell",
+                "@tauri-apps/plugin-opener",
+            ] {
+                if source.contains(needle) {
+                    violations.push(format!("{}: {needle}", path.display()));
+                }
+            }
+        }
+        assert!(
+            violations.is_empty(),
+            "frontend must not gain filesystem, HTTP, clipboard, shell, or opener plugins: {violations:?}"
+        );
+    }
+
+    #[test]
     fn tracing_macros_do_not_log_sensitive_fields() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut files = Vec::new();
-        collect_rust_files(&root, &mut files);
+        collect_source_files(&root, &["rs"], &mut files);
         let mut violations = Vec::new();
 
         for path in files {
@@ -267,13 +302,17 @@ mod tests {
         names
     }
 
-    fn collect_rust_files(dir: &std::path::Path, files: &mut Vec<PathBuf>) {
+    fn collect_source_files(dir: &std::path::Path, extensions: &[&str], files: &mut Vec<PathBuf>) {
         for entry in fs::read_dir(dir).expect("source directory should be readable") {
             let entry = entry.expect("directory entry should be readable");
             let path = entry.path();
             if path.is_dir() {
-                collect_rust_files(&path, files);
-            } else if path.extension().and_then(|ext| ext.to_str()) == Some("rs") {
+                collect_source_files(&path, extensions, files);
+            } else if path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| extensions.contains(&ext))
+            {
                 files.push(path);
             }
         }

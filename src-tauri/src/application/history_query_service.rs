@@ -1687,7 +1687,10 @@ mod tests {
         },
         domain::{closed_day_cutoff, CalendarDate, HistoryTimezone},
         error::{AppError, CommandError, ErrorCode},
-        test_support::{cleanup, onboarded_state, UNKNOWN_UUID},
+        test_support::{
+            assert_activity_history_commands_write_nothing, blocked_future_state, cleanup,
+            onboarded_state, stable_sqlite_hash, UNKNOWN_UUID,
+        },
     };
 
     fn owner(member_id: &str) -> OwnershipShareInput {
@@ -2181,6 +2184,16 @@ mod tests {
                 text(&state, "SELECT dirty_from FROM history_snapshot_state").await,
                 origin.origin_local_date
             );
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn blocked_future_database_rejects_activity_and_history_commands() {
+        tauri::async_runtime::block_on(async {
+            let (state, path, before_hash) = blocked_future_state("activity-history").await;
+            assert_activity_history_commands_write_nothing(&state, &path, before_hash).await;
+            assert_eq!(stable_sqlite_hash(&path).await, before_hash);
             cleanup(&path);
         });
     }

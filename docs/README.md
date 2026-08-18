@@ -16,12 +16,12 @@ This directory contains the product, architecture, engineering, and release docu
 | [v0.1.2 Release Contract](releases/v0.1.2.md) | Delivered multi-currency and portfolio scope, locked decisions, provider gate, and release acceptance |
 | [v0.1.2 Technical Design](releases/v0.1.2-technical-design.md) | Implemented multi-currency, portfolio, quote, valuation, persistence, IPC, and provider contracts |
 | [v0.1.2 Implementation Plan](releases/v0.1.2-implementation-plan.md) | Dependency-ordered phases, test obligations, exit checks, and Agent handoff rules |
-| [v0.1.3 Release Contract](releases/v0.1.3.md) | Planned Activity and history scope, locked product decisions, acceptance scenarios, and compatibility promises |
-| [v0.1.3 Technical Design](releases/v0.1.3-technical-design.md) | Planned ledger, projection, History Origin, correction, snapshot, persistence, IPC, and UI contracts |
+| [v0.1.3 Release Contract](releases/v0.1.3.md) | Delivered Activity and history scope, locked product decisions, acceptance scenarios, and compatibility promises |
+| [v0.1.3 Technical Design](releases/v0.1.3-technical-design.md) | Implemented ledger, projection, History Origin, correction, snapshot, persistence, IPC, and UI contracts |
 | [v0.1.3 Implementation Plan](releases/v0.1.3-implementation-plan.md) | Dependency-ordered v0.1.3 phases, required tests, exit checks, and Agent handoff rules |
 | [v0.1.3 Compatibility Baseline](releases/v0.1.3-baseline.md) | Frozen schema `002`, command allowlist, Overview/Portfolio goldens, query counts, and required product decisions |
 
-[v0.1.1](releases/v0.1.1.md) remains the household balance-sheet baseline. [v0.1.2](releases/v0.1.2.md) is development-complete and in release-candidate validation; it uses manual valuation with unconfigured production quote adapters. [v0.1.3](releases/v0.1.3.md) is design-complete and planned but has no implemented phase. Later direction is summarized in the [product roadmap](product/roadmap.md).
+[v0.1.1](releases/v0.1.1.md) remains the household balance-sheet baseline. [v0.1.2](releases/v0.1.2.md) is development-complete and in release-candidate validation; it uses manual valuation with unconfigured production quote adapters. [v0.1.3](releases/v0.1.3.md) is development-complete and in release-candidate validation; Activity ledger, History Origin, snapshots, `/activity`, and Overview trend are implemented. Isolated-data launch, keyboard/VoiceOver, arm64 packaging, and signing remain named Phase 10 macOS checks. Later direction is summarized in the [product roadmap](product/roadmap.md).
 
 ## Source of Truth
 

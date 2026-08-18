@@ -27,6 +27,10 @@ erDiagram
     MEDIA_ASSET o|--o{ GROUP : decorates
     MEDIA_ASSET o|--o{ ACCOUNT : decorates
     MEDIA_ASSET o|--o{ INSTRUMENT : decorates
+    HOUSEHOLD ||--o| HISTORY_ORIGIN : starts_at
+    HOUSEHOLD ||--o{ ACTIVITY : records
+    ACTIVITY ||--|{ ACTIVITY_LEG : composed_of
+    HOUSEHOLD ||--o{ DAILY_SNAPSHOT : valued_as
 ```
 
 ## Core Entities
@@ -61,7 +65,7 @@ Ownership relates one Account to one or more Members. It is stored in integer ba
 
 ### Account Value
 
-An Account Value is an immutable observation, not a mutable balance column. Balance and Manual Value creation writes an initial observation, and each later update appends another. Holdings Accounts do not write an Account Value. The latest Account Value is used only for Balance and Manual Value modes.
+An Account Value is an immutable observation, not a mutable balance column. Balance and Manual Value creation writes an initial observation, and each later update appends another. After History Origin, a positive initial amount or later value change posts an Opening Adjustment, Balance Adjustment, or Manual Valuation and links the new observation to that Activity. Holdings Accounts do not write an Account Value. The latest Account Value is used only for Balance and Manual Value modes. Legacy pre-origin observations remain unlinked to any Activity.
 
 ### Instrument
 
@@ -71,11 +75,11 @@ Instrument reuse is Household-scoped. Symbol alone is not unique. When both prov
 
 ### Holding
 
-A Holding belongs to one Holdings Account and references one Instrument in the same Household. It has a current Quantity, optional note, and archive state. The same active Instrument appears at most once in one Account. Quantity edits replace current state and do not create Activities. Zero quantity is valid; negative and short quantities are rejected. Ownership is inherited from the Account.
+A Holding belongs to one Holdings Account and references one Instrument in the same Household. It has a current Quantity, optional note, and archive state. The same active Instrument appears at most once in one Account. After History Origin, a Quantity change posts an Opening Adjustment or Position Adjustment and an Activity-linked Quantity observation; note-only updates do not create an Activity. Zero quantity is valid; negative and short quantities are rejected. Ownership is inherited from the Account. Pre-origin Holding Quantity is origin baseline only and is never a fabricated Buy, Sell, Transfer, or Adjustment.
 
 ### Account Cash Value
 
-Cash inside a Holdings Account is an append-only observation per Account and currency. An Account may have multiple cash currencies. Zero is valid. Negative cash and margin are not modeled.
+Cash inside a Holdings Account is an append-only observation per Account and currency. An Account may have multiple cash currencies. After History Origin, a cash change posts Deposit, Withdrawal, or another kind-specific Activity and links the new observation to that Activity. Zero is valid. Negative cash and margin are not modeled.
 
 ### Instrument Quote and FX Quote
 
@@ -85,11 +89,27 @@ Instrument Quotes and FX Quotes are append-only observations with source kind, s
 
 A MediaAsset is Household-scoped binary image data referenced by Members, Institutions, Groups, Accounts, or Instruments. Local PNG, JPEG, or WebP files are imported through a native dialog, normalized to a bounded PNG, and displayed as data URLs. Clearing an existing avatar or logo is not part of this release.
 
+### Activity
+
+An Activity is an immutable ledger header with one or more validated typed legs. It records why a Balance, cash, liability, or Holding Quantity changed. Users submit a kind-specific command; Rust constructs legs. There is no edit or delete of a posted Activity. Reversal posts the exact inverse. Correction posts a reversal and a replacement in one transaction.
+
+Supported kinds are Opening Adjustment, Balance Adjustment, Position Adjustment, Deposit, Withdrawal, Transfer, Buy, Sell, Income, Fee, Debt Draw, Debt Payment, Debt Adjustment, Manual Valuation, and Reversal.
+
+Classification is derived in Rust from kind and leg role. Internal transfers and trade principal contribute zero external wealth flow. Explicit fees remain distinguishable from principal.
+
+### History Origin
+
+History Origin is a cutover boundary, not an Activity. It states that Nestworth knows this Household state existed at this time but does not know how it was acquired. Each Household has exactly one origin with an IANA timezone. Migrated v0.1.2 state is captured as baseline items. Fresh onboarding creates an empty origin. Trustworthy reconstructed daily history starts at the origin; older observations may appear as labeled legacy observations but do not create a pre-origin trend.
+
+### Daily Snapshot
+
+A daily snapshot is an append-only valuation revision for one closed local calendar day in the History Origin timezone. It records how reconstructed state was valued at that cutoff, including quote provenance and incomplete diagnostics. Missing components are excluded from totals and never treated as zero. The current local day is a live ValuationService point, not a persisted final snapshot.
+
 ## Identity, Money, and Time
 
 ### Identifiers
 
-HouseholdId, MemberId, InstitutionId, AccountGroupId, AccountId, AccountValueId, MediaAssetId, InstrumentId, HoldingId, AccountCashValueId, InstrumentQuoteId, and FxQuoteId are distinct Rust types backed by UUID v7. IDs are lowercase hyphenated UUID strings at persistence and IPC boundaries. IDs from different entity types are not interchangeable. A provider symbol is metadata, never a Nestworth business ID.
+HouseholdId, MemberId, InstitutionId, AccountGroupId, AccountId, AccountValueId, MediaAssetId, InstrumentId, HoldingId, AccountCashValueId, InstrumentQuoteId, FxQuoteId, ActivityId, ActivityLegId, HistoryOriginId, HistoryOriginItemId, AccountStateObservationId, HoldingQuantityValueId, QuotePreferenceObservationId, ValuationSnapshotId, and ValuationSnapshotItemId are distinct Rust types backed by UUID v7. IDs are lowercase hyphenated UUID strings at persistence and IPC boundaries. IDs from different entity types are not interchangeable. A provider symbol is metadata, never a Nestworth business ID. A reversal or correction link references an `ActivityId`; it is not encoded in notes.
 
 ### Currency
 
@@ -119,7 +139,7 @@ Canonical output removes insignificant trailing zeros: `1.2300` becomes `1.23`, 
 
 ### Time
 
-Authoritative timestamps are UTC RFC 3339 strings with millisecond precision and a trailing `Z`. Calendar-only fields such as `opened_on` and `closed_on` use `YYYY-MM-DD`. A closed date cannot precede an opened date.
+Authoritative timestamps are UTC RFC 3339 strings with millisecond precision and a trailing `Z`. Calendar-only fields such as `opened_on` and `closed_on` use `YYYY-MM-DD`. A closed date cannot precede an opened date. Activity effective time is resolved in the History Origin IANA timezone from local date and time; the persisted local date is used for filters and snapshot invalidation.
 
 ## Categories and Tracking Modes
 
@@ -147,7 +167,7 @@ Ownership updates and Account updates are one atomic transaction.
 
 ## Value and Net-Worth Semantics
 
-Asset and liability values are both stored as non-negative Money. Sign is a property of Category, not persisted input. Overview, Account, and Portfolio totals come from one Rust ValuationService:
+Asset and liability values are both stored as non-negative Money. Sign is a property of Category, not persisted input. Overview, Account, and Portfolio totals come from one Rust ValuationService. Historical closed-day totals come from HistoricalValuationService reconstructing origin plus ordered Activities at the cutoff. The live current Overview point must agree with ValuationService for the same read snapshot.
 
 ```text
 assets      = sum(included non-liability base values)
@@ -205,8 +225,7 @@ Foreign keys protect structural references, while application transactions enfor
 
 These concepts are intentionally deferred and are not current behavior:
 
-- v0.1.3: Activities, typed legs, transfers, trades, History Origin, historical quotes, and valuation snapshot revisions are [planned](../releases/v0.1.3.md) but not current behavior
-- v0.1.4: Cost basis, realized and unrealized gain, investment income, TWR, XIRR, and attribution
+- v0.1.4: Cost basis, tax lots, realized and unrealized gain, investment income, TWR, XIRR, and attribution
 - v0.1.5: Automation rules, pending activities, imports, exports, backups, and reminders
 
-Their detailed models must be designed when their release becomes active. They must extend the current identity, Money, Ownership, lifecycle, quote, and sign semantics. v0.1.3 must not fabricate past trades from v0.1.2 quantity edits.
+Their detailed models must be designed when their release becomes active. They must extend the current identity, Money, Ownership, lifecycle, quote, Activity, origin, and sign semantics. v0.1.4 must treat origin and adjustment quantities as unknown-basis and must not manufacture lots from v0.1.2 Holding Quantity.

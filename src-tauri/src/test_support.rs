@@ -6,9 +6,20 @@ use std::{
 };
 
 use crate::{
-    application::onboarding_service::{
-        complete_onboarding, CompleteOnboardingInput, OnboardingMemberInput,
+    application::{
+        history_query_service::{
+            confirm_history_timezone, correct_activity, create_activity, get_account_timeline,
+            get_activity, get_history_origin, list_activities, preview_activity, reverse_activity,
+            ConfirmHistoryTimezoneInput, CorrectActivityInput, CreateActivityInput,
+            GetAccountTimelineInput, ListActivitiesInput, ReverseActivityInput,
+        },
+        history_snapshot_service::{
+            get_history_status, get_net_worth_trend, rebuild_history_snapshots,
+            GetNetWorthTrendInput, RebuildHistorySnapshotsInput,
+        },
+        onboarding_service::{complete_onboarding, CompleteOnboardingInput, OnboardingMemberInput},
     },
+    error::AppError,
     infrastructure::database::connect_writable,
     state::AppState,
 };
@@ -99,4 +110,133 @@ pub async fn blocked_future_state(name: &str) -> (AppState, PathBuf, u64) {
 
 pub fn cleanup(path: &Path) {
     fs::remove_file(path).expect("test database should be removable");
+}
+
+fn blocked_deposit() -> CreateActivityInput {
+    CreateActivityInput::Deposit {
+        local_date: "2026-01-01".to_owned(),
+        local_time: "00:01".to_owned(),
+        ambiguous_offset: None,
+        note: Some("must not be persisted".to_owned()),
+        account_id: UNKNOWN_UUID.to_owned(),
+        component: "account_value".to_owned(),
+        amount: "1".to_owned(),
+        currency: "CNY".to_owned(),
+    }
+}
+
+pub async fn assert_activity_history_commands_write_nothing(
+    state: &AppState,
+    path: &Path,
+    before_hash: u64,
+) {
+    let deposit = blocked_deposit();
+    let errors = [
+        ("get_history_origin", get_history_origin(state).await.err()),
+        (
+            "confirm_history_timezone",
+            confirm_history_timezone(
+                state,
+                ConfirmHistoryTimezoneInput {
+                    timezone: "UTC".to_owned(),
+                },
+            )
+            .await
+            .err(),
+        ),
+        (
+            "preview_activity",
+            preview_activity(state, deposit.clone()).await.err(),
+        ),
+        (
+            "list_activities",
+            list_activities(
+                state,
+                ListActivitiesInput {
+                    cursor: None,
+                    limit: Some(10),
+                    start_local_date: None,
+                    end_local_date: None,
+                    account_id: None,
+                    instrument_id: None,
+                    kind: None,
+                    classification: None,
+                },
+            )
+            .await
+            .err(),
+        ),
+        (
+            "get_activity",
+            get_activity(state, UNKNOWN_UUID).await.err(),
+        ),
+        (
+            "create_activity",
+            create_activity(state, deposit.clone()).await.err(),
+        ),
+        (
+            "reverse_activity",
+            reverse_activity(
+                state,
+                ReverseActivityInput {
+                    id: UNKNOWN_UUID.to_owned(),
+                    local_date: None,
+                    local_time: None,
+                    ambiguous_offset: None,
+                },
+            )
+            .await
+            .err(),
+        ),
+        (
+            "correct_activity",
+            correct_activity(
+                state,
+                CorrectActivityInput {
+                    original_id: UNKNOWN_UUID.to_owned(),
+                    replacement: deposit,
+                },
+            )
+            .await
+            .err(),
+        ),
+        (
+            "get_account_timeline",
+            get_account_timeline(
+                state,
+                GetAccountTimelineInput {
+                    account_id: UNKNOWN_UUID.to_owned(),
+                    cursor: None,
+                    limit: Some(10),
+                },
+            )
+            .await
+            .err(),
+        ),
+        ("get_history_status", get_history_status(state).await.err()),
+        (
+            "rebuild_history_snapshots",
+            rebuild_history_snapshots(state, RebuildHistorySnapshotsInput { cancel: false })
+                .await
+                .err(),
+        ),
+        (
+            "get_net_worth_trend",
+            get_net_worth_trend(
+                state,
+                GetNetWorthTrendInput {
+                    range: "all".to_owned(),
+                },
+            )
+            .await
+            .err(),
+        ),
+    ];
+    for (command, error) in errors {
+        assert!(
+            matches!(error, Some(AppError::UnsupportedNewerDatabase { .. })),
+            "{command} must reject an unsupported future database without writing: {error:?}"
+        );
+    }
+    assert_eq!(stable_sqlite_hash(path).await, before_hash);
 }

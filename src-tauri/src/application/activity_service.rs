@@ -2575,6 +2575,69 @@ mod tests {
             .expect("linked");
             assert_eq!(linked, 2);
 
+            let holdings = brokerage(&state, &walt).await;
+            append_account_cash(
+                &state,
+                AppendAccountCashInput {
+                    account_id: holdings.id.clone(),
+                    amount: "250".to_owned(),
+                    currency: "USD".to_owned(),
+                },
+            )
+            .await
+            .expect("cash");
+            let unlinked_cash: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM account_cash_values WHERE activity_id IS NULL AND amount != '0'",
+            )
+            .fetch_one(state.writable_db().expect("db"))
+            .await
+            .expect("unlinked cash");
+            assert_eq!(unlinked_cash, 0);
+            let linked_cash: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM account_cash_values WHERE activity_id IS NOT NULL",
+            )
+            .fetch_one(state.writable_db().expect("db"))
+            .await
+            .expect("linked cash");
+            assert_eq!(linked_cash, 1);
+
+            let instrument = qqq(&state).await;
+            let holding = create_holding(
+                &state,
+                CreateHoldingInput {
+                    account_id: holdings.id,
+                    instrument_id: instrument.id,
+                    quantity: "1".to_owned(),
+                    note: None,
+                },
+            )
+            .await
+            .expect("holding");
+            update_holding(
+                &state,
+                UpdateHoldingInput {
+                    id: holding.id,
+                    quantity: "2".to_owned(),
+                    note: None,
+                },
+            )
+            .await
+            .expect("quantity");
+            let unlinked_qty: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM holding_quantity_values WHERE activity_id IS NULL",
+            )
+            .fetch_one(state.writable_db().expect("db"))
+            .await
+            .expect("unlinked quantity");
+            assert_eq!(unlinked_qty, 0);
+            let linked_qty: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM holding_quantity_values WHERE activity_id IS NOT NULL",
+            )
+            .fetch_one(state.writable_db().expect("db"))
+            .await
+            .expect("linked quantity");
+            assert_eq!(linked_qty, 2);
+
             let database = state.writable_db().expect("db");
             let mut tx = begin_write_tx(database).await.expect("tx");
             let value = crate::domain::AccountValue::initial(

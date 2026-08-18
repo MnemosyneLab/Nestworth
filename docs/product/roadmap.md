@@ -42,13 +42,13 @@ The detailed scope, design, and delivery phases are defined by the [v0.1.2 relea
 
 **Theme:** Understand how wealth changes.
 
-**Status:** Planned; design complete, implementation not started.
+**Status:** Development complete; release candidate.
 
-Add an activity ledger for adjustments, deposits, withdrawals, transfers, trades, income, fees, debt changes, and manual valuations. Add historical quotes, daily valuation snapshots, net-worth trends, activity filtering, and account timelines.
+Add an activity ledger for adjustments, deposits, withdrawals, transfers, trades, income, fees, debt changes, and manual valuations. Add History Origin, historical quotes, daily valuation snapshots, net-worth trends, the `/activity` route, and account timelines. Isolated-data launch, keyboard/VoiceOver, arm64 packaging, and signing remain named Phase 10 macOS release checks.
 
 **Exit outcome:** Internal transfers do not create false wealth changes, and the user can inspect what changed over time.
 
-The detailed scope, design, and delivery phases are defined by the [v0.1.3 release contract](../releases/v0.1.3.md), [technical design](../releases/v0.1.3-technical-design.md), and [implementation plan](../releases/v0.1.3-implementation-plan.md). The design preserves v0.1.2 current state as an explicit History Origin and does not fabricate earlier Activities.
+The detailed scope, design, and delivery phases are defined by the [v0.1.3 release contract](../releases/v0.1.3.md), [technical design](../releases/v0.1.3-technical-design.md), and [implementation plan](../releases/v0.1.3-implementation-plan.md). Migrated v0.1.2 current state is an explicit History Origin; the release does not fabricate earlier Activities. v0.1.4 must treat origin and adjustment quantities as unknown-basis and must not manufacture lots from v0.1.2 Holding Quantity.
 
 ### v0.1.4 — Analytics and Performance
 

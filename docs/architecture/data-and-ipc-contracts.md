@@ -111,7 +111,9 @@ quoted_at DESC, created_at DESC, id DESC
 - New Account references must be active and belong to the current Household.
 - Account updates may retain, but may not newly select, an archived reference.
 - TrackingMode cannot change after Account creation.
-- Account Value and Account Cash updates append a new observation; they do not overwrite prior observations.
+- Account Value, Account Cash, and Holding Quantity updates append a new observation; they do not overwrite prior observations. After History Origin, those user-facing mutations post through ActivityService and cannot bypass the ledger.
+- Posted Activities are immutable. Reversal and correction append linked records; there is no edit or delete command.
+- Daily snapshots are append-only revisions. Rebuild never mutates or deletes a previous revision.
 - Instrument Quote and FX Quote writes are append-only.
 - Refresh performs provider I/O without a SQLite write transaction and persists each successful normalized quote in its own short write transaction. A failed item does not remove manual data or previous successful quotes.
 
@@ -140,8 +142,12 @@ The command surface is grouped by use case:
 | Refresh | search provider instruments, refresh instrument, refresh required FX, refresh all |
 | Media | `get_media` |
 | Settings | `get_settings`, `update_settings`, `delete_all_data` |
+| Origin | `get_history_origin`, `confirm_history_timezone` |
+| Activities | `preview_activity`, `list_activities`, `get_activity`, `create_activity`, `reverse_activity`, `correct_activity` |
+| Timeline | `get_account_timeline` |
+| History | `get_history_status`, `rebuild_history_snapshots`, `get_net_worth_trend` |
 
-The application does not expose `get_household`, `update_household`, or media-clear commands. Household name and base currency are displayed from bootstrap; language and appearance are the mutable settings. `delete_all_data` is an explicitly confirmed destructive reset: it is available only for a writable supported database, closes SQLite, removes the database, WAL/SHM sidecars, and pre-migration snapshots, and restarts into onboarding. It cannot delete an unsupported future-version database. Production quote adapters are unconfigured, so production UI does not offer provider preference, provider search, or automatic refresh controls. Backend search and refresh remain available for deterministic fake-adapter tests and future integration, returning safe provider-unavailable errors with the production adapters.
+The application does not expose `get_household`, `update_household`, or media-clear commands. Household name and base currency are displayed from bootstrap; language and appearance are the mutable settings. `delete_all_data` is an explicitly confirmed destructive reset: it is available only for a writable supported database, closes SQLite, removes the database, WAL/SHM sidecars, and pre-migration snapshots including schema-3 `.pre-migrate-*` files, and restarts into onboarding. It cannot delete an unsupported future-version database. Activity commands accept tagged kind-specific inputs only; `preview_activity` performs no writes. Production quote adapters are unconfigured, so production UI does not offer provider preference, provider search, or automatic refresh controls. Backend search and refresh remain available for deterministic fake-adapter tests and future integration, returning safe provider-unavailable errors with the production adapters.
 
 Command adapters remain thin. Application services own transactions and domain conversion. Frontend code calls the generated `commands` client rather than using raw Tauri invoke names.
 
@@ -170,7 +176,7 @@ Every command returns either its typed result or a `CommandError` containing:
 - `message`: safe user-facing English text
 - `fields`: optional structured context for forms or diagnostics
 
-Current error categories include validation, not found, conflict, already onboarded, invalid Ownership total, base-currency change restriction, invalid Category, invalid Money, invalid Quantity, invalid UnitPrice, invalid FxRate, decimal overflow, duplicate Holding, quote unavailable, incomplete valuation, unsupported provider symbol, provider authentication, rate limit, provider unavailable, malformed provider response, invalid Media, database error or unavailability, unsupported future database, migration failure, history origin initialization failure, history timezone confirmation required, and internal error.
+Current error categories include validation, not found, conflict, already onboarded, invalid Ownership total, base-currency change restriction, invalid Category, invalid Money, invalid Quantity, invalid UnitPrice, invalid FxRate, decimal overflow, duplicate Holding, quote unavailable, incomplete valuation, unsupported provider symbol, provider authentication, rate limit, provider unavailable, malformed provider response, invalid Media, database error or unavailability, unsupported future database, migration failure, history origin initialization failure, history timezone confirmation required, invalid Activity, insufficient balance or Quantity, transfer or trade mismatch, already reversed, not correctable, snapshot rebuild required or failed, and internal error.
 
 Raw SQL, filenames other than the explicit blocked-startup database path, query text, driver details, credentials, raw provider payloads, and sensitive values must not appear in frontend errors. Detailed failures are logged locally with stable event names.
 
