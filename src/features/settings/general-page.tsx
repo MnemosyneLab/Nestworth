@@ -3,6 +3,7 @@ import { useState, type ComponentPropsWithoutRef } from "react";
 import { useTranslation } from "react-i18next";
 
 import { AppShell } from "@/components/app-shell";
+import { Button } from "@/components/ui/button";
 import { commands, type CommandError } from "@/generated/tauri-bindings";
 import { i18n } from "@/lib/i18n";
 import { applyAppearance, resolveLanguage } from "@/lib/i18n/preferences";
@@ -24,6 +25,7 @@ export function SettingsGeneralPage() {
   const household =
     bootstrap.data?.status === "ready" ? bootstrap.data.household : null;
   const [actionError, setActionError] = useState<CommandError | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const settings = useQuery({
     queryKey: ["settings"],
@@ -39,6 +41,11 @@ export function SettingsGeneralPage() {
       applyAppearance(next.appearance);
       await queryClient.invalidateQueries({ queryKey: bootstrapQueryKey });
     },
+    onError: (error) => setActionError(commandErrorFromUnknown(error)),
+  });
+
+  const deleteData = useMutation({
+    mutationFn: () => unwrapResult(commands.deleteAllData({ confirmed: true })),
     onError: (error) => setActionError(commandErrorFromUnknown(error)),
   });
 
@@ -109,6 +116,68 @@ export function SettingsGeneralPage() {
                 ))}
               </NativeSelect>
             </label>
+            <section
+              aria-labelledby="delete-all-data-title"
+              className="space-y-3 border-t border-muted pt-6"
+            >
+              <div className="space-y-1">
+                <h2 className="text-lg font-medium" id="delete-all-data-title">
+                  {t("settings.deleteAllData.title")}
+                </h2>
+                <p className="max-w-xl text-sm text-muted-foreground">
+                  {t("settings.deleteAllData.description")}
+                </p>
+              </div>
+              {confirmingDelete ? (
+                <div
+                  aria-labelledby="delete-all-data-confirm-title"
+                  className="max-w-xl space-y-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4"
+                  role="group"
+                >
+                  <p className="font-medium" id="delete-all-data-confirm-title">
+                    {t("settings.deleteAllData.confirmTitle")}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    {t("settings.deleteAllData.confirmDescription")}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      autoFocus
+                      disabled={deleteData.isPending}
+                      onClick={() => {
+                        setActionError(null);
+                        deleteData.mutate();
+                      }}
+                      type="button"
+                      variant="destructive"
+                    >
+                      {deleteData.isPending
+                        ? t("settings.deleteAllData.deleting")
+                        : t("settings.deleteAllData.confirm")}
+                    </Button>
+                    <Button
+                      disabled={deleteData.isPending}
+                      onClick={() => setConfirmingDelete(false)}
+                      type="button"
+                      variant="ghost"
+                    >
+                      {t("references.cancel")}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Button
+                  onClick={() => {
+                    setActionError(null);
+                    setConfirmingDelete(true);
+                  }}
+                  type="button"
+                  variant="destructive"
+                >
+                  {t("settings.deleteAllData.action")}
+                </Button>
+              )}
+            </section>
           </div>
         ) : null}
       </main>

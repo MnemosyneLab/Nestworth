@@ -109,6 +109,49 @@ describe("settings general page", () => {
       "The database is unavailable.",
     );
   });
+
+  it("requires a second keyboard-accessible confirmation before deleting data", async () => {
+    const user = userEvent.setup();
+    const settings: AppSettingsDto = {
+      language: "en",
+      appearance: "light",
+      lastHouseholdId: "hh-1",
+    };
+    mockSettings(settings);
+    vi.mocked(commands.deleteAllData).mockResolvedValue({ status: "ok", data: null });
+    await renderReadyApp();
+    await user.click(screen.getByRole("link", { name: "Settings" }));
+
+    await user.click(await screen.findByRole("button", { name: "Delete all data" }));
+    expect(commands.deleteAllData).not.toHaveBeenCalled();
+
+    const confirm = screen.getByRole("button", {
+      name: "Delete everything and restart",
+    });
+    expect(confirm).toHaveFocus();
+    await user.keyboard("{Enter}");
+
+    expect(commands.deleteAllData).toHaveBeenCalledWith({ confirmed: true });
+  });
+
+  it("can cancel deletion without invoking the command", async () => {
+    const user = userEvent.setup();
+    const settings: AppSettingsDto = {
+      language: "en",
+      appearance: "light",
+      lastHouseholdId: "hh-1",
+    };
+    mockSettings(settings);
+    await renderReadyApp();
+    await user.click(screen.getByRole("link", { name: "Settings" }));
+    await user.click(await screen.findByRole("button", { name: "Delete all data" }));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(commands.deleteAllData).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("button", { name: "Delete everything and restart" }),
+    ).not.toBeInTheDocument();
+  });
 });
 
 function mockSettings(settings: AppSettingsDto) {

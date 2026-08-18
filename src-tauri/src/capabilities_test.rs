@@ -61,6 +61,7 @@ mod tests {
         "get_media",
         "get_settings",
         "update_settings",
+        "delete_all_data",
     ];
 
     const ALLOWED_PERMISSIONS: &[&str] = &[

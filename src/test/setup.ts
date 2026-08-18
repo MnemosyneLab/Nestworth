@@ -76,6 +76,7 @@ vi.mock("@/generated/tauri-bindings", async (importOriginal) => {
       getMedia: vi.fn(),
       getSettings: vi.fn(),
       updateSettings: vi.fn(),
+      deleteAllData: vi.fn(),
     },
   };
 });

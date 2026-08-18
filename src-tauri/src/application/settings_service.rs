@@ -1,3 +1,5 @@
+use std::{fs, path::Path};
+
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use sqlx::Row;
@@ -20,6 +22,12 @@ pub struct UpdateSettingsInput {
     pub appearance: String,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteAllDataInput {
+    pub confirmed: bool,
+}
+
 pub async fn get_settings(state: &AppState) -> Result<AppSettingsDto, AppError> {
     let database = state.writable_db()?;
     load_settings(database).await
@@ -35,6 +43,63 @@ pub async fn update_settings(
     let mut tx = begin_write_tx(database).await?;
     let result = update_settings_in_tx(&mut tx, language, appearance).await;
     finish_write_tx(tx, result).await
+}
+
+pub async fn delete_all_data(state: &AppState, input: DeleteAllDataInput) -> Result<(), AppError> {
+    if !input.confirmed {
+        return Err(AppError::validation(
+            "confirmed",
+            "Deleting all data requires explicit confirmation.",
+        ));
+    }
+
+    let database = state.writable_db()?.clone();
+    let database_path = state.database_path().to_path_buf();
+    database.close().await;
+
+    remove_pre_migration_snapshots(&database_path)?;
+    for suffix in ["-wal", "-shm"] {
+        remove_if_present(&sidecar_path(&database_path, suffix))?;
+    }
+    remove_if_present(&database_path)?;
+
+    tracing::info!(event = "data.reset", "all application data deleted");
+    Ok(())
+}
+
+fn remove_pre_migration_snapshots(database_path: &Path) -> Result<(), AppError> {
+    let Some(parent) = database_path.parent() else {
+        return Err(AppError::DataResetFailed);
+    };
+    let Some(database_name) = database_path.file_name().and_then(|name| name.to_str()) else {
+        return Err(AppError::DataResetFailed);
+    };
+    let prefix = format!("{database_name}.pre-migrate-");
+    let entries = fs::read_dir(parent).map_err(|_error| AppError::DataResetFailed)?;
+    for entry in entries {
+        let entry = entry.map_err(|_error| AppError::DataResetFailed)?;
+        if entry.file_name().to_string_lossy().starts_with(&prefix) {
+            remove_if_present(&entry.path())?;
+        }
+    }
+    Ok(())
+}
+
+fn sidecar_path(database_path: &Path, suffix: &str) -> std::path::PathBuf {
+    let mut path = database_path.as_os_str().to_os_string();
+    path.push(suffix);
+    path.into()
+}
+
+fn remove_if_present(path: &Path) -> Result<(), AppError> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(_error) => {
+            tracing::error!(event = "data.reset", "failed to delete application data");
+            Err(AppError::DataResetFailed)
+        }
+    }
 }
 
 async fn update_settings_in_tx(
@@ -116,9 +181,12 @@ fn parse_appearance(value: &str) -> Result<&str, AppError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{get_settings, update_settings, UpdateSettingsInput};
+    use super::{
+        delete_all_data, get_settings, update_settings, DeleteAllDataInput, UpdateSettingsInput,
+    };
     use crate::{
         error::AppError,
+        infrastructure::database_bootstrap::pre_migration_snapshot_path,
         test_support::{blocked_future_state, cleanup, file_hash, initialize_state, test_path},
     };
 
@@ -195,8 +263,46 @@ mod tests {
             .await
             .expect_err("blocked update");
             assert!(matches!(error, AppError::UnsupportedNewerDatabase { .. }));
+            let error = delete_all_data(&state, DeleteAllDataInput { confirmed: true })
+                .await
+                .expect_err("blocked delete");
+            assert!(matches!(error, AppError::UnsupportedNewerDatabase { .. }));
             assert_eq!(file_hash(&path), before_hash);
             cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn delete_all_data_requires_confirmation() {
+        tauri::async_runtime::block_on(async {
+            let path = test_path("settings", "delete-unconfirmed");
+            let state = initialize_state(path.clone()).await;
+            let error = delete_all_data(&state, DeleteAllDataInput { confirmed: false })
+                .await
+                .expect_err("confirmation should be required");
+            assert!(matches!(error, AppError::Validation { field, .. } if field == "confirmed"));
+            assert!(path.exists());
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn delete_all_data_removes_database_and_sidecars() {
+        tauri::async_runtime::block_on(async {
+            let path = test_path("settings", "delete-confirmed");
+            let state = initialize_state(path.clone()).await;
+            let snapshot = pre_migration_snapshot_path(&path, 1);
+            std::fs::write(&snapshot, b"test snapshot").expect("snapshot fixture");
+            assert!(path.exists());
+
+            delete_all_data(&state, DeleteAllDataInput { confirmed: true })
+                .await
+                .expect("data should be deleted");
+
+            assert!(!path.exists());
+            assert!(!snapshot.exists());
+            assert!(!super::sidecar_path(&path, "-wal").exists());
+            assert!(!super::sidecar_path(&path, "-shm").exists());
         });
     }
 }

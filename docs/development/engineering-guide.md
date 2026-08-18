@@ -200,6 +200,7 @@ A phase is `Implemented` only when:
 - Generated bindings and locale keys are current.
 - Keyboard focus and basic accessibility behavior are verified.
 - Permissions, CSP, logs, and new data paths have been reviewed.
+- Destructive reset changes require an explicit UI confirmation, backend confirmation validation, complete database and sidecar deletion tests, and continued zero-write protection for unsupported future databases.
 - The active release contract and any changed canonical architecture document are updated.
 - `bun run check` and `git diff --check` pass.
 

@@ -56,6 +56,8 @@ pub enum AppError {
     UnsupportedNewerDatabase { found: i64, supported: i64 },
     #[error("database integrity check failed")]
     CorruptDatabase,
+    #[error("all application data could not be deleted")]
+    DataResetFailed,
     #[error("internal application error")]
     Internal,
 }
@@ -296,6 +298,10 @@ impl AppError {
             Self::CorruptDatabase => {
                 CommandError::new(ErrorCode::DatabaseError, "The database is corrupt.")
             }
+            Self::DataResetFailed => CommandError::new(
+                ErrorCode::DataResetFailed,
+                "All application data could not be deleted.",
+            ),
             Self::Internal => CommandError::new(
                 ErrorCode::InternalError,
                 "An internal application error occurred.",
@@ -338,6 +344,7 @@ pub enum ErrorCode {
     DatabaseUnavailable,
     UnsupportedNewerDatabase,
     MigrationFailed,
+    DataResetFailed,
     InternalError,
 }
 

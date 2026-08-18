@@ -295,6 +295,15 @@
     "household": "Household",
     "language": "Language",
     "appearance": "Appearance",
+    "deleteAllData": {
+      "title": "Delete all data",
+      "description": "Permanently delete the entire local database and restart Nestworth. This cannot be undone.",
+      "action": "Delete all data",
+      "confirmTitle": "Delete the entire local database?",
+      "confirmDescription": "All household, account, investment, quote, and settings data will be permanently deleted. Nestworth will restart at onboarding.",
+      "confirm": "Delete everything and restart",
+      "deleting": "Deleting…"
+    },
     "languages": {
       "system": "System",
       "en": "English",
@@ -332,6 +341,7 @@
     "DATABASE_UNAVAILABLE": "The database is unavailable.",
     "UNSUPPORTED_NEWER_DATABASE": "This database was created by a newer version of Nestworth.",
     "MIGRATION_FAILED": "Database migration failed.",
+    "DATA_RESET_FAILED": "All local data could not be deleted. Restart Nestworth and try again.",
     "INTERNAL_ERROR": "An internal application error occurred.",
     "reasons": {
       "lastActiveMember": "Keep at least one active member."

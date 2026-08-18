@@ -295,6 +295,15 @@
     "household": "家庭",
     "language": "语言",
     "appearance": "外观",
+    "deleteAllData": {
+      "title": "清除全部数据",
+      "description": "永久删除整个本地数据库并重新启动 Nestworth。此操作无法撤销。",
+      "action": "清除全部数据",
+      "confirmTitle": "确定删除整个本地数据库吗？",
+      "confirmDescription": "所有家庭、账户、投资、报价和设置数据都会被永久删除。Nestworth 将重新启动并进入初始设置。",
+      "confirm": "全部删除并重新启动",
+      "deleting": "正在删除…"
+    },
     "languages": {
       "system": "跟随系统",
       "en": "English",
@@ -332,6 +341,7 @@
     "DATABASE_UNAVAILABLE": "数据库不可用。",
     "UNSUPPORTED_NEWER_DATABASE": "这个数据库由更新版本的 Nestworth 创建。",
     "MIGRATION_FAILED": "数据库迁移失败。",
+    "DATA_RESET_FAILED": "无法删除全部本地数据。请重新启动 Nestworth 后再试。",
     "INTERNAL_ERROR": "发生了内部错误。",
     "reasons": {
       "lastActiveMember": "请至少保留一位活跃成员。"

@@ -469,6 +469,14 @@ async updateSettings(input: UpdateSettingsInput) : Promise<Result<AppSettingsDto
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+async deleteAllData(input: DeleteAllDataInput) : Promise<Result<null, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_all_data", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -501,7 +509,8 @@ export type CreateHoldingInput = { accountId: string; instrumentId: string; quan
 export type CreateInstitutionInput = { name: string; institutionType: string | null; countryCode: string | null; website: string | null; note: string | null }
 export type CreateInstrumentInput = { name: string; symbol: string | null; instrumentType: string; quoteCurrency: string; marketCode: string | null; countryCode: string | null; isin: string | null; providerKey: string | null; providerSymbol: string | null; quotePreference: string | null; note: string | null }
 export type CreateMemberInput = { name: string; note: string | null }
-export type ErrorCode = "VALIDATION_ERROR" | "NOT_FOUND" | "CONFLICT" | "ALREADY_ONBOARDED" | "OWNERSHIP_TOTAL_INVALID" | "BASE_CURRENCY_CHANGE_NOT_ALLOWED" | "INVALID_CATEGORY" | "INVALID_MONEY" | "INVALID_QUANTITY" | "INVALID_UNIT_PRICE" | "INVALID_FX_RATE" | "DECIMAL_OVERFLOW" | "QUOTE_UNAVAILABLE" | "INCOMPLETE_VALUATION" | "DUPLICATE_HOLDING" | "UNSUPPORTED_PROVIDER_SYMBOL" | "PROVIDER_AUTHENTICATION" | "PROVIDER_RATE_LIMIT" | "PROVIDER_UNAVAILABLE" | "MALFORMED_PROVIDER_RESPONSE" | "MEDIA_INVALID" | "DATABASE_ERROR" | "DATABASE_UNAVAILABLE" | "UNSUPPORTED_NEWER_DATABASE" | "MIGRATION_FAILED" | "INTERNAL_ERROR"
+export type DeleteAllDataInput = { confirmed: boolean }
+export type ErrorCode = "VALIDATION_ERROR" | "NOT_FOUND" | "CONFLICT" | "ALREADY_ONBOARDED" | "OWNERSHIP_TOTAL_INVALID" | "BASE_CURRENCY_CHANGE_NOT_ALLOWED" | "INVALID_CATEGORY" | "INVALID_MONEY" | "INVALID_QUANTITY" | "INVALID_UNIT_PRICE" | "INVALID_FX_RATE" | "DECIMAL_OVERFLOW" | "QUOTE_UNAVAILABLE" | "INCOMPLETE_VALUATION" | "DUPLICATE_HOLDING" | "UNSUPPORTED_PROVIDER_SYMBOL" | "PROVIDER_AUTHENTICATION" | "PROVIDER_RATE_LIMIT" | "PROVIDER_UNAVAILABLE" | "MALFORMED_PROVIDER_RESPONSE" | "MEDIA_INVALID" | "DATABASE_ERROR" | "DATABASE_UNAVAILABLE" | "UNSUPPORTED_NEWER_DATABASE" | "MIGRATION_FAILED" | "DATA_RESET_FAILED" | "INTERNAL_ERROR"
 export type FxPairStatusDto = { currencyA: string; currencyB: string; quotePreference: string; selectedQuote: FxQuoteRecordDto | null; selectedRate: string | null }
 export type FxQuoteRecordDto = { id: string; baseCurrency: string; quoteCurrency: string; rate: string; sourceKind: string; sourceKey: string; delayed: boolean; quotedAt: string; createdAt: string }
 export type GetMediaInput = { assetId: string }

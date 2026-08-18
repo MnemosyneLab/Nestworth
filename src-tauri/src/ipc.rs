@@ -31,7 +31,7 @@ use crate::{
             ProviderInstrumentDto, RefreshInstrumentInput, RefreshResultDto,
             SearchProviderInstrumentsInput,
         },
-        settings_service::{AppSettingsDto, UpdateSettingsInput},
+        settings_service::{AppSettingsDto, DeleteAllDataInput, UpdateSettingsInput},
     },
     commands::{
         accounts::{
@@ -76,7 +76,7 @@ use crate::{
             refresh_all_impl, refresh_instrument_impl, refresh_required_fx_impl,
             search_provider_instruments_impl,
         },
-        settings::{get_settings_impl, update_settings_impl},
+        settings::{delete_all_data_impl, get_settings_impl, update_settings_impl},
     },
     state::AppState,
 };
@@ -596,6 +596,17 @@ pub async fn update_settings(
     update_settings_impl(&state, input).await
 }
 
+#[tauri::command]
+#[specta::specta]
+pub async fn delete_all_data(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    input: DeleteAllDataInput,
+) -> Result<(), crate::error::CommandError> {
+    delete_all_data_impl(&state, input).await?;
+    app.restart()
+}
+
 pub fn command_builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new().commands(collect_commands![
         bootstrap,
@@ -655,6 +666,7 @@ pub fn command_builder() -> Builder<tauri::Wry> {
         refresh_all,
         get_media,
         get_settings,
-        update_settings
+        update_settings,
+        delete_all_data
     ])
 }
