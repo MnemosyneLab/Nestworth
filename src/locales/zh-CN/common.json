@@ -42,7 +42,48 @@
     "byCategory": "按类别",
     "byMember": "按成员",
     "byInstitution": "按机构",
-    "byGroup": "按分组"
+    "byGroup": "按分组",
+    "trend": {
+      "title": "净资产趋势",
+      "range": "趋势范围",
+      "ranges": {
+        "1m": "一个月",
+        "3m": "三个月",
+        "1y": "一年",
+        "all": "全部历史"
+      },
+      "chart": "净资产图表",
+      "table": "净资产历史",
+      "date": "日期",
+      "value": "金额",
+      "currency": "货币",
+      "completeness": "完整程度",
+      "missingCount": "缺失",
+      "current": "当前",
+      "incompleteMissing": "不完整，缺 {{count}} 项",
+      "preOrigin": "可信历史从 {{date}} 开始。该起点之前的日期不可用。",
+      "emptyRange": "这个范围内没有已收盘日快照。",
+      "rebuildPrompt": "从 {{date}} 起的快照需要在本地重建后，这个范围才是最新的。",
+      "rebuild": "重建快照",
+      "rebuildContinue": "继续重建",
+      "rebuildCancel": "取消重建",
+      "rebuildRetry": "重试重建",
+      "rebuildProgress": "正在重建快照。已处理 {{processed}} 天。最近完成：{{date}}。",
+      "rebuildProgressUnknown": "正在重建快照…",
+      "rebuildLocal": "重建只在这台设备上运行，不会刷新报价或连接数据源。",
+      "rebuildCancelled": "重建已取消。已完成的修订会保留。脏数据始于 {{date}}。",
+      "rebuildRemaining": "还有未完成的收盘日。请继续本地重建。",
+      "lastCompleted": "最近完成 {{date}}。",
+      "pointLabel": "{{date}}，{{value}}，{{currency}}，{{completeness}}",
+      "states": {
+        "complete": "完整",
+        "incomplete": "不完整",
+        "dirty": "需要重建",
+        "rebuilding": "正在重建",
+        "live": "实时",
+        "live-incomplete": "实时，不完整"
+      }
+    }
   },
   "startup": {
     "eyebrow": "启动",

@@ -42,7 +42,48 @@
     "byCategory": "By category",
     "byMember": "By member",
     "byInstitution": "By institution",
-    "byGroup": "By group"
+    "byGroup": "By group",
+    "trend": {
+      "title": "Net-worth trend",
+      "range": "Trend range",
+      "ranges": {
+        "1m": "One month",
+        "3m": "Three months",
+        "1y": "One year",
+        "all": "All history"
+      },
+      "chart": "Net-worth chart",
+      "table": "Net-worth history",
+      "date": "Date",
+      "value": "Value",
+      "currency": "Currency",
+      "completeness": "Completeness",
+      "missingCount": "Missing",
+      "current": "Current",
+      "incompleteMissing": "Incomplete, {{count}} missing",
+      "preOrigin": "History starts on {{date}}. Dates before this origin are unavailable.",
+      "emptyRange": "No closed-day snapshots are available in this range.",
+      "rebuildPrompt": "Snapshots from {{date}} need a local rebuild before this range is current.",
+      "rebuild": "Rebuild snapshots",
+      "rebuildContinue": "Continue rebuild",
+      "rebuildCancel": "Cancel rebuild",
+      "rebuildRetry": "Retry rebuild",
+      "rebuildProgress": "Rebuilding snapshots. Processed {{processed}} days. Last completed: {{date}}.",
+      "rebuildProgressUnknown": "Rebuilding snapshots…",
+      "rebuildLocal": "Rebuild runs on this device and does not refresh quotes or contact providers.",
+      "rebuildCancelled": "Rebuild cancelled. Completed revisions are kept. Dirty from {{date}}.",
+      "rebuildRemaining": "More closed days remain. Continue the local rebuild.",
+      "lastCompleted": "Last completed {{date}}.",
+      "pointLabel": "{{date}}, {{value}}, {{currency}}, {{completeness}}",
+      "states": {
+        "complete": "Complete",
+        "incomplete": "Incomplete",
+        "dirty": "Needs rebuild",
+        "rebuilding": "Rebuilding",
+        "live": "Live",
+        "live-incomplete": "Live, incomplete"
+      }
+    }
   },
   "startup": {
     "eyebrow": "Startup",

@@ -14,6 +14,8 @@ export async function invalidateValuation(
     queryClient.invalidateQueries({ queryKey: ["activity"] }),
     queryClient.invalidateQueries({ queryKey: ["account-timeline"] }),
     queryClient.invalidateQueries({ queryKey: ["history-origin"] }),
+    queryClient.invalidateQueries({ queryKey: ["history-status"] }),
+    queryClient.invalidateQueries({ queryKey: ["net-worth-trend"] }),
     queryClient.invalidateQueries({ queryKey: ["required-fx"] }),
     queryClient.invalidateQueries({ queryKey: ["instruments"] }),
     queryClient.invalidateQueries({ queryKey: bootstrapQueryKey }),

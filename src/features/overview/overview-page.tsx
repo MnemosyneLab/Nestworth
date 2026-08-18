@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { AppShell } from "@/components/app-shell";
 import { basisPointsToPercent, clampShareBps } from "@/features/accounts/schema";
+import { NetWorthTrendSection } from "@/features/overview/net-worth-trend";
 import { UnvaluedList } from "@/features/valuation/status";
 import type {
   BreakdownRowDto,
@@ -136,6 +137,7 @@ function OverviewBody({
           </div>
         </dl>
       </section>
+      <NetWorthTrendSection catalog={catalog} />
       <BreakdownList
         catalog={catalog}
         rows={overview.byCategory}

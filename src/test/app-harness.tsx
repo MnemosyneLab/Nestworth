@@ -19,6 +19,7 @@ import type {
   InstitutionRecordDto,
   MemberRecordDto,
   NetWorthTrendDto,
+  RebuildHistorySnapshotsResultDto,
   OverviewDto,
   PortfolioDto,
   ReferenceCatalogDto,
@@ -269,6 +270,17 @@ export function emptyHistoryStatus(): HistoryStatusDto {
   };
 }
 
+export function emptyRebuildResult(): RebuildHistorySnapshotsResultDto {
+  return {
+    processedDays: 0,
+    remaining: false,
+    cancelled: false,
+    dirtyFrom: null,
+    lastCompletedOn: null,
+    status: "idle",
+  };
+}
+
 export function emptyNetWorthTrend(currency = "CNY"): NetWorthTrendDto {
   const zero = { amount: "0", currency };
   return {
@@ -419,6 +431,10 @@ export function resetCommandMocks() {
   vi.mocked(commands.getNetWorthTrend).mockResolvedValue({
     status: "ok",
     data: emptyNetWorthTrend(),
+  });
+  vi.mocked(commands.rebuildHistorySnapshots).mockResolvedValue({
+    status: "ok",
+    data: emptyRebuildResult(),
   });
 }
 
