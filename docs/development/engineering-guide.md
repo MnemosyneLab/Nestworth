@@ -229,7 +229,7 @@ Before publishing a release:
 Useful local artifact checks include:
 
 ```bash
-hdiutil verify src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/Nestworth_0.1.2_aarch64.dmg
+hdiutil verify src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/Nestworth_0.1.3_aarch64.dmg
 lipo -archs src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Nestworth.app/Contents/MacOS/nestworth
 codesign --verify --deep --strict --verbose=4 src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Nestworth.app
 ```

@@ -4,7 +4,7 @@ All notable changes to Nestworth are recorded here. The project follows semantic
 
 ## [0.1.3] - Unreleased
 
-v0.1.3 is development-complete and is undergoing release-candidate validation. Manifest version numbers remain `0.1.2` until the Phase 10 release closeout.
+v0.1.3 is development-complete and is undergoing release-candidate validation. Package, Cargo, and Tauri versions are `0.1.3`. This closeout does not assign a publish date, create a git tag, or mark the product Released.
 
 ### Added
 
@@ -35,7 +35,12 @@ v0.1.3 is development-complete and is undergoing release-candidate validation. M
 ### Distribution Status
 
 - Automated frontend and Linux-host Rust gates are the development evidence for this revision
-- Isolated-data launch, keyboard navigation, VoiceOver smoke testing, arm64 `.app`/`.dmg` packaging, and the chosen signing/notarization policy remain named Phase 10 macOS release checks
+- Remaining named macOS distribution checks, not executed in this Linux closeout:
+  - Isolated-data application launch with production providers unconfigured
+  - Keyboard-only smoke of Activity, timeline, reversal/correction, and trend workflows
+  - VoiceOver smoke testing
+  - arm64 `.app` and `.dmg` packaging with version and minimum-macOS metadata (`Nestworth_0.1.3_aarch64.dmg`)
+  - Chosen signing/notarization policy; unsigned artifacts remain controlled-test only
 
 ## [0.1.2] - Unreleased
 

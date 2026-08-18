@@ -4,7 +4,7 @@ Nestworth is a local-first macOS application for building and maintaining a pers
 
 ## Status
 
-v0.1.3 feature work is development-complete and the project is in release-candidate validation. Package, Cargo, and Tauri version numbers remain `0.1.2` until the Phase 10 release closeout.
+v0.1.3 is development-complete and is in release-candidate validation. Package, Cargo, and Tauri versions are `0.1.3`. Isolated-data launch, keyboard/VoiceOver smoke testing, arm64 `.app`/`.dmg` packaging, and the chosen signing/notarization policy remain named macOS release checks.
 
 - Platform: macOS 26.0 or later
 - Architecture: Apple Silicon `arm64` only
