@@ -71,6 +71,23 @@ impl CalendarDate {
     pub fn to_ymd(self) -> String {
         self.0.format("%Y-%m-%d").to_string()
     }
+
+    #[must_use]
+    pub fn pred(self) -> Option<Self> {
+        self.0.pred_opt().map(Self)
+    }
+
+    #[must_use]
+    pub fn succ(self) -> Option<Self> {
+        self.0.succ_opt().map(Self)
+    }
+
+    #[must_use]
+    pub fn checked_add_days(self, days: i64) -> Option<Self> {
+        self.0
+            .checked_add_signed(chrono::Duration::days(days))
+            .map(Self)
+    }
 }
 
 /// Confirmed History Origin IANA timezone such as `America/New_York`, `Asia/Singapore`, or `UTC`.
@@ -128,6 +145,22 @@ pub fn closed_day_cutoff(
             Ok(Timestamp::from_utc(earlier.with_timezone(&Utc)))
         }
     }
+}
+
+/// Last instant that still belongs to `local_date` under an exclusive next-midnight cutoff.
+///
+/// Reconstruction uses `timestamp <= T`. Passing this instant is equivalent to
+/// `timestamp < closed_day_cutoff(...)` and excludes next-day facts.
+pub fn inclusive_closed_day_instant(
+    timezone: HistoryTimezone,
+    local_date: CalendarDate,
+) -> Result<Timestamp, AppError> {
+    let exclusive = closed_day_cutoff(timezone, local_date)?;
+    exclusive
+        .as_utc()
+        .checked_sub_signed(chrono::Duration::milliseconds(1))
+        .map(Timestamp::from_utc)
+        .ok_or_else(|| AppError::invalid_activity_time("The closed local date is out of range."))
 }
 
 /// Maps a host IANA name to a History Origin timezone.
@@ -261,9 +294,9 @@ fn parse_local_clock_time(value: &str) -> Result<NaiveTime, AppError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        closed_day_cutoff, origin_timezone_from_iana_name, resolve_activity_time,
-        resolve_local_datetime, validate_activity_time, AmbiguousOffset, CalendarDate,
-        HistoryTimezone, Timestamp,
+        closed_day_cutoff, inclusive_closed_day_instant, origin_timezone_from_iana_name,
+        resolve_activity_time, resolve_local_datetime, validate_activity_time, AmbiguousOffset,
+        CalendarDate, HistoryTimezone, Timestamp,
     };
     use crate::error::AppError;
 
@@ -474,5 +507,10 @@ mod tests {
         let cutoff = closed_day_cutoff(ny(), CalendarDate::parse("2026-01-15").expect("date"))
             .expect("winter cutoff");
         assert_eq!(cutoff.to_rfc3339(), "2026-01-16T05:00:00.000Z");
+        let inclusive =
+            inclusive_closed_day_instant(ny(), CalendarDate::parse("2026-01-15").expect("date"))
+                .expect("inclusive winter cutoff");
+        assert_eq!(inclusive.to_rfc3339(), "2026-01-16T04:59:59.999Z");
+        assert!(inclusive < cutoff);
     }
 }

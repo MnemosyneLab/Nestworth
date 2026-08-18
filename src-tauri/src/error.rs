@@ -80,6 +80,10 @@ pub enum AppError {
     HistoryInitializationFailed,
     #[error("history timezone confirmation is required")]
     HistoryTimezoneConfirmationRequired,
+    #[error("history snapshots need to be rebuilt")]
+    SnapshotRebuildRequired,
+    #[error("history snapshots could not be rebuilt")]
+    SnapshotRebuildFailed,
     #[error("internal application error")]
     Internal,
 }
@@ -413,6 +417,14 @@ impl AppError {
                 ErrorCode::HistoryTimezoneConfirmationRequired,
                 "Confirm the history timezone before recording activity or snapshots.",
             ),
+            Self::SnapshotRebuildRequired => CommandError::new(
+                ErrorCode::SnapshotRebuildRequired,
+                "History snapshots need to be rebuilt.",
+            ),
+            Self::SnapshotRebuildFailed => CommandError::new(
+                ErrorCode::SnapshotRebuildFailed,
+                "History snapshots could not be rebuilt.",
+            ),
             Self::Internal => CommandError::new(
                 ErrorCode::InternalError,
                 "An internal application error occurred.",
@@ -467,6 +479,8 @@ pub enum ErrorCode {
     DataResetFailed,
     HistoryInitializationFailed,
     HistoryTimezoneConfirmationRequired,
+    SnapshotRebuildRequired,
+    SnapshotRebuildFailed,
     InternalError,
 }
 

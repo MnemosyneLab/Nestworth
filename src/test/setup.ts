@@ -77,6 +77,18 @@ vi.mock("@/generated/tauri-bindings", async (importOriginal) => {
       getSettings: vi.fn(),
       updateSettings: vi.fn(),
       deleteAllData: vi.fn(),
+      getHistoryOrigin: vi.fn(),
+      confirmHistoryTimezone: vi.fn(),
+      previewActivity: vi.fn(),
+      listActivities: vi.fn(),
+      getActivity: vi.fn(),
+      createActivity: vi.fn(),
+      reverseActivity: vi.fn(),
+      correctActivity: vi.fn(),
+      getAccountTimeline: vi.fn(),
+      getHistoryStatus: vi.fn(),
+      rebuildHistorySnapshots: vi.fn(),
+      getNetWorthTrend: vi.fn(),
     },
   };
 });

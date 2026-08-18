@@ -148,7 +148,7 @@ async fn append_account_cash_in_tx(
     } else {
         return Err(AppError::invalid_activity("The target is unchanged."));
     };
-    let posted = activity_service::post_in_tx(tx, command, None).await?;
+    let posted = activity_service::post_in_tx(tx, command, None, None).await?;
     tracing::info!(
         event = "account_cash.append",
         activity_id = %posted.id(),

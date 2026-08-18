@@ -17,15 +17,15 @@ use super::{
         AccountStateObservationRecord, HistoryOriginRecord,
     },
     holding_service::{self, HoldingRecordDto},
-    instrument_service, member_service,
+    instrument_service, member_service, query_count,
     quote_service::{self, FxQuoteRecordDto, InstrumentQuoteRecordDto},
     reference::require_household_tx,
     valuation_service::{self, household_totals, HouseholdTotals, ValuationSnapshot},
 };
 use crate::{
     domain::{
-        CurrencyCode, FxPair, LegComponent, Money, Quantity, QuoteSourceKind, Timestamp,
-        TrackingMode,
+        inclusive_closed_day_instant, CalendarDate, CurrencyCode, FxPair, HistoryTimezone,
+        LegComponent, Money, Quantity, QuoteSourceKind, Timestamp, TrackingMode,
     },
     error::AppError,
 };
@@ -39,6 +39,10 @@ pub struct HistoricalValuation {
     pub accounts: Vec<AccountRecordDto>,
     pub holdings: Vec<HoldingRecordDto>,
     pub quantities: HashMap<String, String>,
+    pub account_state_ids: HashMap<String, String>,
+    pub last_account_activity: HashMap<String, String>,
+    pub last_cash_activity: HashMap<(String, String), String>,
+    pub last_quantity_activity: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -107,7 +111,35 @@ pub async fn reconstruct_at(
             "Historical valuation cannot be reconstructed before history origin.",
         ));
     }
-    reconstruct_from_origin(tx, &household.id, &household.base_currency, &origin, cutoff).await
+    reconstruct_from_origin(tx, &household.id, &household.base_currency, &origin, cutoff)
+        .await
+        .map(|(historical, _)| historical)
+}
+
+pub async fn reconstruct_closed_day(
+    tx: &mut Transaction<'_, Sqlite>,
+    timezone: HistoryTimezone,
+    local_date: CalendarDate,
+) -> Result<(HistoricalValuation, ValuationSnapshot), AppError> {
+    let cutoff = inclusive_closed_day_instant(timezone, local_date)?;
+    let household = require_household_tx(tx).await?;
+    let origin = get_origin_by_household(tx, &household.id)
+        .await?
+        .ok_or(AppError::HistoryInitializationFailed)?;
+    let origin_at = Timestamp::parse(&origin.origin_at)?;
+    if cutoff < origin_at {
+        return Err(AppError::invalid_activity_time(
+            "Historical valuation cannot be reconstructed before history origin.",
+        ));
+    }
+    reconstruct_from_origin(
+        tx,
+        &household.id,
+        &household.base_currency,
+        &origin,
+        &cutoff,
+    )
+    .await
 }
 
 pub async fn current_matches_historical_at(
@@ -145,7 +177,8 @@ async fn reconstruct_from_origin(
     base_currency: &str,
     origin: &HistoryOriginRecord,
     cutoff: &Timestamp,
-) -> Result<HistoricalValuation, AppError> {
+) -> Result<(HistoricalValuation, ValuationSnapshot), AppError> {
+    query_count::record("historical_reconstruct");
     let cutoff_text = cutoff.to_rfc3339();
     let amounts = reconstruct_amounts(tx, origin, cutoff).await?;
     let states = list_latest_account_states_at(tx, household_id, &cutoff_text).await?;
@@ -169,6 +202,13 @@ async fn reconstruct_from_origin(
         .map(|state| (state.account_id.clone(), state))
         .collect();
 
+    let account_state_ids: HashMap<String, String> = state_by_account
+        .iter()
+        .map(|(account_id, state)| (account_id.clone(), state.id.clone()))
+        .collect();
+    let last_account_activity = amounts.last_account_activity.clone();
+    let last_cash_activity = amounts.last_cash_activity.clone();
+    let last_quantity_activity = amounts.last_quantity_activity.clone();
     let mut accounts = Vec::new();
     let mut active_account_ids = HashSet::new();
     for mut account in current_accounts {
@@ -304,15 +344,22 @@ async fn reconstruct_from_origin(
     valuation_service::enrich_accounts(&snapshot, &mut valued_accounts, cutoff)?;
     let totals = household_totals(&snapshot, &valued_accounts, cutoff)?;
 
-    Ok(HistoricalValuation {
-        origin_id: origin.id.clone(),
-        cutoff: cutoff.clone(),
-        base_currency: CurrencyCode::parse(base_currency)?,
-        totals,
-        accounts: valued_accounts,
-        holdings: snapshot_holdings(&snapshot),
-        quantities,
-    })
+    Ok((
+        HistoricalValuation {
+            origin_id: origin.id.clone(),
+            cutoff: cutoff.clone(),
+            base_currency: CurrencyCode::parse(base_currency)?,
+            totals,
+            accounts: valued_accounts,
+            holdings: snapshot_holdings(&snapshot),
+            quantities,
+            account_state_ids,
+            last_account_activity,
+            last_cash_activity,
+            last_quantity_activity,
+        },
+        snapshot,
+    ))
 }
 
 fn snapshot_holdings(snapshot: &ValuationSnapshot) -> Vec<HoldingRecordDto> {
@@ -323,6 +370,9 @@ struct ReconstructedAmounts {
     account_values: HashMap<String, Money>,
     cash: HashMap<(String, String), Money>,
     quantities: HashMap<String, Quantity>,
+    last_account_activity: HashMap<String, String>,
+    last_cash_activity: HashMap<(String, String), String>,
+    last_quantity_activity: HashMap<String, String>,
 }
 
 async fn reconstruct_amounts(
@@ -349,9 +399,13 @@ async fn reconstruct_amounts(
         quantities.insert(row.holding_id, Quantity::parse(&row.quantity)?);
     }
 
+    let mut last_account_activity = HashMap::new();
+    let mut last_cash_activity = HashMap::new();
+    let mut last_quantity_activity = HashMap::new();
     let activities =
         list_activities_at_or_before(tx, &origin.household_id, &cutoff.to_rfc3339()).await?;
     for activity in activities {
+        let activity_id = activity.id().to_string();
         for leg in activity.legs() {
             match leg.component() {
                 LegComponent::AccountValue { amount } => {
@@ -360,6 +414,7 @@ async fn reconstruct_amounts(
                         .unwrap_or(Money::parse("0", amount.currency())?);
                     account_values
                         .insert(leg.account_id().to_string(), leg.apply_to_money(current)?);
+                    last_account_activity.insert(leg.account_id().to_string(), activity_id.clone());
                 }
                 LegComponent::HoldingsCash { amount } => {
                     let key = (
@@ -369,13 +424,15 @@ async fn reconstruct_amounts(
                     let current = cash
                         .remove(&key)
                         .unwrap_or(Money::parse("0", amount.currency())?);
-                    cash.insert(key, leg.apply_to_money(current)?);
+                    cash.insert(key.clone(), leg.apply_to_money(current)?);
+                    last_cash_activity.insert(key, activity_id.clone());
                 }
                 LegComponent::HoldingQuantity { holding_id, .. } => {
                     let current = quantities
                         .remove(&holding_id.to_string())
                         .unwrap_or(Quantity::parse("0")?);
                     quantities.insert(holding_id.to_string(), leg.apply_to_quantity(current)?);
+                    last_quantity_activity.insert(holding_id.to_string(), activity_id.clone());
                 }
             }
         }
@@ -385,6 +442,9 @@ async fn reconstruct_amounts(
         account_values,
         cash,
         quantities,
+        last_account_activity,
+        last_cash_activity,
+        last_quantity_activity,
     })
 }
 

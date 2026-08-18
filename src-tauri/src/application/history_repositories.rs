@@ -1,6 +1,11 @@
+use std::collections::HashMap;
+
 use sqlx::{Row, Sqlite, Transaction};
 
-use super::reference::{map_read_error, map_write_error};
+use super::{
+    query_count,
+    reference::{map_read_error, map_write_error},
+};
 use crate::{
     domain::{
         Activity, ActivityId, ActivityKind, ActivityLeg, CalendarDate, ComponentKind, Direction,
@@ -9,6 +14,16 @@ use crate::{
     },
     error::AppError,
 };
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ActivityListFilter<'a> {
+    pub start_local_date: Option<&'a str>,
+    pub end_local_date: Option<&'a str>,
+    pub account_id: Option<&'a str>,
+    pub instrument_id: Option<&'a str>,
+    pub kind: Option<&'a str>,
+    pub classification: Option<&'a str>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HistoryOriginRecord {
@@ -203,6 +218,7 @@ pub async fn get_origin_by_household(
     tx: &mut Transaction<'_, Sqlite>,
     household_id: &str,
 ) -> Result<Option<HistoryOriginRecord>, AppError> {
+    query_count::record("history_origin");
     let row = sqlx::query(
         "SELECT id, household_id, timezone, timezone_confirmed, origin_at, origin_local_date, source, schema_version, created_at
          FROM history_origins WHERE household_id = ?",
@@ -575,6 +591,7 @@ pub async fn get_activity(
     tx: &mut Transaction<'_, Sqlite>,
     id: &str,
 ) -> Result<Option<Activity>, AppError> {
+    query_count::record("activity_header");
     let Some(header) = sqlx::query(
         "SELECT id, household_id, kind, effective_at, effective_local_date, created_at, note,
                 reverses, corrects, correction_group, income_kind, fee_kind, related_instrument_id
@@ -635,10 +652,64 @@ pub async fn get_activity_by_corrects(
     Ok(Some(activity_from_row(header, legs)?))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CorrectionLink {
+    pub reversal_id: Option<String>,
+    pub replacement_id: Option<String>,
+}
+
+pub async fn list_correction_links(
+    tx: &mut Transaction<'_, Sqlite>,
+    original_ids: &[String],
+) -> Result<HashMap<String, CorrectionLink>, AppError> {
+    query_count::record("activity_correction_links");
+    if original_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let payload = serde_json::to_string(original_ids).map_err(|_| AppError::Internal)?;
+    let mut links: HashMap<String, CorrectionLink> = original_ids
+        .iter()
+        .cloned()
+        .map(|id| (id, CorrectionLink::default()))
+        .collect();
+    let reversals = sqlx::query(
+        "SELECT id, reverses FROM activities
+         WHERE reverses IN (SELECT value FROM json_each(?))",
+    )
+    .bind(&payload)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("history.activity_reversal_batch_failed", error))?;
+    for row in reversals {
+        let original_id = required_text(&row, "reverses")?;
+        let reversal_id = required_text(&row, "id")?;
+        links.entry(original_id).or_default().reversal_id = Some(reversal_id);
+    }
+    let replacements = sqlx::query(
+        "SELECT id, corrects FROM activities
+         WHERE corrects IN (SELECT value FROM json_each(?))
+         ORDER BY created_at DESC, id DESC",
+    )
+    .bind(&payload)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("history.activity_replacement_batch_failed", error))?;
+    for row in replacements {
+        let original_id = required_text(&row, "corrects")?;
+        let replacement_id = required_text(&row, "id")?;
+        let link = links.entry(original_id).or_default();
+        if link.replacement_id.is_none() {
+            link.replacement_id = Some(replacement_id);
+        }
+    }
+    Ok(links)
+}
+
 pub async fn list_all_activities_asc(
     tx: &mut Transaction<'_, Sqlite>,
     household_id: &str,
 ) -> Result<Vec<Activity>, AppError> {
+    query_count::record("activity_headers");
     let rows = sqlx::query(
         "SELECT id, household_id, kind, effective_at, effective_local_date, created_at, note,
                 reverses, corrects, correction_group, income_kind, fee_kind, related_instrument_id
@@ -650,14 +721,7 @@ pub async fn list_all_activities_asc(
     .fetch_all(&mut **tx)
     .await
     .map_err(|error| map_read_error("history.activity_replay_list_failed", error))?;
-
-    let mut activities = Vec::with_capacity(rows.len());
-    for header in rows {
-        let id = required_text(&header, "id")?;
-        let legs = load_legs_for_activity(tx, &id).await?;
-        activities.push(activity_from_row(header, legs)?);
-    }
-    Ok(activities)
+    activities_from_headers(tx, rows).await
 }
 
 pub async fn list_activities_at_or_before(
@@ -665,6 +729,7 @@ pub async fn list_activities_at_or_before(
     household_id: &str,
     cutoff_at: &str,
 ) -> Result<Vec<Activity>, AppError> {
+    query_count::record("activity_headers");
     let rows = sqlx::query(
         "SELECT id, household_id, kind, effective_at, effective_local_date, created_at, note,
                 reverses, corrects, correction_group, income_kind, fee_kind, related_instrument_id
@@ -677,14 +742,7 @@ pub async fn list_activities_at_or_before(
     .fetch_all(&mut **tx)
     .await
     .map_err(|error| map_read_error("history.activity_cutoff_list_failed", error))?;
-
-    let mut activities = Vec::with_capacity(rows.len());
-    for header in rows {
-        let id = required_text(&header, "id")?;
-        let legs = load_legs_for_activity(tx, &id).await?;
-        activities.push(activity_from_row(header, legs)?);
-    }
-    Ok(activities)
+    activities_from_headers(tx, rows).await
 }
 
 pub async fn list_activities_desc(
@@ -693,53 +751,320 @@ pub async fn list_activities_desc(
     cursor: Option<&ActivityListCursor>,
     limit: i64,
 ) -> Result<Vec<Activity>, AppError> {
-    let rows = if let Some(cursor) = cursor {
-        sqlx::query(
-            "SELECT id, household_id, kind, effective_at, effective_local_date, created_at, note,
-                    reverses, corrects, correction_group, income_kind, fee_kind, related_instrument_id
-             FROM activities
-             WHERE household_id = ?
-               AND (
-                    effective_at < ?
-                    OR (effective_at = ? AND created_at < ?)
-                    OR (effective_at = ? AND created_at = ? AND id < ?)
-               )
-             ORDER BY effective_at DESC, created_at DESC, id DESC
-             LIMIT ?",
-        )
-        .bind(household_id)
-        .bind(&cursor.effective_at)
-        .bind(&cursor.effective_at)
-        .bind(&cursor.created_at)
-        .bind(&cursor.effective_at)
-        .bind(&cursor.created_at)
-        .bind(&cursor.id)
-        .bind(limit)
-        .fetch_all(&mut **tx)
-        .await
-    } else {
-        sqlx::query(
-            "SELECT id, household_id, kind, effective_at, effective_local_date, created_at, note,
-                    reverses, corrects, correction_group, income_kind, fee_kind, related_instrument_id
-             FROM activities
-             WHERE household_id = ?
-             ORDER BY effective_at DESC, created_at DESC, id DESC
-             LIMIT ?",
-        )
-        .bind(household_id)
-        .bind(limit)
-        .fetch_all(&mut **tx)
-        .await
-    }
-    .map_err(|error| map_read_error("history.activity_list_failed", error))?;
+    list_activities_filtered(
+        tx,
+        household_id,
+        cursor,
+        limit,
+        ActivityListFilter::default(),
+    )
+    .await
+}
 
-    let mut activities = Vec::with_capacity(rows.len());
-    for header in rows {
-        let id = required_text(&header, "id")?;
-        let legs = load_legs_for_activity(tx, &id).await?;
-        activities.push(activity_from_row(header, legs)?);
+pub async fn list_activities_filtered(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    cursor: Option<&ActivityListCursor>,
+    limit: i64,
+    filter: ActivityListFilter<'_>,
+) -> Result<Vec<Activity>, AppError> {
+    query_count::record("activity_headers");
+    let cursor_effective = cursor.map(|item| item.effective_at.as_str());
+    let cursor_created = cursor.map(|item| item.created_at.as_str());
+    let cursor_id = cursor.map(|item| item.id.as_str());
+    let rows = sqlx::query(
+        "SELECT id, household_id, kind, effective_at, effective_local_date, created_at, note,
+                reverses, corrects, correction_group, income_kind, fee_kind, related_instrument_id
+         FROM activities
+         WHERE household_id = ?
+           AND (? IS NULL OR effective_local_date >= ?)
+           AND (? IS NULL OR effective_local_date <= ?)
+           AND (? IS NULL OR kind = ?)
+           AND (
+                ? IS NULL OR id IN (
+                    SELECT activity_id FROM activity_legs WHERE account_id = ?
+                )
+           )
+           AND (
+                ? IS NULL
+                OR related_instrument_id = ?
+                OR id IN (SELECT activity_id FROM activity_legs WHERE instrument_id = ?)
+           )
+           AND (
+                ? IS NULL OR EXISTS (
+                    SELECT 1 FROM activity_legs l
+                    WHERE l.activity_id = activities.id
+                      AND (
+                        CASE
+                            WHEN activities.kind = 'deposit' THEN 'external_inflow'
+                            WHEN activities.kind = 'withdrawal' THEN 'external_outflow'
+                            WHEN activities.kind = 'transfer' THEN 'internal_transfer'
+                            WHEN activities.kind IN ('buy', 'sell') AND l.role = 'fee' THEN 'fee'
+                            WHEN activities.kind IN ('buy', 'sell') THEN 'trade_principal'
+                            WHEN activities.kind = 'income' THEN 'income'
+                            WHEN activities.kind = 'fee' THEN 'fee'
+                            WHEN activities.kind IN ('debt_draw', 'debt_payment') AND l.role = 'fee' THEN 'fee'
+                            WHEN activities.kind IN ('debt_draw', 'debt_payment') AND l.role = 'liability' THEN 'debt_principal'
+                            WHEN activities.kind IN ('debt_draw', 'debt_payment') THEN 'internal_transfer'
+                            WHEN activities.kind IN (
+                                'opening_adjustment', 'balance_adjustment', 'position_adjustment',
+                                'debt_adjustment', 'manual_valuation'
+                            ) THEN 'remeasurement'
+                            WHEN activities.kind = 'reversal' AND l.role = 'fee' THEN 'fee'
+                            WHEN activities.kind = 'reversal' AND l.role = 'income' THEN 'income'
+                            WHEN activities.kind = 'reversal' AND l.role = 'liability' THEN 'debt_principal'
+                            WHEN activities.kind = 'reversal' AND l.role IN ('holding', 'settlement') THEN 'trade_principal'
+                            WHEN activities.kind = 'reversal' AND l.role = 'adjustment' THEN 'remeasurement'
+                            WHEN activities.kind = 'reversal' AND l.role IN ('source', 'destination') THEN 'internal_transfer'
+                            ELSE NULL
+                        END
+                      ) = ?
+                )
+           )
+           AND (
+                ? IS NULL
+                OR effective_at < ?
+                OR (effective_at = ? AND created_at < ?)
+                OR (effective_at = ? AND created_at = ? AND id < ?)
+           )
+         ORDER BY effective_at DESC, created_at DESC, id DESC
+         LIMIT ?",
+    )
+    .bind(household_id)
+    .bind(filter.start_local_date)
+    .bind(filter.start_local_date)
+    .bind(filter.end_local_date)
+    .bind(filter.end_local_date)
+    .bind(filter.kind)
+    .bind(filter.kind)
+    .bind(filter.account_id)
+    .bind(filter.account_id)
+    .bind(filter.instrument_id)
+    .bind(filter.instrument_id)
+    .bind(filter.instrument_id)
+    .bind(filter.classification)
+    .bind(filter.classification)
+    .bind(cursor_effective)
+    .bind(cursor_effective)
+    .bind(cursor_effective)
+    .bind(cursor_created)
+    .bind(cursor_effective)
+    .bind(cursor_created)
+    .bind(cursor_id)
+    .bind(limit)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("history.activity_list_failed", error))?;
+    activities_from_headers(tx, rows).await
+}
+
+pub async fn list_activities_touching_account(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    account_id: &str,
+) -> Result<Vec<Activity>, AppError> {
+    query_count::record("timeline_activity_headers");
+    let rows = sqlx::query(
+        "SELECT DISTINCT a.id, a.household_id, a.kind, a.effective_at, a.effective_local_date, a.created_at, a.note,
+                a.reverses, a.corrects, a.correction_group, a.income_kind, a.fee_kind, a.related_instrument_id
+         FROM activities a
+         JOIN activity_legs l ON l.activity_id = a.id
+         WHERE a.household_id = ? AND l.account_id = ?
+         ORDER BY a.effective_at DESC, a.created_at DESC, a.id DESC",
+    )
+    .bind(household_id)
+    .bind(account_id)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("history.timeline_activity_list_failed", error))?;
+    activities_from_headers(tx, rows).await
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TimelineObservationRecord {
+    pub id: String,
+    pub occurred_at: String,
+    pub created_at: String,
+    pub kind: String,
+    pub amount: String,
+    pub currency: Option<String>,
+}
+
+pub async fn list_legacy_account_observations(
+    tx: &mut Transaction<'_, Sqlite>,
+    account_id: &str,
+    origin_at: &str,
+) -> Result<Vec<TimelineObservationRecord>, AppError> {
+    query_count::record("timeline_observations");
+    let values = sqlx::query(
+        "SELECT id, amount, currency, effective_at, created_at
+         FROM account_values
+         WHERE account_id = ? AND activity_id IS NULL AND effective_at < ?
+         ORDER BY effective_at DESC, created_at DESC, id DESC",
+    )
+    .bind(account_id)
+    .bind(origin_at)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("history.timeline_value_observations_failed", error))?;
+    let cash = sqlx::query(
+        "SELECT id, amount, currency, effective_at, created_at
+         FROM account_cash_values
+         WHERE account_id = ? AND activity_id IS NULL AND effective_at < ?
+         ORDER BY effective_at DESC, created_at DESC, id DESC",
+    )
+    .bind(account_id)
+    .bind(origin_at)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("history.timeline_cash_observations_failed", error))?;
+    let mut rows = Vec::new();
+    for row in values {
+        rows.push(TimelineObservationRecord {
+            id: required_text(&row, "id")?,
+            occurred_at: required_text(&row, "effective_at")?,
+            created_at: required_text(&row, "created_at")?,
+            kind: "account_value".to_owned(),
+            amount: required_text(&row, "amount")?,
+            currency: optional_text(&row, "currency")?,
+        });
     }
-    Ok(activities)
+    for row in cash {
+        rows.push(TimelineObservationRecord {
+            id: required_text(&row, "id")?,
+            occurred_at: required_text(&row, "effective_at")?,
+            created_at: required_text(&row, "created_at")?,
+            kind: "holdings_cash".to_owned(),
+            amount: required_text(&row, "amount")?,
+            currency: optional_text(&row, "currency")?,
+        });
+    }
+    Ok(rows)
+}
+
+pub async fn list_account_state_changes(
+    tx: &mut Transaction<'_, Sqlite>,
+    account_id: &str,
+    origin_at: &str,
+) -> Result<Vec<AccountStateObservationRecord>, AppError> {
+    query_count::record("timeline_states");
+    sqlx::query(
+        "SELECT id, account_id, primary_category, secondary_category, tracking_mode,
+                include_in_net_worth, include_in_investment, include_in_liquid_assets,
+                archived_at, institution_id, group_id, effective_at, created_at
+         FROM account_state_observations
+         WHERE account_id = ? AND effective_at > ?
+         ORDER BY effective_at DESC, created_at DESC, id DESC",
+    )
+    .bind(account_id)
+    .bind(origin_at)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("history.timeline_state_list_failed", error))?
+    .into_iter()
+    .map(account_state_from_row)
+    .collect()
+}
+
+pub async fn household_account_exists(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    account_id: &str,
+) -> Result<bool, AppError> {
+    query_count::record("account_exists");
+    let found: Option<i64> =
+        sqlx::query_scalar("SELECT 1 FROM accounts WHERE id = ? AND household_id = ? LIMIT 1")
+            .bind(account_id)
+            .bind(household_id)
+            .fetch_optional(&mut **tx)
+            .await
+            .map_err(|error| map_read_error("history.account_exists_failed", error))?;
+    Ok(found.is_some())
+}
+
+pub async fn household_instrument_exists(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    instrument_id: &str,
+) -> Result<bool, AppError> {
+    query_count::record("instrument_exists");
+    let found: Option<i64> =
+        sqlx::query_scalar("SELECT 1 FROM instruments WHERE id = ? AND household_id = ? LIMIT 1")
+            .bind(instrument_id)
+            .bind(household_id)
+            .fetch_optional(&mut **tx)
+            .await
+            .map_err(|error| map_read_error("history.instrument_exists_failed", error))?;
+    Ok(found.is_some())
+}
+
+pub async fn list_account_labels(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+) -> Result<HashMap<String, String>, AppError> {
+    query_count::record("account_labels");
+    sqlx::query("SELECT id, name FROM accounts WHERE household_id = ?")
+        .bind(household_id)
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(|error| map_read_error("history.account_labels_failed", error))?
+        .into_iter()
+        .map(|row| Ok((required_text(&row, "id")?, required_text(&row, "name")?)))
+        .collect()
+}
+
+pub async fn list_instrument_labels(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+) -> Result<HashMap<String, InstrumentLabel>, AppError> {
+    query_count::record("instrument_labels");
+    sqlx::query("SELECT id, name, symbol FROM instruments WHERE household_id = ?")
+        .bind(household_id)
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(|error| map_read_error("history.instrument_labels_failed", error))?
+        .into_iter()
+        .map(|row| {
+            Ok((
+                required_text(&row, "id")?,
+                InstrumentLabel {
+                    name: required_text(&row, "name")?,
+                    symbol: optional_text(&row, "symbol")?,
+                },
+            ))
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstrumentLabel {
+    pub name: String,
+    pub symbol: Option<String>,
+}
+
+pub async fn load_holding_endpoint(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    holding_id: &str,
+) -> Result<(String, String, String), AppError> {
+    query_count::record("holding_endpoint");
+    let row = sqlx::query(
+        "SELECT h.id, h.account_id, h.instrument_id
+         FROM holdings h
+         JOIN accounts a ON a.id = h.account_id
+         WHERE h.id = ? AND a.household_id = ?",
+    )
+    .bind(holding_id)
+    .bind(household_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("history.holding_endpoint_failed", error))?
+    .ok_or_else(|| AppError::not_found("holding", holding_id))?;
+    Ok((
+        required_text(&row, "id")?,
+        required_text(&row, "account_id")?,
+        required_text(&row, "instrument_id")?,
+    ))
 }
 
 pub async fn count_activities(
@@ -1271,6 +1596,7 @@ pub async fn get_snapshot_state(
     tx: &mut Transaction<'_, Sqlite>,
     household_id: &str,
 ) -> Result<Option<SnapshotStateRecord>, AppError> {
+    query_count::record("snapshot_state");
     let row = sqlx::query(
         "SELECT household_id, dirty_from, last_completed_on, rebuild_status, rebuild_cursor_on, updated_at
          FROM history_snapshot_state WHERE household_id = ?",
@@ -1390,6 +1716,7 @@ pub async fn latest_snapshot_for_date(
     household_id: &str,
     snapshot_on: &str,
 ) -> Result<Option<DailyValuationSnapshotRecord>, AppError> {
+    query_count::record("snapshot_header");
     let row = sqlx::query(
         "SELECT id, household_id, snapshot_on, cutoff_at, revision, supersedes_snapshot_id,
                 assets_amount, liabilities_amount, net_worth_amount, currency,
@@ -1397,7 +1724,7 @@ pub async fn latest_snapshot_for_date(
                 generation_reason, created_at
          FROM daily_valuation_snapshots
          WHERE household_id = ? AND snapshot_on = ?
-         ORDER BY revision DESC, created_at DESC, id DESC
+         ORDER BY snapshot_on DESC, revision DESC, created_at DESC, id DESC
          LIMIT 1",
     )
     .bind(household_id)
@@ -1408,10 +1735,65 @@ pub async fn latest_snapshot_for_date(
     row.map(snapshot_from_row).transpose()
 }
 
+pub async fn list_latest_snapshots_in_range(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    start_on: &str,
+    end_on: &str,
+) -> Result<Vec<DailyValuationSnapshotRecord>, AppError> {
+    query_count::record("snapshots_range");
+    sqlx::query(
+        "SELECT id, household_id, snapshot_on, cutoff_at, revision, supersedes_snapshot_id,
+                assets_amount, liabilities_amount, net_worth_amount, currency,
+                is_complete, valued_component_count, total_component_count, coverage_bps,
+                generation_reason, created_at
+         FROM (
+            SELECT id, household_id, snapshot_on, cutoff_at, revision, supersedes_snapshot_id,
+                   assets_amount, liabilities_amount, net_worth_amount, currency,
+                   is_complete, valued_component_count, total_component_count, coverage_bps,
+                   generation_reason, created_at,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY snapshot_on
+                       ORDER BY snapshot_on DESC, revision DESC, created_at DESC, id DESC
+                   ) AS rn
+            FROM daily_valuation_snapshots
+            WHERE household_id = ? AND snapshot_on >= ? AND snapshot_on <= ?
+         ) ranked
+         WHERE rn = 1
+         ORDER BY snapshot_on ASC",
+    )
+    .bind(household_id)
+    .bind(start_on)
+    .bind(end_on)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("history.snapshot_range_failed", error))?
+    .into_iter()
+    .map(snapshot_from_row)
+    .collect()
+}
+
+pub async fn count_snapshots_for_date(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    snapshot_on: &str,
+) -> Result<i64, AppError> {
+    query_count::record("snapshot_revision_count");
+    sqlx::query_scalar(
+        "SELECT COUNT(*) FROM daily_valuation_snapshots WHERE household_id = ? AND snapshot_on = ?",
+    )
+    .bind(household_id)
+    .bind(snapshot_on)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("history.snapshot_revision_count_failed", error))
+}
+
 pub async fn list_snapshot_items(
     tx: &mut Transaction<'_, Sqlite>,
     snapshot_id: &str,
 ) -> Result<Vec<DailyValuationSnapshotItemRecord>, AppError> {
+    query_count::record("snapshot_items");
     sqlx::query(
         "SELECT id, snapshot_id, account_id, holding_id, instrument_id, component_kind,
                 native_amount, native_currency, base_amount, instrument_quote_id, fx_quote_id,
@@ -1429,10 +1811,63 @@ pub async fn list_snapshot_items(
     .collect()
 }
 
+async fn activities_from_headers(
+    tx: &mut Transaction<'_, Sqlite>,
+    rows: Vec<sqlx::sqlite::SqliteRow>,
+) -> Result<Vec<Activity>, AppError> {
+    if rows.is_empty() {
+        return Ok(Vec::new());
+    }
+    let ids = rows
+        .iter()
+        .map(|row| required_text(row, "id"))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut legs_by_activity = load_legs_for_activities(tx, &ids).await?;
+    let mut activities = Vec::with_capacity(rows.len());
+    for header in rows {
+        let id = required_text(&header, "id")?;
+        let legs = legs_by_activity.remove(&id).unwrap_or_default();
+        activities.push(activity_from_row(header, legs)?);
+    }
+    Ok(activities)
+}
+
+async fn load_legs_for_activities(
+    tx: &mut Transaction<'_, Sqlite>,
+    activity_ids: &[String],
+) -> Result<HashMap<String, Vec<ActivityLeg>>, AppError> {
+    query_count::record("activity_legs");
+    if activity_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let payload = serde_json::to_string(activity_ids).map_err(|_| AppError::Internal)?;
+    let mut grouped: HashMap<String, Vec<ActivityLeg>> = HashMap::new();
+    let rows = sqlx::query(
+        "SELECT id, activity_id, account_id, role, direction, component_kind,
+                amount, currency, holding_id, instrument_id, quantity, fx_rate, sort_order
+         FROM activity_legs
+         WHERE activity_id IN (SELECT value FROM json_each(?))
+         ORDER BY activity_id ASC, sort_order ASC, id ASC",
+    )
+    .bind(payload)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("history.activity_legs_batch_failed", error))?;
+    for row in rows {
+        let activity_id = required_text(&row, "activity_id")?;
+        grouped
+            .entry(activity_id)
+            .or_default()
+            .push(leg_from_row(row)?);
+    }
+    Ok(grouped)
+}
+
 async fn load_legs_for_activity(
     tx: &mut Transaction<'_, Sqlite>,
     activity_id: &str,
 ) -> Result<Vec<ActivityLeg>, AppError> {
+    query_count::record("activity_legs");
     sqlx::query(
         "SELECT id, activity_id, account_id, role, direction, component_kind,
                 amount, currency, holding_id, instrument_id, quantity, fx_rate, sort_order

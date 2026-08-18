@@ -361,6 +361,7 @@ async fn create_account_in_tx(
                         amount: money,
                     }),
                     None,
+                    None,
                 )
                 .await?;
             }
@@ -492,7 +493,7 @@ async fn update_account_value_in_tx(
             target,
         },
     };
-    activity_service::post_in_tx(tx, command, None).await?;
+    activity_service::post_in_tx(tx, command, None, None).await?;
     load_account_detail(tx, &household.id, &account.id().to_string()).await
 }
 

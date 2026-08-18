@@ -277,6 +277,7 @@ async fn create_holding_in_tx(
                 quantity: holding.quantity(),
             }),
             None,
+            None,
         )
         .await?;
     }
@@ -319,6 +320,7 @@ async fn update_holding_in_tx(
                 holding_id: holding.id(),
                 target: quantity,
             },
+            None,
             None,
         )
         .await?;

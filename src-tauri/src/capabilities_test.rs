@@ -62,6 +62,18 @@ mod tests {
         "get_settings",
         "update_settings",
         "delete_all_data",
+        "get_history_origin",
+        "confirm_history_timezone",
+        "preview_activity",
+        "list_activities",
+        "get_activity",
+        "create_activity",
+        "reverse_activity",
+        "correct_activity",
+        "get_account_timeline",
+        "get_history_status",
+        "rebuild_history_snapshots",
+        "get_net_worth_trend",
     ];
 
     const ALLOWED_PERMISSIONS: &[&str] = &[
@@ -156,6 +168,29 @@ mod tests {
         assert!(!lib.contains("tauri_plugin_shell"));
         assert!(!lib.contains("tauri_plugin_http"));
         assert!(!lib.contains("tauri_plugin_clipboard"));
+    }
+
+    #[test]
+    fn generated_bindings_include_activity_union_and_history_commands() {
+        let source = include_str!("../../src/generated/tauri-bindings.ts");
+        for needle in [
+            "export type CreateActivityInput",
+            "kind: \"deposit\"",
+            "TAURI_INVOKE(\"preview_activity\"",
+            "TAURI_INVOKE(\"rebuild_history_snapshots\"",
+            "TAURI_INVOKE(\"get_net_worth_trend\"",
+            "SNAPSHOT_REBUILD_FAILED",
+            "SNAPSHOT_REBUILD_REQUIRED",
+        ] {
+            assert!(
+                source.contains(needle),
+                "generated bindings should contain {needle}"
+            );
+        }
+        assert!(
+            !source.contains("rawLegs") && !source.contains("resultingBalances"),
+            "bindings must not expose raw ledger inputs"
+        );
     }
 
     #[test]

@@ -60,6 +60,7 @@ pub struct HoldingValuationDto {
     pub missing_reason: Option<String>,
 }
 
+#[derive(Clone)]
 pub struct ValuationSnapshot {
     #[allow(dead_code)]
     household_id: String,
@@ -475,14 +476,14 @@ fn holding_dto(
     })
 }
 
-struct Converted {
-    base: Option<Money>,
-    freshness: Option<Freshness>,
-    complete: bool,
-    missing_reason: Option<String>,
+pub(crate) struct Converted {
+    pub(crate) base: Option<Money>,
+    pub(crate) freshness: Option<Freshness>,
+    pub(crate) complete: bool,
+    pub(crate) missing_reason: Option<String>,
 }
 
-fn convert_amount(
+pub(crate) fn convert_amount(
     snapshot: &ValuationSnapshot,
     native: Money,
     now: &Timestamp,
@@ -544,6 +545,24 @@ fn selected_fx(
         FxRate::parse(&dto.rate)?,
         freshness,
     )))
+}
+
+pub(crate) fn instrument_quote_id(
+    snapshot: &ValuationSnapshot,
+    instrument: &InstrumentRecordDto,
+) -> Option<String> {
+    selected_instrument_quote(snapshot, instrument).map(|quote| quote.id.clone())
+}
+
+pub(crate) fn fx_quote_id(
+    snapshot: &ValuationSnapshot,
+    native: CurrencyCode,
+    now: &Timestamp,
+) -> Result<Option<String>, AppError> {
+    Ok(
+        selected_fx(snapshot, native, snapshot.base_currency, now)?
+            .map(|(id, _, _)| id.to_string()),
+    )
 }
 
 fn merge_freshness(left: Freshness, right: Freshness) -> Freshness {

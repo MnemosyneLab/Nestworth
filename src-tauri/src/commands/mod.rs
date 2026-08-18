@@ -2,6 +2,7 @@ pub mod accounts;
 pub mod bootstrap;
 pub mod cash;
 pub mod groups;
+pub mod history;
 pub mod holdings;
 pub mod institutions;
 pub mod instruments;

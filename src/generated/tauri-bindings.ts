@@ -477,6 +477,102 @@ async deleteAllData(input: DeleteAllDataInput) : Promise<Result<null, CommandErr
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+async getHistoryOrigin() : Promise<Result<HistoryOriginDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_history_origin") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async confirmHistoryTimezone(input: ConfirmHistoryTimezoneInput) : Promise<Result<HistoryOriginDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("confirm_history_timezone", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async previewActivity(input: CreateActivityInput) : Promise<Result<ActivityPreviewDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("preview_activity", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async listActivities(input: ListActivitiesInput) : Promise<Result<ActivityPageDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_activities", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getActivity(input: IdInput) : Promise<Result<ActivityDetailDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_activity", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async createActivity(input: CreateActivityInput) : Promise<Result<ActivityDetailDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_activity", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async reverseActivity(input: ReverseActivityInput) : Promise<Result<ActivityDetailDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("reverse_activity", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async correctActivity(input: CorrectActivityInput) : Promise<Result<PostedCorrectionDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("correct_activity", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getAccountTimeline(input: GetAccountTimelineInput) : Promise<Result<AccountTimelinePageDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_account_timeline", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getHistoryStatus() : Promise<Result<HistoryStatusDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_history_status") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async rebuildHistorySnapshots(input: RebuildHistorySnapshotsInput) : Promise<Result<RebuildHistorySnapshotsResultDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("rebuild_history_snapshots", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getNetWorthTrend(input: GetNetWorthTrendInput) : Promise<Result<NetWorthTrendDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_net_worth_trend", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -493,7 +589,13 @@ async deleteAllData(input: DeleteAllDataInput) : Promise<Result<null, CommandErr
 export type AccountCashRecordDto = { id: string; accountId: string; amount: string; currency: string; effectiveAt: string; createdAt: string }
 export type AccountOwnerDto = { memberId: string; memberName: string; shareBps: number }
 export type AccountRecordDto = { id: string; name: string; primaryCategory: string; secondaryCategory: string; trackingMode: string; defaultCurrency: string; institutionId: string | null; groupId: string | null; note: string | null; logoAssetId: string | null; includeInNetWorth: boolean; includeInInvestment: boolean; includeInLiquidAssets: boolean; openedOn: string | null; closedOn: string | null; sortOrder: number; createdAt: string; updatedAt: string; archivedAt: string | null; latestValue: MoneyDto | null; valuation: AccountValuationDto; owners: AccountOwnerDto[] }
+export type AccountTimelineItemDto = { kind: "origin"; id: string; occurredAt: string; createdAt: string; localDate: string; label: string } | { kind: "activity"; occurredAt: string; createdAt: string; activity: ActivityDetailDto } | { kind: "observation"; id: string; occurredAt: string; createdAt: string; componentKind: string; amount: string; currency: string | null } | { kind: "account_state"; id: string; occurredAt: string; createdAt: string; archived: boolean; primaryCategory: string }
+export type AccountTimelinePageDto = { items: AccountTimelineItemDto[]; nextCursor: string | null; hasMore: boolean }
 export type AccountValuationDto = { native: MoneyDto | null; base: MoneyDto | null; complete: boolean; freshness: string; unvaluedItems: UnvaluedItemDto[] }
+export type ActivityDetailDto = { id: string; kind: string; classification: string; effectiveAt: string; effectiveLocalDate: string; createdAt: string; note: string | null; reverses: string | null; corrects: string | null; correctionGroup: string | null; incomeKind: string | null; feeKind: string | null; relatedInstrumentId: string | null; reversed: boolean; isReversal: boolean; isReplacement: boolean; legs: ActivityLegDto[]; chain: CorrectionChainDto }
+export type ActivityLegDto = { id: string; accountId: string; accountName: string; role: string; direction: string; componentKind: string; classification: string; amount: string | null; currency: string | null; holdingId: string | null; instrumentId: string | null; instrumentName: string | null; quantity: string | null; fxRate: string | null; sortOrder: number }
+export type ActivityPageDto = { items: ActivityDetailDto[]; nextCursor: string | null; hasMore: boolean }
+export type ActivityPreviewDto = { activity: ActivityDetailDto; resulting: ResultingEndpointDto[] }
 export type AllocationRowDto = { key: string; name: string | null; amount: MoneyDto; shareBps: number }
 export type AppSettingsDto = { language: string; appearance: string; lastHouseholdId: string | null }
 export type AppendAccountCashInput = { accountId: string; amount: string; currency: string }
@@ -503,18 +605,26 @@ export type BootstrapDto = { status: "ready"; onboardingRequired: boolean; setti
 export type BreakdownRowDto = { key: string; id: string | null; name: string | null; amount: MoneyDto; shareBps: number }
 export type CommandError = { code: ErrorCode; message: string; fields: Partial<{ [key in string]: string }> | null }
 export type CompleteOnboardingInput = { householdName: string; baseCurrency: string; members: OnboardingMemberInput[] }
+export type ConfirmHistoryTimezoneInput = { timezone: string }
+export type CorrectActivityInput = { originalId: string; replacement: CreateActivityInput }
+export type CorrectionChainDto = { originalId: string; reversalId: string | null; replacementId: string | null }
 export type CreateAccountInput = { name: string; primaryCategory: string; secondaryCategory: string; defaultCurrency: string; institutionId: string | null; groupId: string | null; trackingMode: string | null; note: string | null; includeInNetWorth: boolean; includeInInvestment: boolean; includeInLiquidAssets: boolean; openedOn: string | null; closedOn: string | null; owners: OwnershipShareInput[]; initialAmount: string | null }
+export type CreateActivityInput = { kind: "opening_adjustment"; localDate: string; localTime: string; ambiguousOffset: string | null; note: string | null; accountId: string; component: string; amount: string | null; currency: string | null; holdingId: string | null; instrumentId: string | null; quantity: string | null } | { kind: "balance_adjustment"; localDate: string; localTime: string; ambiguousOffset: string | null; note: string | null; accountId: string; amount: string; currency: string } | { kind: "position_adjustment"; localDate: string; localTime: string; ambiguousOffset: string | null; note: string | null; holdingId: string; quantity: string } | { kind: "deposit"; localDate: string; localTime: string; ambiguousOffset: string | null; note: string | null; accountId: string; component: string; amount: string; currency: string } | { kind: "withdrawal"; localDate: string; localTime: string; ambiguousOffset: string | null; note: string | null; accountId: string; component: string; amount: string; currency: string } | { kind: "transfer"; localDate: string; localTime: string; ambiguousOffset: string | null; note: string | null; sourceAccountId: string; sourceComponent: string; sourceAmount: string; sourceCurrency: string; destinationAccountId: string; destinationComponent: string; destinationAmount: string; destinationCurrency: string; fxRate: string | null; sourceHoldingId: string | null; destinationHoldingId: string | null; quantity: string | null } | { kind: "buy"; localDate: string; localTime: string; ambiguousOffset: string | null; note: string | null; holdingId: string; quantity: string; unitPrice: string; grossAmount: string; settlementCurrency: string; feeAmount: string | null; confirmZeroUnitPrice?: boolean } | { kind: "sell"; localDate: string; localTime: string; ambiguousOffset: string | null; note: string | null; holdingId: string; quantity: string; unitPrice: string; grossAmount: string; settlementCurrency: string; feeAmount: string | null; confirmZeroUnitPrice?: boolean } | { kind: "income"; localDate: string; localTime: string; ambiguousOffset: string | null; note: string | null; accountId: string; component: string; amount: string; currency: string; incomeKind: string; instrumentId: string | null } | { kind: "fee"; localDate: string; localTime: string; ambiguousOffset: string | null; note: string | null; accountId: string; component: string; amount: string; currency: string; feeKind: string; instrumentId: string | null } | { kind: "debt_draw"; localDate: string; localTime: string; ambiguousOffset: string | null; note: string | null; liabilityAccountId: string; principalAmount: string; principalCurrency: string; cashAccountId: string | null; cashComponent: string | null; cashAmount: string | null; cashCurrency: string | null; fxRate: string | null } | { kind: "debt_payment"; localDate: string; localTime: string; ambiguousOffset: string | null; note: string | null; liabilityAccountId: string; principalAmount: string; principalCurrency: string; cashAccountId: string; cashComponent: string; cashAmount: string; cashCurrency: string; fxRate: string | null; feeAmount: string | null; feeKind: string | null } | { kind: "debt_adjustment"; localDate: string; localTime: string; ambiguousOffset: string | null; note: string | null; accountId: string; amount: string; currency: string } | { kind: "manual_valuation"; localDate: string; localTime: string; ambiguousOffset: string | null; note: string | null; accountId: string; amount: string; currency: string }
 export type CreateGroupInput = { name: string; iconKey: string | null; color: string | null; description: string | null }
 export type CreateHoldingInput = { accountId: string; instrumentId: string; quantity: string; note: string | null }
 export type CreateInstitutionInput = { name: string; institutionType: string | null; countryCode: string | null; website: string | null; note: string | null }
 export type CreateInstrumentInput = { name: string; symbol: string | null; instrumentType: string; quoteCurrency: string; marketCode: string | null; countryCode: string | null; isin: string | null; providerKey: string | null; providerSymbol: string | null; quotePreference: string | null; note: string | null }
 export type CreateMemberInput = { name: string; note: string | null }
 export type DeleteAllDataInput = { confirmed: boolean }
-export type ErrorCode = "VALIDATION_ERROR" | "NOT_FOUND" | "CONFLICT" | "ALREADY_ONBOARDED" | "OWNERSHIP_TOTAL_INVALID" | "BASE_CURRENCY_CHANGE_NOT_ALLOWED" | "INVALID_CATEGORY" | "INVALID_MONEY" | "INVALID_QUANTITY" | "INVALID_UNIT_PRICE" | "INVALID_FX_RATE" | "DECIMAL_OVERFLOW" | "INVALID_ACTIVITY" | "INVALID_ACTIVITY_TIME" | "INVALID_ACTIVITY_LEGS" | "INSUFFICIENT_BALANCE" | "INSUFFICIENT_QUANTITY" | "TRANSFER_MISMATCH" | "TRADE_TOTAL_MISMATCH" | "ACTIVITY_ALREADY_REVERSED" | "ACTIVITY_NOT_CORRECTABLE" | "QUOTE_UNAVAILABLE" | "INCOMPLETE_VALUATION" | "DUPLICATE_HOLDING" | "UNSUPPORTED_PROVIDER_SYMBOL" | "PROVIDER_AUTHENTICATION" | "PROVIDER_RATE_LIMIT" | "PROVIDER_UNAVAILABLE" | "MALFORMED_PROVIDER_RESPONSE" | "MEDIA_INVALID" | "DATABASE_ERROR" | "DATABASE_UNAVAILABLE" | "UNSUPPORTED_NEWER_DATABASE" | "MIGRATION_FAILED" | "DATA_RESET_FAILED" | "HISTORY_INITIALIZATION_FAILED" | "HISTORY_TIMEZONE_CONFIRMATION_REQUIRED" | "INTERNAL_ERROR"
+export type ErrorCode = "VALIDATION_ERROR" | "NOT_FOUND" | "CONFLICT" | "ALREADY_ONBOARDED" | "OWNERSHIP_TOTAL_INVALID" | "BASE_CURRENCY_CHANGE_NOT_ALLOWED" | "INVALID_CATEGORY" | "INVALID_MONEY" | "INVALID_QUANTITY" | "INVALID_UNIT_PRICE" | "INVALID_FX_RATE" | "DECIMAL_OVERFLOW" | "INVALID_ACTIVITY" | "INVALID_ACTIVITY_TIME" | "INVALID_ACTIVITY_LEGS" | "INSUFFICIENT_BALANCE" | "INSUFFICIENT_QUANTITY" | "TRANSFER_MISMATCH" | "TRADE_TOTAL_MISMATCH" | "ACTIVITY_ALREADY_REVERSED" | "ACTIVITY_NOT_CORRECTABLE" | "QUOTE_UNAVAILABLE" | "INCOMPLETE_VALUATION" | "DUPLICATE_HOLDING" | "UNSUPPORTED_PROVIDER_SYMBOL" | "PROVIDER_AUTHENTICATION" | "PROVIDER_RATE_LIMIT" | "PROVIDER_UNAVAILABLE" | "MALFORMED_PROVIDER_RESPONSE" | "MEDIA_INVALID" | "DATABASE_ERROR" | "DATABASE_UNAVAILABLE" | "UNSUPPORTED_NEWER_DATABASE" | "MIGRATION_FAILED" | "DATA_RESET_FAILED" | "HISTORY_INITIALIZATION_FAILED" | "HISTORY_TIMEZONE_CONFIRMATION_REQUIRED" | "SNAPSHOT_REBUILD_REQUIRED" | "SNAPSHOT_REBUILD_FAILED" | "INTERNAL_ERROR"
 export type FxPairStatusDto = { currencyA: string; currencyB: string; quotePreference: string; selectedQuote: FxQuoteRecordDto | null; selectedRate: string | null }
 export type FxQuoteRecordDto = { id: string; baseCurrency: string; quoteCurrency: string; rate: string; sourceKind: string; sourceKey: string; delayed: boolean; quotedAt: string; createdAt: string }
+export type GetAccountTimelineInput = { accountId: string; cursor: string | null; limit: number | null }
 export type GetMediaInput = { assetId: string }
+export type GetNetWorthTrendInput = { range: string }
 export type GroupRecordDto = { id: string; name: string; iconKey: string | null; color: string | null; description: string | null; logoAssetId: string | null; sortOrder: number; createdAt: string; updatedAt: string; archivedAt: string | null }
+export type HistoryOriginDto = { id: string; timezone: string; timezoneConfirmed: boolean; originAt: string; originLocalDate: string; source: string; schemaVersion: number; createdAt: string; accountValues: OriginComponentDto[]; cashValues: OriginComponentDto[]; holdings: OriginHoldingDto[] }
+export type HistoryStatusDto = { timezone: string; timezoneConfirmed: boolean; originAt: string; originLocalDate: string; dirtyFrom: string | null; lastCompletedOn: string | null; lastClosedOn: string | null; rebuildStatus: string; rebuildCursorOn: string | null }
 export type HoldingRecordDto = { id: string; accountId: string; instrumentId: string; instrumentName: string; instrumentSymbol: string | null; quoteCurrency: string; quantity: string; note: string | null; sortOrder: number; createdAt: string; updatedAt: string; archivedAt: string | null }
 export type HoldingValuationDto = { holdingId: string; accountId: string; instrumentId: string; instrumentName: string; instrumentSymbol: string | null; instrumentType: string; countryCode: string | null; quantity: string; native: MoneyDto | null; base: MoneyDto | null; complete: boolean; freshness: string; quotedAt: string | null; sourceKind: string | null; missingReason: string | null }
 export type HouseholdDto = { id: string; name: string; baseCurrency: string }
@@ -523,6 +633,7 @@ export type InstitutionRecordDto = { id: string; name: string; institutionType: 
 export type InstrumentQuoteRecordDto = { id: string; instrumentId: string; unitPrice: string; quoteCurrency: string; sourceKind: string; sourceKey: string; delayed: boolean; quotedAt: string; createdAt: string }
 export type InstrumentRecordDto = { id: string; name: string; symbol: string | null; instrumentType: string; quoteCurrency: string; marketCode: string | null; countryCode: string | null; isin: string | null; providerKey: string | null; providerSymbol: string | null; quotePreference: string; note: string | null; logoAssetId: string | null; sortOrder: number; createdAt: string; updatedAt: string; archivedAt: string | null }
 export type ListAccountCashInput = { accountId: string }
+export type ListActivitiesInput = { cursor: string | null; limit: number | null; startLocalDate: string | null; endLocalDate: string | null; accountId: string | null; instrumentId: string | null; kind: string | null; classification: string | null }
 export type ListFilterInput = { includeArchived: boolean }
 export type ListFxQuotesInput = { baseCurrency: string; quoteCurrency: string }
 export type ListHoldingsInput = { accountId: string; includeArchived: boolean }
@@ -531,17 +642,26 @@ export type MediaAssetDto = { mimeType: string; data: string }
 export type MemberDto = { id: string; name: string }
 export type MemberRecordDto = { id: string; name: string; note: string | null; avatarAssetId: string | null; sortOrder: number; createdAt: string; updatedAt: string; archivedAt: string | null }
 export type MoneyDto = { amount: string; currency: string }
+export type NetWorthTrendDto = { baseCurrency: string; range: string; originLocalDate: string; dirtyFrom: string | null; points: NetWorthTrendPointDto[]; current: NetWorthTrendPointDto }
+export type NetWorthTrendPointDto = { date: string | null; asOf: string; assets: MoneyDto; liabilities: MoneyDto; netWorth: MoneyDto; isComplete: boolean; isLive: boolean; coverageBps: number; missingCount: number; valuedComponentCount: number; totalComponentCount: number }
 export type OnboardingMemberInput = { name: string }
+export type OriginComponentDto = { accountId: string; amount: string; currency: string }
+export type OriginHoldingDto = { holdingId: string; accountId: string; instrumentId: string; quantity: string; active: boolean }
 export type OverviewDto = { baseCurrency: string; accountCount: number; assets: MoneyDto; liabilities: MoneyDto; netWorth: MoneyDto; byCategory: BreakdownRowDto[]; byMember: BreakdownRowDto[]; byInstitution: BreakdownRowDto[]; byGroup: BreakdownRowDto[]; isComplete: boolean; unvaluedItems: UnvaluedItemDto[] }
 export type OwnershipShareInput = { memberId: string; percent: string | null; shareBps: number | null }
 export type PortfolioAccountDto = { accountId: string; name: string; baseValue: MoneyDto | null; complete: boolean; freshness: string }
 export type PortfolioDto = { baseCurrency: string; total: MoneyDto; isComplete: boolean; coverageBps: number; unvaluedItems: UnvaluedItemDto[]; positions: HoldingValuationDto[]; accounts: PortfolioAccountDto[]; cash: MoneyDto[]; byCurrency: AllocationRowDto[]; byCountry: AllocationRowDto[]; byInstrumentType: AllocationRowDto[]; requiredFx: FxPairStatusDto[] }
+export type PostedCorrectionDto = { reversal: ActivityDetailDto; replacement: ActivityDetailDto }
 export type ProviderInstrumentDto = { providerKey: string; providerSymbol: string; name: string; symbol: string | null; instrumentType: string; quoteCurrency: string; marketCode: string | null; countryCode: string | null }
+export type RebuildHistorySnapshotsInput = { cancel?: boolean }
+export type RebuildHistorySnapshotsResultDto = { processedDays: number; remaining: boolean; cancelled: boolean; dirtyFrom: string | null; lastCompletedOn: string | null; status: string }
 export type ReferenceCatalogDto = { currencies: ReferenceOptionDto[]; countries: ReferenceOptionDto[]; institutionTypes: ReferenceOptionDto[]; groupIcons: string[]; groupColors: string[]; languages: string[]; appearances: string[] }
 export type ReferenceOptionDto = { value: string; group: string }
 export type RefreshInstrumentInput = { instrumentId: string }
 export type RefreshItemResultDto = { key: string; ok: boolean; errorCode: string | null; message: string | null }
 export type RefreshResultDto = { items: RefreshItemResultDto[] }
+export type ResultingEndpointDto = { accountId: string; accountName: string; componentKind: string; holdingId: string | null; currency: string | null; before: string; after: string }
+export type ReverseActivityInput = { id: string; localDate: string | null; localTime: string | null; ambiguousOffset: string | null }
 export type SearchProviderInstrumentsInput = { query: string }
 export type SetFxQuotePreferenceInput = { currencyA: string; currencyB: string; quotePreference: string }
 export type SetInstrumentQuotePreferenceInput = { instrumentId: string; quotePreference: string }

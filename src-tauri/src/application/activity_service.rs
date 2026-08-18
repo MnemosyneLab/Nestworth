@@ -17,7 +17,10 @@ use super::{
         mark_snapshots_dirty_from, HistoryOriginRecord, HoldingQuantityRecord,
     },
     instrument_service,
-    reference::{begin_write_tx, finish_write_tx, map_read_error, map_write_error},
+    reference::{
+        begin_read_tx, begin_write_tx, finish_read_tx, finish_write_tx, map_read_error,
+        map_write_error,
+    },
 };
 use crate::{
     domain::{
@@ -142,6 +145,21 @@ impl PostCommand {
 }
 
 #[derive(Debug, Clone)]
+pub struct PreviewEndpointChange {
+    pub account_id: String,
+    pub component_kind: String,
+    pub holding_id: Option<String>,
+    pub currency: Option<String>,
+    pub before_amount: Option<String>,
+    pub after_amount: Option<String>,
+}
+
+pub struct ActivityPreview {
+    pub activity: Activity,
+    pub endpoints: Vec<PreviewEndpointChange>,
+}
+
+#[derive(Debug, Clone)]
 pub struct PostedCorrection {
     pub reversal: Activity,
     pub replacement: Activity,
@@ -221,8 +239,32 @@ pub async fn post(
 ) -> Result<Activity, AppError> {
     let database = state.writable_db()?;
     let mut tx = begin_write_tx(database).await?;
-    let result = post_in_tx(&mut tx, command, time).await;
+    let result = post_in_tx(&mut tx, command, time, None).await;
     finish_write_tx(tx, result).await
+}
+
+pub async fn post_user(
+    state: &AppState,
+    command: PostCommand,
+    time: Option<ActivityTimeSpec<'_>>,
+    note: Option<&str>,
+) -> Result<Activity, AppError> {
+    let database = state.writable_db()?;
+    let mut tx = begin_write_tx(database).await?;
+    let result = post_in_tx(&mut tx, command, time, note).await;
+    finish_write_tx(tx, result).await
+}
+
+pub async fn preview(
+    state: &AppState,
+    command: PostCommand,
+    time: Option<ActivityTimeSpec<'_>>,
+    note: Option<&str>,
+) -> Result<ActivityPreview, AppError> {
+    let database = state.writable_db()?;
+    let mut tx = begin_read_tx(database).await?;
+    let result = preview_in_tx(&mut tx, command, time, note).await;
+    finish_read_tx(tx, result).await
 }
 
 pub async fn reverse_activity(
@@ -252,9 +294,10 @@ pub async fn post_in_tx(
     tx: &mut Transaction<'_, Sqlite>,
     command: PostCommand,
     time: Option<ActivityTimeSpec<'_>>,
+    note: Option<&str>,
 ) -> Result<Activity, AppError> {
     let origin = ensure_activity_writes_allowed(tx).await?;
-    let (params, _) = resolve_record_params(&origin, time)?;
+    let (params, _) = resolve_record_params(&origin, time, note)?;
     let activity = construct_posted_activity(tx, &origin, &params, command).await?;
     apply_and_persist(tx, &origin, &activity).await?;
     tracing::info!(
@@ -263,6 +306,105 @@ pub async fn post_in_tx(
         "activity posted"
     );
     Ok(activity)
+}
+
+pub async fn preview_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    command: PostCommand,
+    time: Option<ActivityTimeSpec<'_>>,
+    note: Option<&str>,
+) -> Result<ActivityPreview, AppError> {
+    let origin = ensure_activity_writes_allowed(tx).await?;
+    let (params, _) = resolve_record_params(&origin, time, note)?;
+    let activity = construct_posted_activity(tx, &origin, &params, command).await?;
+    let before = load_endpoint_states(tx, &activity).await?;
+    let mut after = before.clone();
+    for leg in activity.legs() {
+        let key = endpoint_key(leg)?;
+        apply_leg_to_state(after.get_mut(&key).ok_or(AppError::Internal)?, leg)?;
+    }
+    let holding_accounts: HashMap<String, String> = activity
+        .legs()
+        .iter()
+        .filter_map(|leg| match leg.component() {
+            LegComponent::HoldingQuantity { holding_id, .. } => {
+                Some((holding_id.to_string(), leg.account_id().to_string()))
+            }
+            _ => None,
+        })
+        .collect();
+    let endpoints = before
+        .iter()
+        .filter_map(|(key, before_state)| {
+            after
+                .get(key)
+                .map(|after_state| preview_change(before_state, after_state, &holding_accounts))
+        })
+        .collect();
+    tracing::info!(
+        event = "activity.preview",
+        kind = activity.kind().as_str(),
+        "activity previewed"
+    );
+    Ok(ActivityPreview {
+        activity,
+        endpoints,
+    })
+}
+
+fn preview_change(
+    before: &EndpointState,
+    after: &EndpointState,
+    holding_accounts: &HashMap<String, String>,
+) -> PreviewEndpointChange {
+    match (before, after) {
+        (
+            EndpointState::Money {
+                account_id,
+                component,
+                resulting: before_amount,
+            },
+            EndpointState::Money {
+                resulting: after_amount,
+                ..
+            },
+        ) => PreviewEndpointChange {
+            account_id: account_id.to_string(),
+            component_kind: component.kind().as_str().to_owned(),
+            holding_id: None,
+            currency: Some(before_amount.currency().as_str().to_owned()),
+            before_amount: Some(before_amount.canonical_amount()),
+            after_amount: Some(after_amount.canonical_amount()),
+        },
+        (
+            EndpointState::Quantity {
+                holding_id,
+                resulting: before_qty,
+            },
+            EndpointState::Quantity {
+                resulting: after_qty,
+                ..
+            },
+        ) => PreviewEndpointChange {
+            account_id: holding_accounts
+                .get(&holding_id.to_string())
+                .cloned()
+                .unwrap_or_default(),
+            component_kind: "holding_quantity".to_owned(),
+            holding_id: Some(holding_id.to_string()),
+            currency: None,
+            before_amount: Some(before_qty.canonical()),
+            after_amount: Some(after_qty.canonical()),
+        },
+        _ => PreviewEndpointChange {
+            account_id: String::new(),
+            component_kind: "unknown".to_owned(),
+            holding_id: None,
+            currency: None,
+            before_amount: None,
+            after_amount: None,
+        },
+    }
 }
 
 pub async fn reverse_activity_in_tx(
@@ -275,7 +417,7 @@ pub async fn reverse_activity_in_tx(
     if original.household_id().to_string() != origin.household_id {
         return Err(AppError::not_found("activity", original_id));
     }
-    let (params, _) = resolve_record_params(&origin, time)?;
+    let (params, _) = resolve_record_params(&origin, time, None)?;
     if params.effective_at < *original.effective_at() {
         return Err(AppError::invalid_activity_time(
             "A reversal cannot be dated before the original activity.",
@@ -311,7 +453,7 @@ pub async fn correct_activity_in_tx(
         note: None,
     };
     let reversal = Activity::reversal(&reversal_params, &original)?.with_correction_group(group);
-    let (replacement_params, _) = resolve_record_params(&origin, replacement_time)?;
+    let (replacement_params, _) = resolve_record_params(&origin, replacement_time, None)?;
     let replacement = construct_posted_activity(tx, &origin, &replacement_params, replacement)
         .await?
         .with_corrects(original.id(), group);
@@ -327,10 +469,11 @@ pub async fn correct_activity_in_tx(
     })
 }
 
-fn resolve_record_params(
+fn resolve_record_params<'a>(
     origin: &HistoryOriginRecord,
     time: Option<ActivityTimeSpec<'_>>,
-) -> Result<(ActivityRecordParams<'static>, HistoryTimezone), AppError> {
+    note: Option<&'a str>,
+) -> Result<(ActivityRecordParams<'a>, HistoryTimezone), AppError> {
     let household_id = HouseholdId::parse(&origin.household_id)?;
     let timezone = HistoryTimezone::parse(&origin.timezone)?;
     let origin_at = Timestamp::parse(&origin.origin_at)?;
@@ -355,7 +498,7 @@ fn resolve_record_params(
             effective_at,
             effective_local_date,
             created_at: now,
-            note: None,
+            note,
         },
         timezone,
     ))
@@ -2095,6 +2238,7 @@ mod tests {
                     amount: Money::parse("10", CurrencyCode::CNY).expect("money"),
                 },
                 None,
+                None,
             )
             .await
             .expect_err("manual deposit");
@@ -2115,6 +2259,7 @@ mod tests {
                     amount: Money::parse("10", CurrencyCode::CNY).expect("money"),
                 },
                 None,
+                None,
             )
             .await
             .expect_err("liability deposit");
@@ -2130,6 +2275,7 @@ mod tests {
                     endpoint: cash_endpoint(&manual.id),
                     amount: Money::parse("10", CurrencyCode::CNY).expect("money"),
                 },
+                None,
                 None,
             )
             .await
@@ -2171,6 +2317,7 @@ mod tests {
                     amount: Money::parse("60", CurrencyCode::CNY).expect("money"),
                 },
                 None,
+                None,
             )
             .await
             .expect("first withdrawal");
@@ -2183,6 +2330,7 @@ mod tests {
                     endpoint: balance_endpoint(&bank.id),
                     amount: Money::parse("50", CurrencyCode::CNY).expect("money"),
                 },
+                None,
                 None,
             )
             .await
@@ -2226,6 +2374,7 @@ mod tests {
                     instrument_id: None,
                 },
                 None,
+                None,
             )
             .await
             .expect("income");
@@ -2237,6 +2386,7 @@ mod tests {
                     kind: FeeKind::BankFee,
                     instrument_id: None,
                 },
+                None,
                 None,
             )
             .await
