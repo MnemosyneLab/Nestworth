@@ -4,6 +4,11 @@ use sqlx::{Row, Sqlite, Transaction};
 use std::str::FromStr;
 
 use super::{
+    activity_service,
+    history_repositories::{
+        insert_fx_preference_observation, insert_instrument_preference_observation,
+        FxPreferenceObservationRecord, InstrumentPreferenceObservationRecord,
+    },
     instrument_service,
     reference::{
         begin_write_tx, finish_write_tx, map_read_error, map_write_error, require_household_id_tx,
@@ -13,7 +18,8 @@ use super::{
 use crate::{
     domain::{
         canonical_decimal, CurrencyCode, FxPair, FxQuote, FxQuoteId, FxRate, HouseholdId,
-        InstrumentId, InstrumentQuote, InstrumentQuoteId, QuoteSourceKind, Timestamp, UnitPrice,
+        InstrumentId, InstrumentQuote, InstrumentQuoteId, QuotePreferenceObservationId,
+        QuoteSourceKind, Timestamp, UnitPrice,
     },
     error::AppError,
     state::AppState,
@@ -201,8 +207,9 @@ async fn append_manual_instrument_quote_in_tx(
         quoted_at,
         now.clone(),
     )?;
+    let previous_preference = instrument.quote_preference();
     insert_instrument_quote(tx, &quote).await?;
-    instrument.set_quote_preference(QuoteSourceKind::Manual, now);
+    instrument.set_quote_preference(QuoteSourceKind::Manual, now.clone());
     sqlx::query(
         "UPDATE instruments SET quote_preference = ?, updated_at = ? WHERE id = ? AND household_id = ?",
     )
@@ -213,6 +220,16 @@ async fn append_manual_instrument_quote_in_tx(
     .execute(&mut **tx)
     .await
     .map_err(|error| map_write_error("instrument.preference_failed", error))?;
+    if previous_preference != QuoteSourceKind::Manual {
+        append_instrument_preference_observation(
+            tx,
+            &instrument.id().to_string(),
+            QuoteSourceKind::Manual.as_str(),
+            &now,
+        )
+        .await?;
+    }
+    activity_service::mark_dirty_for_household(tx, &household_id, quote.quoted_at()).await?;
     Ok(instrument_quote_dto(&quote))
 }
 
@@ -223,10 +240,17 @@ async fn set_instrument_quote_preference_in_tx(
     let household_id = require_household_id_tx(tx).await?;
     let mut instrument =
         instrument_service::load_instrument_domain(tx, &household_id, &input.instrument_id).await?;
-    instrument.set_quote_preference(
-        QuoteSourceKind::parse(&input.quote_preference)?,
-        Timestamp::now(),
-    );
+    let preference = QuoteSourceKind::parse(&input.quote_preference)?;
+    if instrument.quote_preference() == preference {
+        return instrument_service::load_instrument(
+            tx,
+            &household_id,
+            &instrument.id().to_string(),
+        )
+        .await;
+    }
+    let now = Timestamp::now();
+    instrument.set_quote_preference(preference, now.clone());
     sqlx::query(
         "UPDATE instruments SET quote_preference = ?, updated_at = ? WHERE id = ? AND household_id = ?",
     )
@@ -237,6 +261,14 @@ async fn set_instrument_quote_preference_in_tx(
     .execute(&mut **tx)
     .await
     .map_err(|error| map_write_error("instrument.preference_failed", error))?;
+    append_instrument_preference_observation(
+        tx,
+        &instrument.id().to_string(),
+        preference.as_str(),
+        &now,
+    )
+    .await?;
+    activity_service::mark_dirty_for_household(tx, &household_id, &now).await?;
     instrument_service::load_instrument(tx, &household_id, &instrument.id().to_string()).await
 }
 
@@ -264,14 +296,14 @@ async fn append_manual_fx_quote_in_tx(
         now.clone(),
     )?;
     insert_fx_quote(tx, &quote).await?;
-    upsert_fx_preference(
-        tx,
-        &household.id,
-        FxPair::new(quote.base_currency(), quote.quote_currency())?,
-        QuoteSourceKind::Manual,
-        &now,
-    )
-    .await?;
+    let pair = FxPair::new(quote.base_currency(), quote.quote_currency())?;
+    let previous = current_fx_preference(tx, &household.id, pair).await?;
+    upsert_fx_preference(tx, &household.id, pair, QuoteSourceKind::Manual, &now).await?;
+    if previous != Some(QuoteSourceKind::Manual) {
+        append_fx_preference_observation(tx, &household.id, pair, QuoteSourceKind::Manual, &now)
+            .await?;
+    }
+    activity_service::mark_dirty_for_household(tx, &household.id, quote.quoted_at()).await?;
     Ok(fx_quote_dto(&quote))
 }
 
@@ -285,7 +317,13 @@ async fn set_fx_quote_preference_in_tx(
         CurrencyCode::parse(&input.currency_b)?,
     )?;
     let preference = QuoteSourceKind::parse(&input.quote_preference)?;
-    upsert_fx_preference(tx, &household.id, pair, preference, &Timestamp::now()).await?;
+    let previous = current_fx_preference(tx, &household.id, pair).await?;
+    let now = Timestamp::now();
+    upsert_fx_preference(tx, &household.id, pair, preference, &now).await?;
+    if previous != Some(preference) {
+        append_fx_preference_observation(tx, &household.id, pair, preference, &now).await?;
+        activity_service::mark_dirty_for_household(tx, &household.id, &now).await?;
+    }
     load_fx_pair_status(tx, &household.id, pair).await
 }
 
@@ -361,6 +399,66 @@ pub(crate) async fn upsert_fx_preference(
     .await
     .map_err(|error| map_write_error("fx.preference_failed", error))?;
     Ok(())
+}
+
+async fn current_fx_preference(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    pair: FxPair,
+) -> Result<Option<QuoteSourceKind>, AppError> {
+    let source: Option<String> = sqlx::query_scalar(
+        "SELECT source_kind FROM fx_quote_preferences WHERE household_id = ? AND currency_a = ? AND currency_b = ?",
+    )
+    .bind(household_id)
+    .bind(pair.currency_a().as_str())
+    .bind(pair.currency_b().as_str())
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("fx.preference_load_failed", error))?;
+    source
+        .map(|value| QuoteSourceKind::parse(&value))
+        .transpose()
+}
+
+async fn append_instrument_preference_observation(
+    tx: &mut Transaction<'_, Sqlite>,
+    instrument_id: &str,
+    quote_preference: &str,
+    at: &Timestamp,
+) -> Result<(), AppError> {
+    insert_instrument_preference_observation(
+        tx,
+        &InstrumentPreferenceObservationRecord {
+            id: QuotePreferenceObservationId::new().to_string(),
+            instrument_id: instrument_id.to_owned(),
+            quote_preference: quote_preference.to_owned(),
+            effective_at: at.to_rfc3339(),
+            created_at: at.to_rfc3339(),
+        },
+    )
+    .await
+}
+
+async fn append_fx_preference_observation(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    pair: FxPair,
+    source_kind: QuoteSourceKind,
+    at: &Timestamp,
+) -> Result<(), AppError> {
+    insert_fx_preference_observation(
+        tx,
+        &FxPreferenceObservationRecord {
+            id: QuotePreferenceObservationId::new().to_string(),
+            household_id: household_id.to_owned(),
+            currency_a: pair.currency_a().as_str().to_owned(),
+            currency_b: pair.currency_b().as_str().to_owned(),
+            source_kind: source_kind.as_str().to_owned(),
+            effective_at: at.to_rfc3339(),
+            created_at: at.to_rfc3339(),
+        },
+    )
+    .await
 }
 
 async fn list_instrument_quotes_in_tx(
@@ -446,6 +544,102 @@ pub(crate) async fn list_latest_fx_quotes(
     .fetch_all(&mut **tx)
     .await
     .map_err(|error| map_read_error("fx_quote.latest_failed", error))?
+    .into_iter()
+    .map(fx_quote_from_row)
+    .collect()
+}
+
+pub(crate) async fn list_latest_instrument_quotes_at(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    cutoff_at: &str,
+) -> Result<Vec<InstrumentQuoteRecordDto>, AppError> {
+    sqlx::query(
+        "SELECT q.id, q.instrument_id, q.unit_price, q.quote_currency, q.source_kind, q.source_key, q.delayed, q.quoted_at, q.created_at
+         FROM (
+           SELECT id, instrument_id, unit_price, quote_currency, source_kind, source_key, delayed, quoted_at, created_at,
+                  ROW_NUMBER() OVER (PARTITION BY instrument_id, source_kind ORDER BY quoted_at DESC, created_at DESC, id DESC) AS rn
+           FROM instrument_quotes
+           WHERE quoted_at <= ?
+         ) q
+         JOIN instruments i ON i.id = q.instrument_id
+         WHERE i.household_id = ? AND q.rn = 1",
+    )
+    .bind(cutoff_at)
+    .bind(household_id)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("instrument_quote.historical_failed", error))?
+    .into_iter()
+    .map(instrument_quote_from_row)
+    .collect()
+}
+
+pub(crate) async fn list_latest_fx_quotes_at(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    cutoff_at: &str,
+) -> Result<Vec<FxQuoteRecordDto>, AppError> {
+    sqlx::query(
+        "SELECT id, household_id, base_currency, quote_currency, rate, source_kind, source_key, delayed, quoted_at, created_at
+         FROM (
+           SELECT id, household_id, base_currency, quote_currency, rate, source_kind, source_key, delayed, quoted_at, created_at,
+                  ROW_NUMBER() OVER (PARTITION BY household_id, base_currency, quote_currency, source_kind ORDER BY quoted_at DESC, created_at DESC, id DESC) AS rn
+           FROM fx_quotes
+           WHERE household_id = ? AND quoted_at <= ?
+         ) ranked
+         WHERE rn = 1",
+    )
+    .bind(household_id)
+    .bind(cutoff_at)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("fx_quote.historical_failed", error))?
+    .into_iter()
+    .map(fx_quote_from_row)
+    .collect()
+}
+
+#[cfg(test)]
+pub(crate) async fn list_instrument_quotes_at(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    cutoff_at: &str,
+) -> Result<Vec<InstrumentQuoteRecordDto>, AppError> {
+    sqlx::query(
+        "SELECT q.id, q.instrument_id, q.unit_price, q.quote_currency, q.source_kind, q.source_key, q.delayed, q.quoted_at, q.created_at
+         FROM instrument_quotes q
+         JOIN instruments i ON i.id = q.instrument_id
+         WHERE i.household_id = ? AND q.quoted_at <= ?
+         ORDER BY q.quoted_at DESC, q.created_at DESC, q.id DESC",
+    )
+    .bind(household_id)
+    .bind(cutoff_at)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("instrument_quote.cutoff_list_failed", error))?
+    .into_iter()
+    .map(instrument_quote_from_row)
+    .collect()
+}
+
+#[cfg(test)]
+pub(crate) async fn list_fx_quotes_at(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    cutoff_at: &str,
+) -> Result<Vec<FxQuoteRecordDto>, AppError> {
+    sqlx::query(
+        "SELECT id, household_id, base_currency, quote_currency, rate, source_kind, source_key, delayed, quoted_at, created_at
+         FROM fx_quotes
+         WHERE household_id = ? AND quoted_at <= ?
+         ORDER BY quoted_at DESC, created_at DESC, id DESC",
+    )
+    .bind(household_id)
+    .bind(cutoff_at)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("fx_quote.cutoff_list_failed", error))?
     .into_iter()
     .map(fx_quote_from_row)
     .collect()

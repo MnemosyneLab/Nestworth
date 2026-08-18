@@ -374,7 +374,7 @@ mod tests {
             },
         },
         error::AppError,
-        test_support::{blocked_future_state, cleanup, file_hash, onboarded_state},
+        test_support::{blocked_future_state, cleanup, onboarded_state, stable_sqlite_hash},
     };
 
     fn owner(member_id: &str, percent: &str) -> OwnershipShareInput {
@@ -1031,7 +1031,7 @@ mod tests {
                     supported: 3
                 }
             ));
-            assert_eq!(file_hash(&path), before_hash);
+            assert_eq!(stable_sqlite_hash(&path).await, before_hash);
             cleanup(&path);
         });
     }

@@ -11,10 +11,10 @@ use sqlx::{Row, Sqlite, Transaction};
 use super::{
     history_origin::ensure_activity_writes_allowed,
     history_repositories::{
-        get_activity, get_activity_by_corrects, get_activity_by_reverses, insert_activity,
-        insert_holding_quantity, list_all_activities_asc, list_origin_account_values,
-        list_origin_cash_values, list_origin_holdings, mark_snapshots_dirty_from,
-        HistoryOriginRecord, HoldingQuantityRecord,
+        get_activity, get_activity_by_corrects, get_activity_by_reverses, get_origin_by_household,
+        insert_activity, insert_holding_quantity, list_all_activities_asc,
+        list_origin_account_values, list_origin_cash_values, list_origin_holdings,
+        mark_snapshots_dirty_from, HistoryOriginRecord, HoldingQuantityRecord,
     },
     instrument_service,
     reference::{begin_write_tx, finish_write_tx, map_read_error, map_write_error},
@@ -195,7 +195,23 @@ pub async fn mark_dirty_at(
 ) -> Result<(), AppError> {
     let timezone = HistoryTimezone::parse(&origin.timezone)?;
     let local_date = timezone.local_date(at).to_ymd();
-    mark_snapshots_dirty_from(tx, &origin.household_id, &local_date, &at.to_rfc3339()).await
+    let dirty_from = if local_date.as_str() < origin.origin_local_date.as_str() {
+        origin.origin_local_date.clone()
+    } else {
+        local_date
+    };
+    mark_snapshots_dirty_from(tx, &origin.household_id, &dirty_from, &at.to_rfc3339()).await
+}
+
+pub async fn mark_dirty_for_household(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    at: &Timestamp,
+) -> Result<(), AppError> {
+    let Some(origin) = get_origin_by_household(tx, household_id).await? else {
+        return Ok(());
+    };
+    mark_dirty_at(tx, &origin, at).await
 }
 
 pub async fn post(

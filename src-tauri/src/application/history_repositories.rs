@@ -660,6 +660,33 @@ pub async fn list_all_activities_asc(
     Ok(activities)
 }
 
+pub async fn list_activities_at_or_before(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    cutoff_at: &str,
+) -> Result<Vec<Activity>, AppError> {
+    let rows = sqlx::query(
+        "SELECT id, household_id, kind, effective_at, effective_local_date, created_at, note,
+                reverses, corrects, correction_group, income_kind, fee_kind, related_instrument_id
+         FROM activities
+         WHERE household_id = ? AND effective_at <= ?
+         ORDER BY effective_at ASC, created_at ASC, id ASC",
+    )
+    .bind(household_id)
+    .bind(cutoff_at)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("history.activity_cutoff_list_failed", error))?;
+
+    let mut activities = Vec::with_capacity(rows.len());
+    for header in rows {
+        let id = required_text(&header, "id")?;
+        let legs = load_legs_for_activity(tx, &id).await?;
+        activities.push(activity_from_row(header, legs)?);
+    }
+    Ok(activities)
+}
+
 pub async fn list_activities_desc(
     tx: &mut Transaction<'_, Sqlite>,
     household_id: &str,
@@ -856,6 +883,39 @@ pub async fn latest_account_state_at(
     row.map(account_state_from_row).transpose()
 }
 
+pub async fn list_latest_account_states_at(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    cutoff_at: &str,
+) -> Result<Vec<AccountStateObservationRecord>, AppError> {
+    sqlx::query(
+        "SELECT s.id, s.account_id, s.primary_category, s.secondary_category, s.tracking_mode,
+                s.include_in_net_worth, s.include_in_investment, s.include_in_liquid_assets,
+                s.archived_at, s.institution_id, s.group_id, s.effective_at, s.created_at
+         FROM account_state_observations s
+         JOIN accounts a ON a.id = s.account_id
+         JOIN (
+            SELECT id,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY account_id
+                       ORDER BY effective_at DESC, created_at DESC, id DESC
+                   ) AS rn
+            FROM account_state_observations
+            WHERE effective_at <= ?
+         ) ranked ON ranked.id = s.id AND ranked.rn = 1
+         WHERE a.household_id = ?
+         ORDER BY s.account_id",
+    )
+    .bind(cutoff_at)
+    .bind(household_id)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("history.account_states_at_failed", error))?
+    .into_iter()
+    .map(account_state_from_row)
+    .collect()
+}
+
 pub async fn list_account_state_ownership(
     tx: &mut Transaction<'_, Sqlite>,
     observation_id: &str,
@@ -868,6 +928,33 @@ pub async fn list_account_state_ownership(
     .fetch_all(&mut **tx)
     .await
     .map_err(|error| map_read_error("history.account_state_ownership_load_failed", error))?
+    .into_iter()
+    .map(|row| {
+        Ok(AccountStateOwnershipRecord {
+            observation_id: required_text(&row, "observation_id")?,
+            member_id: required_text(&row, "member_id")?,
+            share_bps: required_i64(&row, "share_bps")?,
+        })
+    })
+    .collect()
+}
+
+pub async fn list_account_state_ownership_for_household(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+) -> Result<Vec<AccountStateOwnershipRecord>, AppError> {
+    sqlx::query(
+        "SELECT o.observation_id, o.member_id, o.share_bps
+         FROM account_state_ownership o
+         JOIN account_state_observations s ON s.id = o.observation_id
+         JOIN accounts a ON a.id = s.account_id
+         WHERE a.household_id = ?
+         ORDER BY o.observation_id, o.member_id",
+    )
+    .bind(household_id)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("history.account_state_ownership_household_failed", error))?
     .into_iter()
     .map(|row| {
         Ok(AccountStateOwnershipRecord {
@@ -929,6 +1016,47 @@ pub async fn latest_holding_state_at(
     .transpose()
 }
 
+pub async fn list_latest_holding_states_at(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    cutoff_at: &str,
+) -> Result<Vec<HoldingStateObservationRecord>, AppError> {
+    sqlx::query(
+        "SELECT s.id, s.holding_id, s.active, s.archived_at, s.effective_at, s.created_at
+         FROM holding_state_observations s
+         JOIN holdings h ON h.id = s.holding_id
+         JOIN accounts a ON a.id = h.account_id
+         JOIN (
+            SELECT id,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY holding_id
+                       ORDER BY effective_at DESC, created_at DESC, id DESC
+                   ) AS rn
+            FROM holding_state_observations
+            WHERE effective_at <= ?
+         ) ranked ON ranked.id = s.id AND ranked.rn = 1
+         WHERE a.household_id = ?
+         ORDER BY s.holding_id",
+    )
+    .bind(cutoff_at)
+    .bind(household_id)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("history.holding_states_at_failed", error))?
+    .into_iter()
+    .map(|row| {
+        Ok(HoldingStateObservationRecord {
+            id: required_text(&row, "id")?,
+            holding_id: required_text(&row, "holding_id")?,
+            active: flag(required_i64(&row, "active")?),
+            archived_at: optional_text(&row, "archived_at")?,
+            effective_at: required_text(&row, "effective_at")?,
+            created_at: required_text(&row, "created_at")?,
+        })
+    })
+    .collect()
+}
+
 pub async fn insert_instrument_preference_observation(
     tx: &mut Transaction<'_, Sqlite>,
     row: &InstrumentPreferenceObservationRecord,
@@ -975,6 +1103,45 @@ pub async fn latest_instrument_preference_at(
         })
     })
     .transpose()
+}
+
+pub async fn list_latest_instrument_preferences_at(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    cutoff_at: &str,
+) -> Result<Vec<InstrumentPreferenceObservationRecord>, AppError> {
+    sqlx::query(
+        "SELECT s.id, s.instrument_id, s.quote_preference, s.effective_at, s.created_at
+         FROM instrument_preference_observations s
+         JOIN instruments i ON i.id = s.instrument_id
+         JOIN (
+            SELECT id,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY instrument_id
+                       ORDER BY effective_at DESC, created_at DESC, id DESC
+                   ) AS rn
+            FROM instrument_preference_observations
+            WHERE effective_at <= ?
+         ) ranked ON ranked.id = s.id AND ranked.rn = 1
+         WHERE i.household_id = ?
+         ORDER BY s.instrument_id",
+    )
+    .bind(cutoff_at)
+    .bind(household_id)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("history.instrument_preferences_at_failed", error))?
+    .into_iter()
+    .map(|row| {
+        Ok(InstrumentPreferenceObservationRecord {
+            id: required_text(&row, "id")?,
+            instrument_id: required_text(&row, "instrument_id")?,
+            quote_preference: required_text(&row, "quote_preference")?,
+            effective_at: required_text(&row, "effective_at")?,
+            created_at: required_text(&row, "created_at")?,
+        })
+    })
+    .collect()
 }
 
 pub async fn insert_fx_preference_observation(
@@ -1032,6 +1199,45 @@ pub async fn latest_fx_preference_at(
         })
     })
     .transpose()
+}
+
+pub async fn list_latest_fx_preferences_at(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    cutoff_at: &str,
+) -> Result<Vec<FxPreferenceObservationRecord>, AppError> {
+    sqlx::query(
+        "SELECT s.id, s.household_id, s.currency_a, s.currency_b, s.source_kind, s.effective_at, s.created_at
+         FROM fx_preference_observations s
+         JOIN (
+            SELECT id,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY household_id, currency_a, currency_b
+                       ORDER BY effective_at DESC, created_at DESC, id DESC
+                   ) AS rn
+            FROM fx_preference_observations
+            WHERE household_id = ? AND effective_at <= ?
+         ) ranked ON ranked.id = s.id AND ranked.rn = 1
+         ORDER BY s.currency_a, s.currency_b",
+    )
+    .bind(household_id)
+    .bind(cutoff_at)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("history.fx_preferences_at_failed", error))?
+    .into_iter()
+    .map(|row| {
+        Ok(FxPreferenceObservationRecord {
+            id: required_text(&row, "id")?,
+            household_id: required_text(&row, "household_id")?,
+            currency_a: required_text(&row, "currency_a")?,
+            currency_b: required_text(&row, "currency_b")?,
+            source_kind: required_text(&row, "source_kind")?,
+            effective_at: required_text(&row, "effective_at")?,
+            created_at: required_text(&row, "created_at")?,
+        })
+    })
+    .collect()
 }
 
 pub async fn upsert_snapshot_state(

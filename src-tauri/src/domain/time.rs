@@ -103,6 +103,33 @@ impl HistoryTimezone {
     }
 }
 
+/// Exclusive UTC cutoff for a closed local calendar day in a History Origin timezone.
+///
+/// The returned timestamp is the first instant of the next local calendar day
+/// (next local midnight). Facts with `timestamp < cutoff` belong to `local_date`.
+/// Reconstruction at an arbitrary cutoff `T` still uses `timestamp <= T`.
+pub fn closed_day_cutoff(
+    timezone: HistoryTimezone,
+    local_date: CalendarDate,
+) -> Result<Timestamp, AppError> {
+    let next_date = local_date
+        .as_naive_date()
+        .succ_opt()
+        .ok_or_else(|| AppError::invalid_activity_time("The closed local date is out of range."))?;
+    let naive = next_date
+        .and_hms_opt(0, 0, 0)
+        .ok_or_else(|| AppError::invalid_activity_time("The next local midnight is invalid."))?;
+    match timezone.0.from_local_datetime(&naive) {
+        MappedLocalTime::None => Err(AppError::invalid_activity_time(
+            "The next local midnight does not exist because of a daylight-saving transition.",
+        )),
+        MappedLocalTime::Single(datetime) => Ok(Timestamp::from_utc(datetime.with_timezone(&Utc))),
+        MappedLocalTime::Ambiguous(earlier, _later) => {
+            Ok(Timestamp::from_utc(earlier.with_timezone(&Utc)))
+        }
+    }
+}
+
 /// Maps a host IANA name to a History Origin timezone.
 ///
 /// A missing, empty, or invalid name falls back to `UTC` with `confirmed = false`.
@@ -234,8 +261,9 @@ fn parse_local_clock_time(value: &str) -> Result<NaiveTime, AppError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        origin_timezone_from_iana_name, resolve_activity_time, resolve_local_datetime,
-        validate_activity_time, AmbiguousOffset, CalendarDate, HistoryTimezone, Timestamp,
+        closed_day_cutoff, origin_timezone_from_iana_name, resolve_activity_time,
+        resolve_local_datetime, validate_activity_time, AmbiguousOffset, CalendarDate,
+        HistoryTimezone, Timestamp,
     };
     use crate::error::AppError;
 
@@ -423,5 +451,28 @@ mod tests {
         assert!(matches!(error, AppError::InvalidActivityTime { .. }));
         resolve_activity_time(ny(), "2026-06-01", "08:00", None, &origin, &now)
             .expect("08:00 New York is 12:00 UTC");
+    }
+
+    #[test]
+    fn dst_spring_forward_closed_day_cutoff_is_exclusive_next_midnight_utc() {
+        let cutoff = closed_day_cutoff(ny(), CalendarDate::parse("2026-03-08").expect("date"))
+            .expect("spring-forward cutoff");
+        assert_eq!(cutoff.to_rfc3339(), "2026-03-09T04:00:00.000Z");
+        assert_eq!(ny().local_date(&cutoff).to_ymd(), "2026-03-09");
+    }
+
+    #[test]
+    fn dst_fall_back_closed_day_cutoff_is_exclusive_next_midnight_utc() {
+        let cutoff = closed_day_cutoff(ny(), CalendarDate::parse("2026-11-01").expect("date"))
+            .expect("fall-back cutoff");
+        assert_eq!(cutoff.to_rfc3339(), "2026-11-02T05:00:00.000Z");
+        assert_eq!(ny().local_date(&cutoff).to_ymd(), "2026-11-02");
+    }
+
+    #[test]
+    fn closed_day_cutoff_uses_standard_offset_outside_dst() {
+        let cutoff = closed_day_cutoff(ny(), CalendarDate::parse("2026-01-15").expect("date"))
+            .expect("winter cutoff");
+        assert_eq!(cutoff.to_rfc3339(), "2026-01-16T05:00:00.000Z");
     }
 }

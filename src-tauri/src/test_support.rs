@@ -33,6 +33,16 @@ pub fn file_hash(path: &Path) -> u64 {
     hasher.finish()
 }
 
+pub async fn stable_sqlite_hash(path: &Path) -> u64 {
+    if let Ok(pool) = connect_writable(path, false).await {
+        let _ = sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+            .execute(&pool)
+            .await;
+        pool.close().await;
+    }
+    file_hash(path)
+}
+
 pub fn valid_onboarding_input() -> CompleteOnboardingInput {
     CompleteOnboardingInput {
         household_name: "Wang Family".to_owned(),
@@ -83,7 +93,7 @@ pub async fn blocked_future_state(name: &str) -> (AppState, PathBuf, u64) {
     pool.close().await;
 
     let state = AppState::initialize(path.clone()).await;
-    let before_hash = file_hash(&path);
+    let before_hash = stable_sqlite_hash(&path).await;
     (state, path, before_hash)
 }
 

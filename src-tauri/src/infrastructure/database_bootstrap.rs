@@ -248,6 +248,16 @@ mod tests {
         hasher.finish()
     }
 
+    async fn stable_sqlite_hash(path: &Path) -> u64 {
+        if let Ok(pool) = connect_writable(path, false).await {
+            let _ = sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+                .execute(&pool)
+                .await;
+            pool.close().await;
+        }
+        file_hash(path)
+    }
+
     fn file_mtime(path: &Path) -> SystemTime {
         fs::metadata(path)
             .expect("database fixture metadata should exist")
@@ -404,14 +414,14 @@ mod tests {
                 .expect("unmigrated fixture database should open");
             pool.close().await;
 
-            let before_hash = file_hash(&path);
+            let before_hash = stable_sqlite_hash(&path).await;
             let snapshot = pre_migration_snapshot_path(&path, 0);
             fs::create_dir_all(&snapshot).expect("blocking snapshot directory should be created");
 
             let result = initialize_database(path.clone()).await;
             assert_eq!(result.status, DatabaseBootstrapStatus::MigrationFailed);
             assert!(result.pool.is_none());
-            assert_eq!(file_hash(&path), before_hash);
+            assert_eq!(stable_sqlite_hash(&path).await, before_hash);
             assert_eq!(
                 read_migration_version(&path)
                     .await
@@ -448,7 +458,7 @@ mod tests {
             pool.close().await;
 
             let before_rows = migration_rows(&path).await;
-            let before_hash = file_hash(&path);
+            let before_hash = stable_sqlite_hash(&path).await;
             let before_mtime = file_mtime(&path);
 
             let result = initialize_database(path.clone()).await;
@@ -461,7 +471,7 @@ mod tests {
                 }
             );
             assert!(result.pool.is_none());
-            assert_eq!(file_hash(&path), before_hash);
+            assert_eq!(stable_sqlite_hash(&path).await, before_hash);
             assert_eq!(file_mtime(&path), before_mtime);
             assert_eq!(migration_rows(&path).await, before_rows);
             let app_state = crate::state::AppState::initialize(path.clone()).await;
@@ -900,14 +910,15 @@ mod tests {
             }
             pool.close().await;
 
-            let before_hash = file_hash(&path);
+            let before_hash = stable_sqlite_hash(&path).await;
             let snapshot = pre_migration_snapshot_path(&path, 2);
             fs::create_dir_all(&snapshot).expect("blocking snapshot directory should be created");
 
             let result = initialize_database(path.clone()).await;
             assert_eq!(result.status, DatabaseBootstrapStatus::MigrationFailed);
             assert!(result.pool.is_none());
-            assert_eq!(file_hash(&path), before_hash);
+            let after_hash = stable_sqlite_hash(&path).await;
+            assert_eq!(after_hash, before_hash);
             assert_eq!(
                 read_migration_version(&path)
                     .await
@@ -936,7 +947,7 @@ mod tests {
             .expect("version 4 row should be inserted");
             pool.close().await;
 
-            let before_hash = file_hash(&path);
+            let before_hash = stable_sqlite_hash(&path).await;
             let before_mtime = file_mtime(&path);
             let before_rows = migration_rows(&path).await;
 
@@ -949,7 +960,7 @@ mod tests {
                 }
             );
             assert!(result.pool.is_none());
-            assert_eq!(file_hash(&path), before_hash);
+            assert_eq!(stable_sqlite_hash(&path).await, before_hash);
             assert_eq!(file_mtime(&path), before_mtime);
             assert_eq!(migration_rows(&path).await, before_rows);
 

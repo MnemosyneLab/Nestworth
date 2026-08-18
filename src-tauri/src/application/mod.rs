@@ -2,6 +2,7 @@ pub mod account_service;
 pub mod activity_service;
 pub mod cash_service;
 pub mod group_service;
+pub mod historical_valuation_service;
 pub mod history_origin;
 pub mod history_repositories;
 pub mod holding_service;

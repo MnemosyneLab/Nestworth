@@ -193,7 +193,9 @@ mod tests {
     use crate::{
         error::AppError,
         infrastructure::database_bootstrap::pre_migration_snapshot_path,
-        test_support::{blocked_future_state, cleanup, file_hash, initialize_state, test_path},
+        test_support::{
+            blocked_future_state, cleanup, initialize_state, stable_sqlite_hash, test_path,
+        },
     };
 
     #[test]
@@ -273,7 +275,7 @@ mod tests {
                 .await
                 .expect_err("blocked delete");
             assert!(matches!(error, AppError::UnsupportedNewerDatabase { .. }));
-            assert_eq!(file_hash(&path), before_hash);
+            assert_eq!(stable_sqlite_hash(&path).await, before_hash);
             cleanup(&path);
         });
     }

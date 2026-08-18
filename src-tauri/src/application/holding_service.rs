@@ -117,6 +117,36 @@ pub(crate) async fn list_active_holdings_for_household(
     .collect()
 }
 
+pub(crate) async fn list_holdings_for_household(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    include_archived: bool,
+) -> Result<Vec<HoldingRecordDto>, AppError> {
+    let sql = if include_archived {
+        "SELECT h.id, h.account_id, h.instrument_id, i.name AS instrument_name, i.symbol AS instrument_symbol, i.quote_currency, h.quantity, h.note, h.sort_order, h.created_at, h.updated_at, h.archived_at
+         FROM holdings h
+         JOIN instruments i ON i.id = h.instrument_id
+         JOIN accounts a ON a.id = h.account_id
+         WHERE a.household_id = ?
+         ORDER BY a.sort_order ASC, a.name COLLATE NOCASE ASC, a.id ASC, h.sort_order ASC, i.name COLLATE NOCASE ASC, h.id ASC"
+    } else {
+        "SELECT h.id, h.account_id, h.instrument_id, i.name AS instrument_name, i.symbol AS instrument_symbol, i.quote_currency, h.quantity, h.note, h.sort_order, h.created_at, h.updated_at, h.archived_at
+         FROM holdings h
+         JOIN instruments i ON i.id = h.instrument_id
+         JOIN accounts a ON a.id = h.account_id
+         WHERE a.household_id = ? AND h.archived_at IS NULL AND a.archived_at IS NULL
+         ORDER BY a.sort_order ASC, a.name COLLATE NOCASE ASC, a.id ASC, h.sort_order ASC, i.name COLLATE NOCASE ASC, h.id ASC"
+    };
+    sqlx::query(sql)
+        .bind(household_id)
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(|error| map_read_error("holding.household_list_failed", error))?
+        .into_iter()
+        .map(holding_from_row)
+        .collect()
+}
+
 fn list_sql(include_archived: bool) -> &'static str {
     if include_archived {
         "SELECT h.id, h.account_id, h.instrument_id, i.name AS instrument_name, i.symbol AS instrument_symbol, i.quote_currency, h.quantity, h.note, h.sort_order, h.created_at, h.updated_at, h.archived_at
@@ -223,8 +253,8 @@ async fn create_holding_in_tx(
     .execute(&mut **tx)
     .await
     .map_err(|error| map_unique_or_write("holding.create_failed", error, AppError::DuplicateHolding))?;
-    let now = holding.created_at().clone();
     if holding.quantity().is_zero() {
+        let now = holding.created_at().clone();
         insert_holding_quantity(
             tx,
             &HoldingQuantityRecord {
@@ -250,6 +280,7 @@ async fn create_holding_in_tx(
         )
         .await?;
     }
+    let now = Timestamp::now();
     insert_holding_state_observation(
         tx,
         &HoldingStateObservationRecord {
@@ -338,6 +369,19 @@ async fn mutate_archive_in_tx(
                 map_unique_or_write("holding.restore_failed", error, AppError::DuplicateHolding)
             })?;
     }
+    insert_holding_state_observation(
+        tx,
+        &HoldingStateObservationRecord {
+            id: HoldingStateObservationId::new().to_string(),
+            holding_id: holding.id().to_string(),
+            active: !archive,
+            archived_at: holding.archived_at().map(Timestamp::to_rfc3339),
+            effective_at: holding.updated_at().to_rfc3339(),
+            created_at: holding.updated_at().to_rfc3339(),
+        },
+    )
+    .await?;
+    activity_service::mark_dirty_for_household(tx, &household_id, holding.updated_at()).await?;
     load_holding(tx, &household_id, &holding.id().to_string()).await
 }
 

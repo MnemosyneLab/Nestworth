@@ -370,7 +370,9 @@ mod tests {
             member_service::list_members,
         },
         error::{AppError, ErrorCode},
-        test_support::{blocked_future_state, cleanup, file_hash, onboarded_state, UNKNOWN_UUID},
+        test_support::{
+            blocked_future_state, cleanup, onboarded_state, stable_sqlite_hash, UNKNOWN_UUID,
+        },
     };
     use image::{DynamicImage, ImageBuffer, ImageFormat, Rgba};
     use std::path::{Path, PathBuf};
@@ -625,7 +627,7 @@ mod tests {
             .await
             .expect_err("blocked get");
             assert!(matches!(error, AppError::UnsupportedNewerDatabase { .. }));
-            assert_eq!(file_hash(&path), before_hash);
+            assert_eq!(stable_sqlite_hash(&path).await, before_hash);
             let _ = std::fs::remove_file(&image_path);
             cleanup(&path);
         });

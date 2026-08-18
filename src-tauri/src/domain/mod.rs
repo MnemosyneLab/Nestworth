@@ -63,9 +63,9 @@ pub use reference_catalog::{
     COUNTRIES, CURRENCIES, GROUP_COLORS, GROUP_ICONS, INSTITUTION_TYPES, LANGUAGES,
 };
 pub use time::{
-    origin_timezone_from_iana_name, resolve_activity_time, resolve_host_origin_timezone,
-    resolve_local_datetime, validate_activity_time, AmbiguousOffset, CalendarDate, HistoryTimezone,
-    Timestamp,
+    closed_day_cutoff, origin_timezone_from_iana_name, resolve_activity_time,
+    resolve_host_origin_timezone, resolve_local_datetime, validate_activity_time, AmbiguousOffset,
+    CalendarDate, HistoryTimezone, Timestamp,
 };
 pub use unit_price::UnitPrice;
 pub use valuation::{

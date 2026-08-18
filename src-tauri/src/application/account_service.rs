@@ -142,6 +142,21 @@ pub(crate) async fn list_accounts_in_tx(
     household_id: &str,
     include_archived: bool,
 ) -> Result<Vec<AccountRecordDto>, AppError> {
+    let mut accounts = list_account_records_in_tx(tx, household_id, include_archived).await?;
+    if accounts.is_empty() {
+        return Ok(accounts);
+    }
+    let household = require_household_tx(tx).await?;
+    let snapshot = ValuationSnapshot::load(tx, &household.id, &household.base_currency).await?;
+    valuation_service::enrich_accounts(&snapshot, &mut accounts, &Timestamp::now())?;
+    Ok(accounts)
+}
+
+pub(crate) async fn list_account_records_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    include_archived: bool,
+) -> Result<Vec<AccountRecordDto>, AppError> {
     let rows = sqlx::query(list_accounts_sql(include_archived))
         .bind(household_id)
         .fetch_all(&mut **tx)
@@ -170,9 +185,6 @@ pub(crate) async fn list_accounts_in_tx(
             accounts[index].owners.push(owner_from_row(row)?);
         }
     }
-    let household = require_household_tx(tx).await?;
-    let snapshot = ValuationSnapshot::load(tx, &household.id, &household.base_currency).await?;
-    valuation_service::enrich_accounts(&snapshot, &mut accounts, &Timestamp::now())?;
     Ok(accounts)
 }
 
@@ -319,7 +331,6 @@ async fn create_account_in_tx(
     let account = Account::new(new_account, Timestamp::now())?;
     insert_account(tx, &household.id, &account).await?;
     replace_ownership(tx, &account.id().to_string(), &ownership).await?;
-    let now = Timestamp::now();
     match account.tracking_mode() {
         TrackingMode::Holdings => {
             if input.initial_amount.is_some() {
@@ -339,7 +350,7 @@ async fn create_account_in_tx(
                     account.id(),
                     account.tracking_mode(),
                     money,
-                    now.clone(),
+                    Timestamp::now(),
                 )?;
                 insert_value(tx, &value, None).await?;
             } else {
@@ -355,6 +366,7 @@ async fn create_account_in_tx(
             }
         }
     }
+    let now = Timestamp::now();
     insert_created_account_observations(tx, &account, &ownership, &now).await?;
     activity_service::mark_dirty_at(tx, &origin, &now).await?;
     tracing::info!(event = "account.create", account_id = %account.id(), "account created");
@@ -375,6 +387,7 @@ async fn update_account_in_tx(
         .collect();
     let retained_institution = current.institution_id.clone();
     let retained_group = current.group_id.clone();
+    let previous = current.clone();
     let mut account = account_from_dto(&household.id, current)?;
     let update = new_account_from_input(
         &household.id,
@@ -410,6 +423,8 @@ async fn update_account_in_tx(
     )
     .await?;
     account.update(update, Timestamp::now())?;
+    let now = account.updated_at().clone();
+    let state_changed = valuation_relevant_account_change(&previous, &account, &ownership);
     let updated = sqlx::query(
         "UPDATE accounts
          SET name = ?, primary_category = ?, secondary_category = ?, tracking_mode = ?, institution_id = ?, group_id = ?, note = ?, include_in_net_worth = ?, include_in_investment = ?, include_in_liquid_assets = ?, opened_on = ?, closed_on = ?, updated_at = ?
@@ -437,6 +452,10 @@ async fn update_account_in_tx(
         return Err(AppError::not_found("account", &account.id().to_string()));
     }
     replace_ownership(tx, &account.id().to_string(), &ownership).await?;
+    if state_changed {
+        insert_created_account_observations(tx, &account, &ownership, &now).await?;
+        activity_service::mark_dirty_for_household(tx, &household.id, &now).await?;
+    }
     load_account_detail(tx, &household.id, &account.id().to_string()).await
 }
 
@@ -491,6 +510,7 @@ async fn mutate_archive_in_tx(
     if !archive && current.archived_at.is_none() {
         return Ok(current);
     }
+    let owners = current.owners.clone();
     let mut account = account_from_dto(&household.id, current)?;
     if archive {
         account.archive(Timestamp::now());
@@ -530,6 +550,9 @@ async fn mutate_archive_in_tx(
             return Err(AppError::not_found("account", &account.id().to_string()));
         }
     }
+    let ownership = ownership_from_owners(&owners)?;
+    insert_created_account_observations(tx, &account, &ownership, account.updated_at()).await?;
+    activity_service::mark_dirty_for_household(tx, &household.id, account.updated_at()).await?;
     load_account_detail(tx, &household.id, &account.id().to_string()).await
 }
 
@@ -775,6 +798,47 @@ pub(crate) async fn insert_value(
     .await
     .map_err(|error| map_write_error("account.value_insert_failed", error))?;
     Ok(())
+}
+
+fn valuation_relevant_account_change(
+    current: &AccountRecordDto,
+    account: &Account,
+    ownership: &Ownership,
+) -> bool {
+    current.primary_category != account.primary_category().as_str()
+        || current.secondary_category != account.secondary_category().as_str()
+        || current.tracking_mode != account.tracking_mode().as_str()
+        || current.include_in_net_worth != account.include_in_net_worth()
+        || current.include_in_investment != account.include_in_investment()
+        || current.include_in_liquid_assets != account.include_in_liquid_assets()
+        || current.institution_id != account.institution_id().map(|id| id.to_string())
+        || current.group_id != account.group_id().map(|id| id.to_string())
+        || ownership_changed(current, ownership)
+}
+
+fn ownership_changed(current: &AccountRecordDto, ownership: &Ownership) -> bool {
+    let mut current_shares: Vec<(String, i32)> = current
+        .owners
+        .iter()
+        .map(|owner| (owner.member_id.clone(), owner.share_bps))
+        .collect();
+    let mut next_shares: Vec<(String, i32)> = ownership
+        .shares()
+        .iter()
+        .map(|share| (share.member_id().to_string(), share.share_bps()))
+        .collect();
+    current_shares.sort();
+    next_shares.sort();
+    current_shares != next_shares
+}
+
+fn ownership_from_owners(owners: &[AccountOwnerDto]) -> Result<Ownership, AppError> {
+    Ownership::parse(
+        owners
+            .iter()
+            .map(|owner| OwnershipShare::new(MemberId::parse(&owner.member_id)?, owner.share_bps))
+            .collect::<Result<Vec<_>, _>>()?,
+    )
 }
 
 async fn insert_created_account_observations(
@@ -1086,7 +1150,9 @@ mod tests {
             member_service::{archive_member, list_members},
         },
         error::AppError,
-        test_support::{blocked_future_state, cleanup, file_hash, onboarded_state, UNKNOWN_UUID},
+        test_support::{
+            blocked_future_state, cleanup, onboarded_state, stable_sqlite_hash, UNKNOWN_UUID,
+        },
     };
 
     fn owner(member_id: &str, percent: &str) -> OwnershipShareInput {
@@ -1379,7 +1445,7 @@ mod tests {
                     }
                 ));
             }
-            assert_eq!(file_hash(&path), before_hash);
+            assert_eq!(stable_sqlite_hash(&path).await, before_hash);
             cleanup(&path);
         });
     }
