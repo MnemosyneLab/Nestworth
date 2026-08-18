@@ -24,6 +24,10 @@ describe("startup routing", () => {
     expect(
       await screen.findByRole("heading", { name: "Set up your household" }),
     ).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Nestworth" })).toHaveAttribute(
+      "src",
+      "/brand/wordmark.png",
+    );
   });
 
   it("sends an existing household into overview", async () => {
@@ -32,6 +36,10 @@ describe("startup routing", () => {
     expect(
       await screen.findByRole("heading", { name: "Wang Family" }),
     ).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Nestworth" })).toHaveAttribute(
+      "src",
+      "/brand/wordmark.png",
+    );
     expect(
       await screen.findByText("Your household balance sheet is empty."),
     ).toBeInTheDocument();
@@ -45,6 +53,10 @@ describe("startup routing", () => {
         name: "Nestworth cannot open this database",
       }),
     ).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Nestworth" })).toHaveAttribute(
+      "src",
+      "/brand/wordmark.png",
+    );
     expect(
       screen.getByText("This database is at migration 999, but this app supports 1."),
     ).toBeInTheDocument();

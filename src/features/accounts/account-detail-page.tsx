@@ -226,7 +226,7 @@ function UpdateValueForm({
 
   return (
     <form
-      className="space-y-4 rounded-xl border border-muted bg-card px-4 py-4 shadow-sm"
+      className="space-y-4 rounded-xl border border-border bg-card px-4 py-4 shadow-sm"
       noValidate
       onSubmit={form.handleSubmit((values) => {
         const parsed = updateValueSchema.safeParse(values);
@@ -298,7 +298,7 @@ function HoldingsPanel({
   });
 
   return (
-    <section className="space-y-3 rounded-xl border border-muted bg-card px-4 py-4 shadow-sm">
+    <section className="space-y-3 rounded-xl border border-border bg-card px-4 py-4 shadow-sm">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-lg font-medium">{t("accounts.holdings")}</h2>
         <GhostButton onClick={() => setAdding((value) => !value)} type="button">
@@ -416,7 +416,7 @@ function HoldingForm({
           {t("accounts.instrument")}
         </label>
         <select
-          className="h-10 w-full rounded-lg border border-muted bg-card px-3 text-sm"
+          className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm"
           id={`${formId}-instrument`}
           {...form.register("instrumentId")}
         >
@@ -468,7 +468,7 @@ function CashPanel({
   }
 
   return (
-    <section className="space-y-3 rounded-xl border border-muted bg-card px-4 py-4 shadow-sm">
+    <section className="space-y-3 rounded-xl border border-border bg-card px-4 py-4 shadow-sm">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-lg font-medium">{t("accounts.cash")}</h2>
         <GhostButton onClick={() => setAdding((value) => !value)} type="button">

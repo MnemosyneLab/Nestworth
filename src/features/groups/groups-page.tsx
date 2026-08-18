@@ -261,7 +261,7 @@ function GroupEditor({
 
   return (
     <form
-      className="space-y-4 rounded-xl border border-muted bg-card px-4 py-4 shadow-sm"
+      className="space-y-4 rounded-xl border border-border bg-card px-4 py-4 shadow-sm"
       noValidate
       onSubmit={form.handleSubmit((values) => {
         const parsed = groupSchema.safeParse(values);
@@ -308,7 +308,7 @@ function GroupEditor({
                 aria-pressed={iconKey === key}
                 className={cn(
                   "flex h-10 w-10 items-center justify-center rounded-lg border",
-                  iconKey === key ? "border-ring bg-muted" : "border-muted bg-card",
+                  iconKey === key ? "border-ring bg-surface-soft" : "border-border bg-card",
                 )}
                 key={key}
                 onClick={() => form.setValue("iconKey", iconKey === key ? "" : key)}

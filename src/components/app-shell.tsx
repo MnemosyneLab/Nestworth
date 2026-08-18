@@ -8,6 +8,7 @@ import {
   validateAccountSearch,
   type AccountSearch,
 } from "@/features/accounts/search";
+import { Brand } from "@/components/brand";
 import { useBootstrapQuery } from "@/lib/tauri/bootstrap";
 import { cn } from "@/lib/utils";
 
@@ -35,11 +36,9 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="flex min-h-screen">
       <nav
         aria-label={t("nav.label")}
-        className="flex w-56 shrink-0 flex-col gap-1 border-r border-muted bg-card px-3 py-6"
+        className="flex w-56 shrink-0 flex-col gap-1 border-r border-border bg-card px-3 py-6"
       >
-        <p className="mb-4 px-3 text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">
-          Nestworth
-        </p>
+        <Brand className="mb-5 px-3" size="sm" />
         <NavLink active={pathname === "/overview"} to="/overview">
           {t("nav.overview")}
         </NavLink>
@@ -130,8 +129,8 @@ function NavLink({
       className={cn(
         "rounded-lg px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         active
-          ? "bg-muted font-medium text-foreground"
-          : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+          ? "bg-accent font-medium text-accent-foreground"
+          : "text-muted-foreground hover:bg-surface-soft hover:text-foreground",
       )}
       search={search}
       to={to}

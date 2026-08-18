@@ -3,32 +3,63 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --background: #f7f7f8;
-  --foreground: #202124;
+  --brand-blue: #2d9cff;
+  --brand-teal: #44c7c7;
+  --brand-mint: #8ed9b6;
+  --brand-gold: #f4c75b;
+  --brand-gradient: linear-gradient(90deg, var(--brand-blue), var(--brand-teal));
+  --background: #f3f7fb;
+  --foreground: #1f2a37;
   --card: #ffffff;
-  --card-foreground: #202124;
-  --primary: #30343b;
-  --primary-foreground: #ffffff;
-  --muted: #ececef;
-  --muted-foreground: #6b6f76;
-  --ring: #777d87;
-  --destructive: #b42318;
+  --card-foreground: #1f2a37;
+  --primary: #2d9cff;
+  --primary-foreground: #1f2a37;
+  --surface-soft: #f7fafd;
+  --muted: var(--surface-soft);
+  --muted-foreground: #607084;
+  --tertiary: #94a3b8;
+  --border: #e7edf4;
+  --accent: #eaf5ff;
+  --accent-foreground: #1f2a37;
+  --ring: #2d9cff;
+  --destructive: #b33b37;
+  --destructive-foreground: #111827;
+  --destructive-fill: #e65f5c;
+  --destructive-fill-foreground: #111827;
+  --success: #2dbe7f;
+  --warning: #f5b942;
+  --info: #4aa3ff;
 }
 
 .dark {
-  --background: #18191b;
-  --foreground: #f4f4f5;
-  --card: #232528;
-  --card-foreground: #f4f4f5;
-  --primary: #f4f4f5;
-  --primary-foreground: #232528;
-  --muted: #2b2e32;
-  --muted-foreground: #a4a8b0;
-  --ring: #b8bec8;
-  --destructive: #f97066;
+  --background: #101b2a;
+  --foreground: #f3f7fb;
+  --card: #17283a;
+  --card-foreground: #f3f7fb;
+  --primary: #62c1ff;
+  --primary-foreground: #102033;
+  --surface-soft: #22364a;
+  --muted: var(--surface-soft);
+  --muted-foreground: #b8c7d6;
+  --tertiary: #8fa5ba;
+  --border: #30465b;
+  --accent: #1d3a52;
+  --accent-foreground: #f3f7fb;
+  --ring: #62c1ff;
+  --destructive: #ff847e;
+  --destructive-foreground: #111827;
+  --destructive-fill: #e65f5c;
+  --destructive-fill-foreground: #111827;
+  --success: #2dbe7f;
+  --warning: #f5b942;
+  --info: #4aa3ff;
 }
 
 @theme inline {
+  --color-brand-blue: var(--brand-blue);
+  --color-brand-teal: var(--brand-teal);
+  --color-brand-mint: var(--brand-mint);
+  --color-brand-gold: var(--brand-gold);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -36,14 +67,25 @@
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-muted: var(--muted);
+  --color-surface-soft: var(--surface-soft);
   --color-muted-foreground: var(--muted-foreground);
+  --color-tertiary: var(--tertiary);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
   --color-ring: var(--ring);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive-fill: var(--destructive-fill);
+  --color-destructive-fill-foreground: var(--destructive-fill-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
 }
 
 @layer base {
   * {
-    border-color: var(--muted);
+    border-color: var(--border);
   }
 
   html {

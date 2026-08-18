@@ -217,7 +217,7 @@ function InstitutionEditor({
 
   return (
     <form
-      className="space-y-4 rounded-xl border border-muted bg-card px-4 py-4 shadow-sm"
+      className="space-y-4 rounded-xl border border-border bg-card px-4 py-4 shadow-sm"
       noValidate
       onSubmit={form.handleSubmit((values) => {
         const parsed = institutionSchema.safeParse({

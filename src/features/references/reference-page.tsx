@@ -83,7 +83,7 @@ export function RecordCard({
   return (
     <article
       className={cn(
-        "rounded-xl border border-muted bg-card px-4 py-4 shadow-sm",
+        "rounded-xl border border-border bg-card px-4 py-4 shadow-sm",
         archived && "opacity-70",
       )}
     >

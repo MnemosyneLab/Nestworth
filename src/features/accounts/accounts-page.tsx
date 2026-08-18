@@ -133,7 +133,7 @@ export function AccountsPage() {
             name={account.name}
           >
             <Link
-              className="inline-flex h-9 items-center rounded-lg px-3 text-sm hover:bg-muted"
+              className="inline-flex h-9 items-center rounded-lg px-3 text-sm hover:bg-surface-soft"
               params={{ accountId: account.id }}
               search={(prev) => prev}
               to="/accounts/$accountId"
@@ -253,7 +253,7 @@ function NativeSelect({ className, ...props }: ComponentPropsWithoutRef<"select"
     <select
       {...props}
       className={cn(
-        "h-10 w-full rounded-lg border border-muted bg-card px-3 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
+        "h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
         className,
       )}
     />

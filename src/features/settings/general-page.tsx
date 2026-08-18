@@ -118,7 +118,7 @@ export function SettingsGeneralPage() {
             </label>
             <section
               aria-labelledby="delete-all-data-title"
-              className="space-y-3 border-t border-muted pt-6"
+              className="space-y-3 border-t border-border pt-6"
             >
               <div className="space-y-1">
                 <h2 className="text-lg font-medium" id="delete-all-data-title">
@@ -190,7 +190,7 @@ function NativeSelect({ className, ...props }: ComponentPropsWithoutRef<"select"
     <select
       {...props}
       className={cn(
-        "h-10 w-full rounded-lg border border-muted bg-card px-3 text-sm font-normal text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+        "h-10 w-full rounded-lg border border-border bg-card px-3 text-sm font-normal text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
         className,
       )}
     />

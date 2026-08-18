@@ -80,7 +80,7 @@ function OverviewBody({ overview }: { overview: OverviewDto }) {
         </p>
       )}
       <UnvaluedList items={overview.unvaluedItems} />
-      <section className="rounded-2xl border border-muted bg-card px-6 py-6 shadow-sm">
+      <section className="rounded-2xl border border-border bg-card px-6 py-6 shadow-sm">
         <p className="text-sm font-medium uppercase tracking-[0.2em] text-muted-foreground">
           {t("overview.netWorth")}
         </p>
@@ -162,7 +162,7 @@ function BreakdownList({
                 aria-valuemax={10_000}
                 aria-valuemin={0}
                 aria-valuenow={share}
-                className="mt-2 h-2 overflow-hidden rounded-full bg-muted"
+                className="mt-2 h-2 overflow-hidden rounded-full bg-surface-soft"
                 role="meter"
               >
                 <div

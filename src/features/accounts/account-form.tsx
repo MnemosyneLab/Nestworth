@@ -148,7 +148,7 @@ export function AccountForm({
 
   return (
     <form
-      className="space-y-4 rounded-xl border border-muted bg-card px-4 py-4 shadow-sm"
+      className="space-y-4 rounded-xl border border-border bg-card px-4 py-4 shadow-sm"
       noValidate
       onSubmit={form.handleSubmit((values) => {
         const parsed = (account ? accountSchema : createAccountSchema).safeParse(
@@ -412,7 +412,7 @@ function NativeSelect({ className, ...props }: ComponentPropsWithoutRef<"select"
     <select
       {...props}
       className={cn(
-        "h-10 w-full rounded-lg border border-muted bg-card px-3 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
+        "h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
         className,
       )}
     />

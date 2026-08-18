@@ -92,7 +92,7 @@ function FxPairCard({ pair }: { pair: FxPairStatusDto }) {
   });
 
   return (
-    <article className="space-y-3 rounded-xl border border-muted bg-card px-4 py-4">
+    <article className="space-y-3 rounded-xl border border-border bg-card px-4 py-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h3 className="font-medium">
           {t("fx.equation", {
@@ -188,7 +188,7 @@ function PortfolioBody({ portfolio }: { portfolio: PortfolioDto }) {
   const coverage = `${basisPointsToPercent(clampShareBps(portfolio.coverageBps))}%`;
   return (
     <div className="mt-10 space-y-10">
-      <section className="rounded-2xl border border-muted bg-card px-6 py-6 shadow-sm">
+      <section className="rounded-2xl border border-border bg-card px-6 py-6 shadow-sm">
         <p className="text-sm font-medium uppercase tracking-[0.2em] text-muted-foreground">
           {t("investments.total")}
         </p>
@@ -240,7 +240,7 @@ function PositionList({ portfolio }: { portfolio: PortfolioDto }) {
       <ul className="mt-4 space-y-3">
         {portfolio.positions.map((position) => (
           <li
-            className="rounded-xl border border-muted bg-card px-4 py-3"
+            className="rounded-xl border border-border bg-card px-4 py-3"
             key={position.holdingId}
           >
             <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -262,7 +262,7 @@ function PositionList({ portfolio }: { portfolio: PortfolioDto }) {
         ))}
         {portfolio.cash.map((cash) => (
           <li
-            className="rounded-xl border border-muted bg-card px-4 py-3"
+            className="rounded-xl border border-border bg-card px-4 py-3"
             key={cash.currency}
           >
             <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -312,7 +312,7 @@ function AllocationList({
                 aria-valuemax={10_000}
                 aria-valuemin={0}
                 aria-valuenow={share}
-                className="mt-2 h-2 overflow-hidden rounded-full bg-muted"
+                className="mt-2 h-2 overflow-hidden rounded-full bg-surface-soft"
                 role="meter"
               >
                 <div

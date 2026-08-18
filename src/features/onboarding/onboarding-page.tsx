@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { useFieldArray, useForm, type Path } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 
+import { Brand } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -140,6 +141,7 @@ export function OnboardingPage() {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-xl flex-col justify-center px-8 py-16">
+      <Brand className="mb-8" size="lg" />
       <p className="mb-3 text-sm font-medium uppercase tracking-[0.2em] text-muted-foreground">
         {t("onboarding.eyebrow")}
       </p>
@@ -196,8 +198,8 @@ export function OnboardingPage() {
                   className={cn(
                     "flex h-10 items-center gap-3 rounded-lg border px-3 text-sm",
                     selectedCurrency === code
-                      ? "border-ring bg-muted/60"
-                      : "border-muted bg-card",
+                      ? "border-ring bg-surface-soft/60"
+                      : "border-border bg-card",
                   )}
                   key={code}
                 >
@@ -216,7 +218,9 @@ export function OnboardingPage() {
               <label
                 className={cn(
                   "flex h-10 items-center gap-3 rounded-lg border px-3 text-sm",
-                  isCustomCurrency ? "border-ring bg-muted/60" : "border-muted bg-card",
+                  isCustomCurrency
+                    ? "border-ring bg-surface-soft/60"
+                    : "border-border bg-card",
                 )}
               >
                 <input
