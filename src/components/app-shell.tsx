@@ -38,7 +38,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         aria-label={t("nav.label")}
         className="flex w-56 shrink-0 flex-col gap-1 border-r border-border bg-card px-3 py-6"
       >
-        <Brand className="mb-5 px-3" size="sm" />
+        <Brand className="mb-5 px-3" size="md" />
         <NavLink active={pathname === "/overview"} to="/overview">
           {t("nav.overview")}
         </NavLink>

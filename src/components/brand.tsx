@@ -22,6 +22,12 @@ const WORDMARK_SIZES: Record<BrandSize, string> = {
   lg: "h-10 w-auto",
 };
 
+const WORDMARK_DIMENSIONS: Record<BrandSize, { height: number; width: number }> = {
+  sm: { height: 20, width: 100 },
+  md: { height: 28, width: 140 },
+  lg: { height: 40, width: 200 },
+};
+
 export function Brand({
   className,
   size = "md",
@@ -46,18 +52,21 @@ export function Brand({
   }
 
   if (variant === "wordmark") {
+    const wordmarkDimensions = WORDMARK_DIMENSIONS[size];
     return (
       <span {...props} className={cn("inline-flex shrink-0", className)}>
         <img
           alt="Nestworth"
           className={cn("object-contain", WORDMARK_SIZES[size])}
-          height={size === "sm" ? 20 : size === "md" ? 28 : 40}
+          height={wordmarkDimensions.height}
           src={BRAND_ASSETS.wordmark}
-          width={size === "sm" ? 60 : size === "md" ? 84 : 120}
+          width={wordmarkDimensions.width}
         />
       </span>
     );
   }
+
+  const wordmarkDimensions = WORDMARK_DIMENSIONS[size];
 
   return (
     <span {...props} className={cn("inline-flex items-center gap-2", className)}>
@@ -72,9 +81,9 @@ export function Brand({
       <img
         alt="Nestworth"
         className={cn("object-contain", WORDMARK_SIZES[size])}
-        height={size === "sm" ? 20 : size === "md" ? 28 : 40}
+        height={wordmarkDimensions.height}
         src={BRAND_ASSETS.wordmark}
-        width={size === "sm" ? 60 : size === "md" ? 84 : 120}
+        width={wordmarkDimensions.width}
       />
     </span>
   );
