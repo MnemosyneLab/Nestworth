@@ -1,0 +1,71 @@
+import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { InstrumentRecordDto } from "@/generated/tauri-bindings";
+import { commands } from "@/generated/tauri-bindings";
+import { renderReadyApp, resetApp } from "@/test/app-harness";
+
+describe("instruments page", () => {
+  beforeEach(async () => {
+    await resetApp();
+  });
+
+  it("creates an instrument from the instruments page", async () => {
+    const user = userEvent.setup();
+    const instruments: InstrumentRecordDto[] = [];
+    vi.mocked(commands.listInstruments).mockImplementation(async (input) => ({
+      status: "ok",
+      data: input.includeArchived
+        ? [...instruments]
+        : instruments.filter((item) => item.archivedAt === null),
+    }));
+    vi.mocked(commands.createInstrument).mockImplementation(async (input) => {
+      const created: InstrumentRecordDto = {
+        id: "ins-1",
+        name: input.name,
+        symbol: input.symbol,
+        instrumentType: input.instrumentType,
+        quoteCurrency: input.quoteCurrency,
+        marketCode: input.marketCode,
+        countryCode: input.countryCode,
+        isin: input.isin,
+        providerKey: input.providerKey,
+        providerSymbol: input.providerSymbol,
+        quotePreference: input.quotePreference ?? "manual",
+        note: input.note,
+        logoAssetId: null,
+        sortOrder: 0,
+        createdAt: "2026-08-17T00:00:00.000Z",
+        updatedAt: "2026-08-17T00:00:00.000Z",
+        archivedAt: null,
+      };
+      instruments.push(created);
+      return { status: "ok", data: created };
+    });
+    await renderReadyApp();
+    await user.click(await screen.findByRole("link", { name: "Instruments" }));
+    expect(
+      await screen.findByText("Add an instrument to record holdings."),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Add instrument" }));
+    expect(screen.getByLabelText("Name")).toHaveFocus();
+    await user.type(screen.getByLabelText("Name"), "QQQ");
+    await user.type(screen.getByLabelText("Symbol"), "QQQ");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByRole("heading", { name: "QQQ" })).toBeInTheDocument();
+    expect(commands.createInstrument).toHaveBeenCalledWith({
+      name: "QQQ",
+      symbol: "QQQ",
+      instrumentType: "etf",
+      quoteCurrency: "USD",
+      marketCode: null,
+      countryCode: null,
+      isin: null,
+      providerKey: null,
+      providerSymbol: null,
+      quotePreference: "manual",
+      note: null,
+    });
+  });
+});

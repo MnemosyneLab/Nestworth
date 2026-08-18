@@ -453,7 +453,7 @@ mod tests {
                 state.bootstrap_status(),
                 DatabaseBootstrapStatus::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 1
+                    supported: 2
                 }
             ));
 
@@ -464,7 +464,7 @@ mod tests {
                 error,
                 AppError::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 1
+                    supported: 2
                 }
             ));
             assert_eq!(file_hash(&path), before_hash);

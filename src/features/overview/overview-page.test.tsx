@@ -78,6 +78,8 @@ describe("overview page", () => {
           },
         ],
         byGroup: [],
+        isComplete: true,
+        unvaluedItems: [],
       },
     });
     await renderReadyApp();

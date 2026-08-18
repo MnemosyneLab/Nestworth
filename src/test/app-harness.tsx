@@ -6,6 +6,7 @@ import App from "@/App";
 import { router } from "@/app/router";
 import type {
   AccountRecordDto,
+  AccountValuationDto,
   BootstrapDto,
   CommandError,
   ErrorCode,
@@ -13,6 +14,7 @@ import type {
   InstitutionRecordDto,
   MemberRecordDto,
   OverviewDto,
+  PortfolioDto,
 } from "@/generated/tauri-bindings";
 import { commands } from "@/generated/tauri-bindings";
 
@@ -108,11 +110,26 @@ export function groupRecord(
   };
 }
 
+export function emptyValuation(currency = "CNY", amount = "0"): AccountValuationDto {
+  const money = { amount, currency };
+  return {
+    native: money,
+    base: money,
+    complete: true,
+    freshness: "manual",
+    unvaluedItems: [],
+  };
+}
+
 export function accountRecord(
   id: string,
   name: string,
   extras: Partial<AccountRecordDto> = {},
 ): AccountRecordDto {
+  const latestValue =
+    extras.latestValue === undefined
+      ? { amount: "100000", currency: "CNY" }
+      : extras.latestValue;
   return {
     id,
     name,
@@ -133,9 +150,10 @@ export function accountRecord(
     createdAt: TIMESTAMP,
     updatedAt: TIMESTAMP,
     archivedAt: null,
-    latestValue: { amount: "100000", currency: "CNY" },
     owners: [{ memberId: "m-1", memberName: "Walt", shareBps: 10_000 }],
     ...extras,
+    latestValue,
+    valuation: extras.valuation ?? emptyValuation("CNY", latestValue?.amount ?? "0"),
   };
 }
 
@@ -151,6 +169,25 @@ export function emptyOverview(currency = "CNY"): OverviewDto {
     byMember: [],
     byInstitution: [],
     byGroup: [],
+    isComplete: true,
+    unvaluedItems: [],
+  };
+}
+
+export function emptyPortfolio(currency = "CNY"): PortfolioDto {
+  return {
+    baseCurrency: currency,
+    total: { amount: "0", currency },
+    isComplete: true,
+    coverageBps: 10_000,
+    unvaluedItems: [],
+    positions: [],
+    accounts: [],
+    cash: [],
+    byCurrency: [],
+    byCountry: [],
+    byInstrumentType: [],
+    requiredFx: [],
   };
 }
 
@@ -217,6 +254,22 @@ export function resetCommandMocks() {
   vi.mocked(commands.setAccountLogo).mockResolvedValue({
     status: "error",
     error: commandError("NOT_FOUND", "missing"),
+  });
+  vi.mocked(commands.listInstruments).mockResolvedValue({ status: "ok", data: [] });
+  vi.mocked(commands.listHoldings).mockResolvedValue({ status: "ok", data: [] });
+  vi.mocked(commands.listAccountCash).mockResolvedValue({ status: "ok", data: [] });
+  vi.mocked(commands.listInstrumentQuotes).mockResolvedValue({
+    status: "ok",
+    data: [],
+  });
+  vi.mocked(commands.listRequiredFx).mockResolvedValue({ status: "ok", data: [] });
+  vi.mocked(commands.getPortfolio).mockResolvedValue({
+    status: "ok",
+    data: emptyPortfolio(),
+  });
+  vi.mocked(commands.refreshAll).mockResolvedValue({
+    status: "ok",
+    data: { items: [] },
   });
 }
 

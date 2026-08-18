@@ -4,12 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AppSettingsDto } from "@/generated/tauri-bindings";
 import { commands } from "@/generated/tauri-bindings";
-import {
-  deferred,
-  readyBootstrap,
-  renderReadyApp,
-  resetApp,
-} from "@/test/app-harness";
+import { deferred, readyBootstrap, renderReadyApp, resetApp } from "@/test/app-harness";
 
 describe("settings general page", () => {
   beforeEach(async () => {
@@ -28,8 +23,7 @@ describe("settings general page", () => {
     mockSettings(settings);
     expect(screen.getByRole("link", { name: "Overview" })).toBeInTheDocument();
     await user.click(screen.getByRole("link", { name: "Settings" }));
-    await screen.findByRole("heading", { name: "Settings" });
-    await user.selectOptions(screen.getByLabelText("Language"), "zh-CN");
+    await user.selectOptions(await screen.findByLabelText("Language"), "zh-CN");
     await waitFor(() => {
       expect(commands.updateSettings).toHaveBeenCalledWith({
         language: "zh-CN",
@@ -52,8 +46,7 @@ describe("settings general page", () => {
     mockSettings(settings);
     expect(document.documentElement).not.toHaveClass("dark");
     await user.click(screen.getByRole("link", { name: "Settings" }));
-    await screen.findByRole("heading", { name: "Settings" });
-    await user.selectOptions(screen.getByLabelText("Appearance"), "Dark");
+    await user.selectOptions(await screen.findByLabelText("Appearance"), "Dark");
     await waitFor(() => {
       expect(commands.updateSettings).toHaveBeenCalledWith({
         language: "en",

@@ -9,9 +9,7 @@ export type AccountSearch = {
   group?: string;
 };
 
-export function validateAccountSearch(
-  search: Record<string, unknown>,
-): AccountSearch {
+export function validateAccountSearch(search: Record<string, unknown>): AccountSearch {
   const next: AccountSearch = {};
   const owner = readString(search.owner);
   const category = readString(search.category);
@@ -48,10 +46,7 @@ export function accountMatchesSearch(
       return false;
     }
   } else if (search.owner) {
-    if (
-      account.owners.length !== 1 ||
-      account.owners[0]?.memberId !== search.owner
-    ) {
+    if (account.owners.length !== 1 || account.owners[0]?.memberId !== search.owner) {
       return false;
     }
   }

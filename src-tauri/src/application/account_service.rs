@@ -9,6 +9,7 @@ use super::reference::{
     map_write_error, next_sort_order, require_household_id_tx, require_household_tx,
     sort_order_i32, SortTable,
 };
+use super::valuation_service::{self, AccountValuationDto, ValuationSnapshot};
 use crate::{
     domain::{
         percent_to_basis_points, Account, AccountGroupId, AccountId, AccountValue, CurrencyCode,
@@ -52,7 +53,7 @@ pub struct CreateAccountInput {
     pub opened_on: Option<String>,
     pub closed_on: Option<String>,
     pub owners: Vec<OwnershipShareInput>,
-    pub initial_amount: String,
+    pub initial_amount: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Type)]
@@ -112,6 +113,7 @@ pub struct AccountRecordDto {
     pub updated_at: String,
     pub archived_at: Option<String>,
     pub latest_value: Option<MoneyDto>,
+    pub valuation: AccountValuationDto,
     pub owners: Vec<AccountOwnerDto>,
 }
 
@@ -162,6 +164,9 @@ pub(crate) async fn list_accounts_in_tx(
             accounts[index].owners.push(owner_from_row(row)?);
         }
     }
+    let household = require_household_tx(tx).await?;
+    let snapshot = ValuationSnapshot::load(tx, &household.id, &household.base_currency).await?;
+    valuation_service::enrich_accounts(&snapshot, &mut accounts, &Timestamp::now())?;
     Ok(accounts)
 }
 
@@ -275,12 +280,6 @@ async fn create_account_in_tx(
     input: CreateAccountInput,
 ) -> Result<AccountRecordDto, AppError> {
     let household = require_household_tx(tx).await?;
-    if input.default_currency != household.base_currency {
-        return Err(AppError::validation(
-            "defaultCurrency",
-            "Account currency must match the household base currency.",
-        ));
-    }
     let sort_order = next_sort_order(tx, SortTable::Accounts, &household.id).await?;
     let new_account = new_account_from_input(
         &household.id,
@@ -310,16 +309,31 @@ async fn create_account_in_tx(
     .await?;
     let ownership = parse_ownership(tx, &household.id, &input.owners, None).await?;
     let account = Account::new(new_account, Timestamp::now())?;
-    let money = Money::parse(&input.initial_amount, account.default_currency())?;
-    let value = AccountValue::initial(
-        account.id(),
-        account.tracking_mode(),
-        money,
-        Timestamp::now(),
-    )?;
     insert_account(tx, &household.id, &account).await?;
     replace_ownership(tx, &account.id().to_string(), &ownership).await?;
-    insert_value(tx, &value).await?;
+    match account.tracking_mode() {
+        TrackingMode::Holdings => {
+            if input.initial_amount.is_some() {
+                return Err(AppError::validation(
+                    "initialAmount",
+                    "Holdings accounts cannot have an initial account value.",
+                ));
+            }
+        }
+        _ => {
+            let amount = input.initial_amount.as_deref().ok_or_else(|| {
+                AppError::validation("initialAmount", "An initial amount is required.")
+            })?;
+            let money = Money::parse(amount, account.default_currency())?;
+            let value = AccountValue::initial(
+                account.id(),
+                account.tracking_mode(),
+                money,
+                Timestamp::now(),
+            )?;
+            insert_value(tx, &value).await?;
+        }
+    }
     tracing::info!(event = "account.create", account_id = %account.id(), "account created");
     load_account_detail(tx, &household.id, &account.id().to_string()).await
 }
@@ -739,6 +753,13 @@ pub(crate) async fn load_account_detail(
     let mut dto = account_from_row(row)?;
     dto.latest_value = load_latest_value(tx, id).await?;
     dto.owners = load_owners(tx, id).await?;
+    let household = require_household_tx(tx).await?;
+    let snapshot = ValuationSnapshot::load(tx, &household.id, &household.base_currency).await?;
+    valuation_service::enrich_accounts(
+        &snapshot,
+        std::slice::from_mut(&mut dto),
+        &Timestamp::now(),
+    )?;
     Ok(dto)
 }
 
@@ -913,6 +934,7 @@ fn account_from_row(row: sqlx::sqlite::SqliteRow) -> Result<AccountRecordDto, Ap
             .try_get("archived_at")
             .map_err(|_| AppError::DatabaseUnavailable)?,
         latest_value: None,
+        valuation: valuation_service::empty_account_valuation(),
         owners: Vec::new(),
     })
 }
@@ -1014,7 +1036,7 @@ mod tests {
             opened_on: None,
             closed_on: None,
             owners: vec![owner(member_id, "100")],
-            initial_amount: amount.to_owned(),
+            initial_amount: Some(amount.to_owned()),
         }
     }
 
@@ -1137,19 +1159,18 @@ mod tests {
     }
 
     #[test]
-    fn rejects_currency_mismatch_and_unknown_institution() {
+    fn rejects_unknown_institution_and_allows_foreign_currency() {
         tauri::async_runtime::block_on(async {
             let (state, path) = onboarded_state("accounts-validate").await;
             let (walt, _, institution) = seed_bank(&state).await;
             let mut input =
                 bank_input("DBS Savings", &walt, Some(institution.id.clone()), "100000");
             input.default_currency = "SGD".to_owned();
-            let error = create_account(&state, input)
+            let created = create_account(&state, input)
                 .await
-                .expect_err("currency must match household");
-            assert!(
-                matches!(error, AppError::Validation { field, .. } if field == "defaultCurrency")
-            );
+                .expect("foreign currency is allowed");
+            assert_eq!(created.default_currency, "SGD");
+            assert!(!created.valuation.complete);
 
             let input = bank_input(
                 "DBS Savings",
@@ -1257,7 +1278,7 @@ mod tests {
                     error,
                     AppError::UnsupportedNewerDatabase {
                         found: 999,
-                        supported: 1
+                        supported: 2
                     }
                 ));
             }

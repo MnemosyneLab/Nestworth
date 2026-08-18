@@ -3,7 +3,12 @@ import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 
 import { AppShell } from "@/components/app-shell";
-import { basisPointsToPercent, clampShareBps, formatMoney } from "@/features/accounts/schema";
+import {
+  basisPointsToPercent,
+  clampShareBps,
+  formatMoney,
+} from "@/features/accounts/schema";
+import { UnvaluedList } from "@/features/valuation/status";
 import type {
   BreakdownRowDto,
   HouseholdDto,
@@ -69,6 +74,12 @@ function OverviewBody({ overview }: { overview: OverviewDto }) {
 
   return (
     <div className="mt-10 space-y-10">
+      {overview.isComplete ? null : (
+        <p className="text-sm text-destructive" role="status">
+          {t("overview.incomplete")}
+        </p>
+      )}
+      <UnvaluedList items={overview.unvaluedItems} />
       <section className="rounded-2xl border border-muted bg-card px-6 py-6 shadow-sm">
         <p className="text-sm font-medium uppercase tracking-[0.2em] text-muted-foreground">
           {t("overview.netWorth")}

@@ -46,6 +46,15 @@ pub async fn set_account_logo_impl(
         .map_err(CommandError::from)
 }
 
+pub async fn set_instrument_logo_impl(
+    state: &AppState,
+    input: SetMediaInput,
+) -> Result<crate::application::instrument_service::InstrumentRecordDto, CommandError> {
+    media_service::set_instrument_logo(state, input)
+        .await
+        .map_err(CommandError::from)
+}
+
 pub async fn get_media_impl(
     state: &AppState,
     input: GetMediaInput,

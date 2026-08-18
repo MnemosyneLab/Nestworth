@@ -1,5 +1,5 @@
-import { SettingsGeneralPage } from "@/features/settings/general-page";
+import { lazyRouteComponent } from "@tanstack/react-router";
 
-export function SettingsGeneralRoute() {
-  return <SettingsGeneralPage />;
-}
+export const SettingsGeneralRoute = lazyRouteComponent(
+  () => import("@/features/settings/general-page"),
+);

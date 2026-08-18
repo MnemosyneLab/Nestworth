@@ -42,16 +42,12 @@ export function SettingsGeneralPage() {
     onError: (error) => setActionError(commandErrorFromUnknown(error)),
   });
 
-  const error = settings.error
-    ? commandErrorFromUnknown(settings.error)
-    : actionError;
+  const error = settings.error ? commandErrorFromUnknown(settings.error) : actionError;
 
   return (
     <AppShell>
       <main className="mx-auto max-w-3xl px-8 py-10">
-        <h1 className="text-3xl font-semibold tracking-tight">
-          {t("settings.title")}
-        </h1>
+        <h1 className="text-3xl font-semibold tracking-tight">{t("settings.title")}</h1>
         {error ? (
           <p className="mt-6 text-sm text-destructive" role="alert">
             {formatCommandError(t, error)}
@@ -131,3 +127,5 @@ function NativeSelect({ className, ...props }: ComponentPropsWithoutRef<"select"
     />
   );
 }
+
+export default SettingsGeneralPage;

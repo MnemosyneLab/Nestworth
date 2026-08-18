@@ -9,3 +9,5 @@ export function OverviewRoute() {
 
   return <OverviewPage household={bootstrap.data.household} />;
 }
+
+export default OverviewRoute;

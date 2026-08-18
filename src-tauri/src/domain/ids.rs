@@ -46,16 +46,23 @@ typed_id!(AccountGroupId);
 typed_id!(AccountId);
 typed_id!(AccountValueId);
 typed_id!(MediaAssetId);
+typed_id!(InstrumentId);
+typed_id!(HoldingId);
+typed_id!(AccountCashValueId);
+typed_id!(InstrumentQuoteId);
+typed_id!(FxQuoteId);
 
 #[cfg(test)]
 mod tests {
-    use super::{AccountId, HouseholdId, MemberId};
+    use super::{AccountId, HoldingId, HouseholdId, InstrumentId, MemberId};
 
     #[test]
     fn generated_ids_use_uuid_v7() {
         assert_eq!(HouseholdId::new().as_uuid().get_version_num(), 7);
         assert_eq!(MemberId::new().as_uuid().get_version_num(), 7);
         assert_eq!(AccountId::new().as_uuid().get_version_num(), 7);
+        assert_eq!(InstrumentId::new().as_uuid().get_version_num(), 7);
+        assert_eq!(HoldingId::new().as_uuid().get_version_num(), 7);
     }
 
     #[test]

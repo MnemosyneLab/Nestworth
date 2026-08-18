@@ -111,11 +111,7 @@ export function GhostButton({
   ...props
 }: ComponentPropsWithoutRef<typeof Button>) {
   return (
-    <Button
-      {...props}
-      className="h-9 px-3"
-      variant="ghost"
-    >
+    <Button {...props} className="h-9 px-3" variant="ghost">
       {children}
     </Button>
   );

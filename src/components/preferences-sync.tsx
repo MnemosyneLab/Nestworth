@@ -6,8 +6,7 @@ import { useBootstrapQuery } from "@/lib/tauri/bootstrap";
 
 export function PreferencesSync() {
   const bootstrap = useBootstrapQuery();
-  const settings =
-    bootstrap.data?.status === "ready" ? bootstrap.data.settings : null;
+  const settings = bootstrap.data?.status === "ready" ? bootstrap.data.settings : null;
 
   useEffect(() => {
     if (!settings) {

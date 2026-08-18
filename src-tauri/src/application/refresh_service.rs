@@ -1,0 +1,744 @@
+use futures::future::join_all;
+use serde::{Deserialize, Serialize};
+use specta::Type;
+
+use super::{
+    account_service,
+    instrument_service::{self, InstrumentRecordDto},
+    providers::ProviderInstrument,
+    quote_service::{insert_fx_quote, insert_instrument_quote},
+    reference::{
+        begin_read_tx, begin_write_tx, finish_read_tx, finish_write_tx, require_household_tx,
+    },
+    valuation_service::{self, ValuationSnapshot},
+};
+use crate::{
+    domain::{
+        FxPair, FxQuote, HouseholdId, InstrumentId, InstrumentQuote, QuoteSourceKind, Timestamp,
+    },
+    error::AppError,
+    state::AppState,
+};
+
+const MAX_CONCURRENCY: usize = 4;
+const PROVIDER_TIMEOUT: std::time::Duration = if cfg!(test) {
+    std::time::Duration::from_millis(80)
+} else {
+    std::time::Duration::from_secs(8)
+};
+
+#[derive(Debug, Clone, Deserialize, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchProviderInstrumentsInput {
+    pub query: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderInstrumentDto {
+    pub provider_key: String,
+    pub provider_symbol: String,
+    pub name: String,
+    pub symbol: Option<String>,
+    pub instrument_type: String,
+    pub quote_currency: String,
+    pub market_code: Option<String>,
+    pub country_code: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RefreshInstrumentInput {
+    pub instrument_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RefreshItemResultDto {
+    pub key: String,
+    pub ok: bool,
+    pub error_code: Option<String>,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RefreshResultDto {
+    pub items: Vec<RefreshItemResultDto>,
+}
+
+pub async fn search_provider_instruments(
+    state: &AppState,
+    input: SearchProviderInstrumentsInput,
+) -> Result<Vec<ProviderInstrumentDto>, AppError> {
+    let _ = state.writable_db()?;
+    let found = state.quote_provider().search(&input.query).await?;
+    Ok(found.into_iter().map(provider_instrument_dto).collect())
+}
+
+pub async fn refresh_instrument(
+    state: &AppState,
+    input: RefreshInstrumentInput,
+) -> Result<RefreshResultDto, AppError> {
+    let instrument = load_instrument(state, &input.instrument_id).await?;
+    Ok(RefreshResultDto {
+        items: vec![refresh_one_instrument(state, &instrument).await],
+    })
+}
+
+pub async fn refresh_required_fx(state: &AppState) -> Result<RefreshResultDto, AppError> {
+    let pairs = required_pairs(state).await?;
+    Ok(RefreshResultDto {
+        items: refresh_fx_chunks(state, &pairs).await,
+    })
+}
+
+pub async fn refresh_all(state: &AppState) -> Result<RefreshResultDto, AppError> {
+    let (instruments, pairs) = required_refresh_targets(state).await?;
+    let mut items = Vec::new();
+    for chunk in instruments.chunks(MAX_CONCURRENCY) {
+        items.extend(
+            join_all(
+                chunk
+                    .iter()
+                    .map(|instrument| refresh_one_instrument(state, instrument)),
+            )
+            .await,
+        );
+    }
+    items.extend(refresh_fx_chunks(state, &pairs).await);
+    Ok(RefreshResultDto { items })
+}
+
+async fn refresh_fx_chunks(state: &AppState, pairs: &[FxPair]) -> Vec<RefreshItemResultDto> {
+    let mut items = Vec::new();
+    for chunk in pairs.chunks(MAX_CONCURRENCY) {
+        items.extend(
+            join_all(
+                chunk
+                    .iter()
+                    .copied()
+                    .map(|pair| refresh_one_fx(state, pair)),
+            )
+            .await,
+        );
+    }
+    items
+}
+
+async fn load_instrument(state: &AppState, id: &str) -> Result<InstrumentRecordDto, AppError> {
+    instrument_service::get_instrument(state, id).await
+}
+
+async fn required_pairs(state: &AppState) -> Result<Vec<FxPair>, AppError> {
+    let database = state.writable_db()?;
+    let mut tx = begin_read_tx(database).await?;
+    let result = async {
+        let household = require_household_tx(&mut tx).await?;
+        let accounts = account_service::list_accounts_in_tx(&mut tx, &household.id, false).await?;
+        let snapshot =
+            ValuationSnapshot::load(&mut tx, &household.id, &household.base_currency).await?;
+        valuation_service::required_fx_pairs(&snapshot, &accounts)
+    }
+    .await;
+    finish_read_tx(tx, result).await
+}
+
+async fn required_refresh_targets(
+    state: &AppState,
+) -> Result<(Vec<InstrumentRecordDto>, Vec<FxPair>), AppError> {
+    let database = state.writable_db()?;
+    let mut tx = begin_read_tx(database).await?;
+    let result = async {
+        let household = require_household_tx(&mut tx).await?;
+        let accounts = account_service::list_accounts_in_tx(&mut tx, &household.id, false).await?;
+        let snapshot =
+            ValuationSnapshot::load(&mut tx, &household.id, &household.base_currency).await?;
+        let ids = valuation_service::required_instrument_ids(&snapshot, &accounts);
+        let mut instruments = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for holding in valuation_service::snapshot_holdings(&snapshot) {
+            if let Ok(id) = InstrumentId::parse(&holding.instrument_id) {
+                if ids.contains(&id) && seen.insert(holding.instrument_id.clone()) {
+                    if let Some(instrument) = valuation_service::snapshot_instruments(&snapshot)
+                        .get(&holding.instrument_id)
+                    {
+                        if instrument.quote_preference == QuoteSourceKind::Provider.as_str()
+                            && instrument.archived_at.is_none()
+                        {
+                            instruments.push(instrument.clone());
+                        }
+                    }
+                }
+            }
+        }
+        let pairs = valuation_service::required_fx_pairs(&snapshot, &accounts)?;
+        Ok((instruments, pairs))
+    }
+    .await;
+    finish_read_tx(tx, result).await
+}
+
+async fn refresh_one_instrument(
+    state: &AppState,
+    instrument: &InstrumentRecordDto,
+) -> RefreshItemResultDto {
+    let key = instrument
+        .provider_symbol
+        .clone()
+        .unwrap_or_else(|| instrument.id.clone());
+    if instrument.quote_preference != QuoteSourceKind::Provider.as_str() {
+        return RefreshItemResultDto {
+            key,
+            ok: true,
+            error_code: None,
+            message: None,
+        };
+    }
+    let Some(symbol) = instrument.provider_symbol.clone() else {
+        return failed_item(
+            &key,
+            &AppError::UnsupportedProviderSymbol {
+                message: "This instrument has no provider symbol.".to_owned(),
+            },
+        );
+    };
+    let fetched = tokio::time::timeout(
+        PROVIDER_TIMEOUT,
+        state.quote_provider().fetch_quote(&symbol),
+    )
+    .await;
+    let quote = match fetched {
+        Ok(Ok(quote)) => quote,
+        Ok(Err(error)) => return failed_item(&key, &error),
+        Err(_) => {
+            return failed_item(
+                &key,
+                &AppError::ProviderUnavailable {
+                    message: "The quote provider timed out.".to_owned(),
+                },
+            )
+        }
+    };
+    if quote.quote_currency.as_str() != instrument.quote_currency {
+        return failed_item(
+            &key,
+            &AppError::MalformedProviderResponse {
+                message: "The provider quote currency does not match the instrument.".to_owned(),
+            },
+        );
+    }
+    let persisted = InstrumentQuote::new(
+        match InstrumentId::parse(&instrument.id) {
+            Ok(id) => id,
+            Err(error) => return failed_item(&key, &error),
+        },
+        quote.unit_price,
+        quote.quote_currency,
+        QuoteSourceKind::Provider,
+        "provider",
+        quote.delayed,
+        quote.quoted_at,
+        Timestamp::now(),
+    );
+    let quote = match persisted {
+        Ok(quote) => quote,
+        Err(error) => return failed_item(&key, &error),
+    };
+    match persist_instrument_quote(state, quote).await {
+        Ok(()) => RefreshItemResultDto {
+            key,
+            ok: true,
+            error_code: None,
+            message: None,
+        },
+        Err(error) => failed_item(&key, &error),
+    }
+}
+
+async fn refresh_one_fx(state: &AppState, pair: FxPair) -> RefreshItemResultDto {
+    let key = format!("{}/{}", pair.currency_a(), pair.currency_b());
+    let household = match current_household(state).await {
+        Ok(household) => household,
+        Err(error) => return failed_item(&key, &error),
+    };
+    let fetched = tokio::time::timeout(
+        PROVIDER_TIMEOUT,
+        state
+            .fx_provider()
+            .fetch_pair(pair.currency_a(), pair.currency_b()),
+    )
+    .await;
+    let quote = match fetched {
+        Ok(Ok(quote)) => quote,
+        Ok(Err(error)) => return failed_item(&key, &error),
+        Err(_) => {
+            return failed_item(
+                &key,
+                &AppError::ProviderUnavailable {
+                    message: "The FX provider timed out.".to_owned(),
+                },
+            )
+        }
+    };
+    let persisted = FxQuote::new(
+        household,
+        quote.base_currency,
+        quote.quote_currency,
+        quote.rate,
+        QuoteSourceKind::Provider,
+        "provider",
+        quote.delayed,
+        quote.quoted_at,
+        Timestamp::now(),
+    );
+    let quote = match persisted {
+        Ok(quote) => quote,
+        Err(error) => return failed_item(&key, &error),
+    };
+    match persist_fx_quote(state, quote).await {
+        Ok(()) => RefreshItemResultDto {
+            key,
+            ok: true,
+            error_code: None,
+            message: None,
+        },
+        Err(error) => failed_item(&key, &error),
+    }
+}
+
+async fn persist_instrument_quote(
+    state: &AppState,
+    quote: InstrumentQuote,
+) -> Result<(), AppError> {
+    let database = state.writable_db()?;
+    let mut tx = begin_write_tx(database).await?;
+    let result = insert_instrument_quote(&mut tx, &quote).await;
+    finish_write_tx(tx, result).await
+}
+
+async fn persist_fx_quote(state: &AppState, quote: FxQuote) -> Result<(), AppError> {
+    let database = state.writable_db()?;
+    let mut tx = begin_write_tx(database).await?;
+    let result = insert_fx_quote(&mut tx, &quote).await;
+    finish_write_tx(tx, result).await
+}
+
+async fn current_household(state: &AppState) -> Result<HouseholdId, AppError> {
+    let database = state.writable_db()?;
+    let mut tx = begin_read_tx(database).await?;
+    let result = async {
+        let household = require_household_tx(&mut tx).await?;
+        HouseholdId::parse(&household.id).map_err(|_| AppError::Internal)
+    }
+    .await;
+    finish_read_tx(tx, result).await
+}
+
+fn failed_item(key: &str, error: &AppError) -> RefreshItemResultDto {
+    let command = error.clone().into_command_error();
+    let error_code = serde_json::to_value(command.code)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_else(|| "INTERNAL_ERROR".to_owned());
+    RefreshItemResultDto {
+        key: key.to_owned(),
+        ok: false,
+        error_code: Some(error_code),
+        message: Some(command.message),
+    }
+}
+
+fn provider_instrument_dto(item: ProviderInstrument) -> ProviderInstrumentDto {
+    ProviderInstrumentDto {
+        provider_key: item.provider_key,
+        provider_symbol: item.provider_symbol,
+        name: item.name,
+        symbol: item.symbol,
+        instrument_type: item.instrument_type,
+        quote_currency: item.quote_currency.as_str().to_owned(),
+        market_code: item.market_code,
+        country_code: item.country_code,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{refresh_all, search_provider_instruments, SearchProviderInstrumentsInput};
+    use crate::{
+        application::{
+            account_service::{create_account, CreateAccountInput, OwnershipShareInput},
+            holding_service::{create_holding, CreateHoldingInput},
+            instrument_service::{create_instrument, CreateInstrumentInput},
+            member_service::list_members,
+            overview_service::get_overview,
+            providers::{
+                FakeFxProvider, FakeQuoteProvider, FxAdapter, ProviderFxQuote, ProviderInstrument,
+                ProviderQuote, QuoteAdapter, QuoteFailure,
+            },
+            quote_service::list_instrument_quotes,
+            quote_service::ListInstrumentQuotesInput,
+        },
+        domain::{CurrencyCode, FxRate, Timestamp, UnitPrice},
+        error::AppError,
+        state::AppState,
+        test_support::{cleanup, onboarded_state, test_path},
+    };
+
+    fn holdings_account(member_id: &str, name: &str) -> CreateAccountInput {
+        CreateAccountInput {
+            name: name.to_owned(),
+            primary_category: "investment".to_owned(),
+            secondary_category: "brokerage_account".to_owned(),
+            default_currency: "USD".to_owned(),
+            institution_id: None,
+            group_id: None,
+            tracking_mode: Some("holdings".to_owned()),
+            note: None,
+            include_in_net_worth: true,
+            include_in_investment: true,
+            include_in_liquid_assets: false,
+            opened_on: None,
+            closed_on: None,
+            owners: vec![OwnershipShareInput {
+                member_id: member_id.to_owned(),
+                percent: Some("100".to_owned()),
+                share_bps: None,
+            }],
+            initial_amount: None,
+        }
+    }
+
+    fn provider_instrument(
+        name: &str,
+        symbol: &str,
+        currency: CurrencyCode,
+        country: &str,
+    ) -> CreateInstrumentInput {
+        CreateInstrumentInput {
+            name: name.to_owned(),
+            symbol: Some(symbol.to_owned()),
+            instrument_type: "etf".to_owned(),
+            quote_currency: currency.as_str().to_owned(),
+            market_code: None,
+            country_code: Some(country.to_owned()),
+            isin: None,
+            provider_key: Some("fake".to_owned()),
+            provider_symbol: Some(symbol.to_owned()),
+            quote_preference: Some("provider".to_owned()),
+            note: None,
+        }
+    }
+
+    #[test]
+    fn ordinary_reads_do_not_call_providers() {
+        tauri::async_runtime::block_on(async {
+            let quotes = FakeQuoteProvider::new();
+            let fx = FakeFxProvider::new();
+            let path = test_path("phase6", "no-provider-on-read");
+            let state = AppState::initialize_with_providers(
+                path.clone(),
+                QuoteAdapter::Fake(quotes.clone()),
+                FxAdapter::Fake(fx.clone()),
+            )
+            .await;
+            crate::application::onboarding_service::complete_onboarding(
+                &state,
+                crate::test_support::valid_onboarding_input(),
+            )
+            .await
+            .expect("onboard");
+            let _ = get_overview(&state).await.expect("overview");
+            assert_eq!(quotes.request_count(), 0);
+            assert_eq!(fx.request_count(), 0);
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn three_holdings_of_one_instrument_refresh_once() {
+        tauri::async_runtime::block_on(async {
+            let quotes = FakeQuoteProvider::new();
+            quotes.insert_quote(ProviderQuote {
+                provider_symbol: "QQQ".to_owned(),
+                unit_price: UnitPrice::parse("700").expect("price"),
+                quote_currency: CurrencyCode::USD,
+                quoted_at: Timestamp::now(),
+                delayed: false,
+            });
+            let fx = FakeFxProvider::new();
+            fx.insert_quote(ProviderFxQuote {
+                base_currency: CurrencyCode::USD,
+                quote_currency: CurrencyCode::CNY,
+                rate: FxRate::parse("6.9").expect("rate"),
+                quoted_at: Timestamp::now(),
+                delayed: false,
+            });
+            let path = test_path("phase6", "refresh-dedup");
+            let state = AppState::initialize_with_providers(
+                path.clone(),
+                QuoteAdapter::Fake(quotes.clone()),
+                FxAdapter::Fake(fx.clone()),
+            )
+            .await;
+            crate::application::onboarding_service::complete_onboarding(
+                &state,
+                crate::test_support::valid_onboarding_input(),
+            )
+            .await
+            .expect("onboard");
+            let members = list_members(&state, false).await.expect("members");
+            let instrument = create_instrument(
+                &state,
+                provider_instrument("QQQ", "QQQ", CurrencyCode::USD, "US"),
+            )
+            .await
+            .expect("instrument");
+            for index in 1..=3 {
+                let account = create_account(
+                    &state,
+                    holdings_account(&members[0].id, &format!("Broker {index}")),
+                )
+                .await
+                .expect("account");
+                create_holding(
+                    &state,
+                    CreateHoldingInput {
+                        account_id: account.id,
+                        instrument_id: instrument.id.clone(),
+                        quantity: "3".to_owned(),
+                        note: None,
+                    },
+                )
+                .await
+                .expect("holding");
+            }
+            let result = refresh_all(&state).await.expect("refresh");
+            assert!(result.items.iter().any(|item| item.key == "QQQ" && item.ok));
+            assert_eq!(quotes.request_count(), 1);
+            let stored = list_instrument_quotes(
+                &state,
+                ListInstrumentQuotesInput {
+                    instrument_id: instrument.id,
+                },
+            )
+            .await
+            .expect("quotes");
+            assert_eq!(stored.len(), 1);
+            assert_eq!(stored[0].unit_price, "700");
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn partial_refresh_keeps_successful_quotes() {
+        tauri::async_runtime::block_on(async {
+            let quotes = FakeQuoteProvider::new();
+            quotes.insert_quote(ProviderQuote {
+                provider_symbol: "QQQ".to_owned(),
+                unit_price: UnitPrice::parse("700").expect("price"),
+                quote_currency: CurrencyCode::USD,
+                quoted_at: Timestamp::now(),
+                delayed: false,
+            });
+            quotes.fail("ES3", QuoteFailure::Unavailable);
+            let fx = FakeFxProvider::new();
+            let path = test_path("phase6", "refresh-partial");
+            let state = AppState::initialize_with_providers(
+                path.clone(),
+                QuoteAdapter::Fake(quotes.clone()),
+                FxAdapter::Fake(fx),
+            )
+            .await;
+            crate::application::onboarding_service::complete_onboarding(
+                &state,
+                crate::test_support::valid_onboarding_input(),
+            )
+            .await
+            .expect("onboard");
+            let members = list_members(&state, false).await.expect("members");
+            let account = create_account(&state, holdings_account(&members[0].id, "Broker"))
+                .await
+                .expect("account");
+            let qqq = create_instrument(
+                &state,
+                provider_instrument("QQQ", "QQQ", CurrencyCode::USD, "US"),
+            )
+            .await
+            .expect("qqq");
+            let es3 = create_instrument(
+                &state,
+                provider_instrument("ES3", "ES3", CurrencyCode::SGD, "SG"),
+            )
+            .await
+            .expect("es3");
+            create_holding(
+                &state,
+                CreateHoldingInput {
+                    account_id: account.id.clone(),
+                    instrument_id: qqq.id.clone(),
+                    quantity: "3".to_owned(),
+                    note: None,
+                },
+            )
+            .await
+            .expect("qqq holding");
+            create_holding(
+                &state,
+                CreateHoldingInput {
+                    account_id: account.id,
+                    instrument_id: es3.id.clone(),
+                    quantity: "1000".to_owned(),
+                    note: None,
+                },
+            )
+            .await
+            .expect("es3 holding");
+            let result = refresh_all(&state).await.expect("refresh");
+            assert!(result.items.iter().any(|item| item.key == "QQQ" && item.ok));
+            let failed = result
+                .items
+                .iter()
+                .find(|item| item.key == "ES3")
+                .expect("es3 result");
+            assert!(!failed.ok);
+            assert_eq!(failed.error_code.as_deref(), Some("PROVIDER_UNAVAILABLE"));
+            let stored = list_instrument_quotes(
+                &state,
+                ListInstrumentQuotesInput {
+                    instrument_id: qqq.id,
+                },
+            )
+            .await
+            .expect("qqq quotes");
+            assert_eq!(stored.len(), 1);
+            let missing = list_instrument_quotes(
+                &state,
+                ListInstrumentQuotesInput {
+                    instrument_id: es3.id,
+                },
+            )
+            .await
+            .expect("es3 quotes");
+            assert!(missing.is_empty());
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn timeout_and_malformed_currency_are_item_failures() {
+        tauri::async_runtime::block_on(async {
+            let quotes = FakeQuoteProvider::new();
+            quotes.set_delay(std::time::Duration::from_millis(200));
+            quotes.insert_quote(ProviderQuote {
+                provider_symbol: "SLOW".to_owned(),
+                unit_price: UnitPrice::parse("1").expect("price"),
+                quote_currency: CurrencyCode::USD,
+                quoted_at: Timestamp::now(),
+                delayed: false,
+            });
+            let fx = FakeFxProvider::new();
+            let path = test_path("phase6", "refresh-timeout");
+            let state = AppState::initialize_with_providers(
+                path.clone(),
+                QuoteAdapter::Fake(quotes),
+                FxAdapter::Fake(fx),
+            )
+            .await;
+            crate::application::onboarding_service::complete_onboarding(
+                &state,
+                crate::test_support::valid_onboarding_input(),
+            )
+            .await
+            .expect("onboard");
+            let members = list_members(&state, false).await.expect("members");
+            let account = create_account(&state, holdings_account(&members[0].id, "Broker"))
+                .await
+                .expect("account");
+            let instrument = create_instrument(
+                &state,
+                provider_instrument("Slow", "SLOW", CurrencyCode::USD, "US"),
+            )
+            .await
+            .expect("instrument");
+            create_holding(
+                &state,
+                CreateHoldingInput {
+                    account_id: account.id,
+                    instrument_id: instrument.id,
+                    quantity: "1".to_owned(),
+                    note: None,
+                },
+            )
+            .await
+            .expect("holding");
+            let result = refresh_all(&state).await.expect("refresh");
+            let item = result
+                .items
+                .iter()
+                .find(|item| item.key == "SLOW")
+                .expect("slow");
+            assert!(!item.ok);
+            assert_eq!(item.error_code.as_deref(), Some("PROVIDER_UNAVAILABLE"));
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn unconfigured_search_is_a_safe_provider_error() {
+        tauri::async_runtime::block_on(async {
+            let (state, path) = onboarded_state("refresh-unconfigured").await;
+            let error = search_provider_instruments(
+                &state,
+                SearchProviderInstrumentsInput {
+                    query: "QQQ".to_owned(),
+                },
+            )
+            .await
+            .expect_err("unconfigured");
+            assert!(matches!(error, AppError::ProviderUnavailable { .. }));
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn fake_search_returns_provider_instruments() {
+        tauri::async_runtime::block_on(async {
+            let quotes = FakeQuoteProvider::new();
+            quotes.insert_search(ProviderInstrument {
+                provider_key: "fake".to_owned(),
+                provider_symbol: "QQQ".to_owned(),
+                name: "Invesco QQQ".to_owned(),
+                symbol: Some("QQQ".to_owned()),
+                instrument_type: "etf".to_owned(),
+                quote_currency: CurrencyCode::USD,
+                market_code: Some("XNAS".to_owned()),
+                country_code: Some("US".to_owned()),
+            });
+            let path = test_path("phase6", "provider-search");
+            let state = AppState::initialize_with_providers(
+                path.clone(),
+                QuoteAdapter::Fake(quotes),
+                FxAdapter::Unconfigured,
+            )
+            .await;
+            crate::application::onboarding_service::complete_onboarding(
+                &state,
+                crate::test_support::valid_onboarding_input(),
+            )
+            .await
+            .expect("onboard");
+            let found = search_provider_instruments(
+                &state,
+                SearchProviderInstrumentsInput {
+                    query: "QQQ".to_owned(),
+                },
+            )
+            .await
+            .expect("search");
+            assert_eq!(found.len(), 1);
+            assert_eq!(found[0].provider_symbol, "QQQ");
+            cleanup(&path);
+        });
+    }
+}

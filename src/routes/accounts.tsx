@@ -1,5 +1,5 @@
-import { AccountsPage } from "@/features/accounts/accounts-page";
+import { lazyRouteComponent } from "@tanstack/react-router";
 
-export function AccountsRoute() {
-  return <AccountsPage />;
-}
+export const AccountsRoute = lazyRouteComponent(
+  () => import("@/features/accounts/accounts-page"),
+);

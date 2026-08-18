@@ -314,3 +314,5 @@ function InstitutionEditor({
     </form>
   );
 }
+
+export default InstitutionsPage;

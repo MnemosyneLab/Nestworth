@@ -216,7 +216,11 @@ impl TrackingMode {
     }
 
     pub fn require_for_new_account(self, primary: PrimaryCategory) -> Result<(), AppError> {
-        if self == primary.default_tracking_mode() {
+        let allowed = match self {
+            Self::Holdings => primary == PrimaryCategory::Investment,
+            _ => self == primary.default_tracking_mode(),
+        };
+        if allowed {
             Ok(())
         } else {
             Err(AppError::invalid_category(
@@ -275,11 +279,14 @@ mod tests {
     }
 
     #[test]
-    fn domain_parses_holdings_but_new_accounts_must_follow_policy() {
+    fn holdings_is_valid_only_for_investment_accounts() {
         let holdings = TrackingMode::parse("holdings").expect("schema supports holdings");
         assert_eq!(holdings.as_str(), "holdings");
-        assert!(holdings
+        holdings
             .require_for_new_account(PrimaryCategory::Investment)
+            .expect("investment holdings");
+        assert!(holdings
+            .require_for_new_account(PrimaryCategory::CashEquivalent)
             .is_err());
         TrackingMode::ManualValue
             .require_for_new_account(PrimaryCategory::Investment)

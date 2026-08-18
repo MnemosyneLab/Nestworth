@@ -13,6 +13,7 @@ import {
   accountRecord,
   commandError,
   deferred,
+  emptyValuation,
   groupRecord,
   institutionRecord,
   renderReadyApp,
@@ -160,15 +161,21 @@ describe("accounts page", () => {
     mockAccountStore(householdAccounts());
     await renderReadyApp();
     await user.click(screen.getByRole("link", { name: "Walt" }));
-    expect(await screen.findByRole("heading", { name: "DBS Savings" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "DBS Savings" }),
+    ).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "WeChat" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Home" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("link", { name: "Shared" }));
     expect(await screen.findByRole("heading", { name: "Home" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "DBS Savings" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "DBS Savings" }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "WeChat" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("link", { name: "All" }));
-    expect(await screen.findByRole("heading", { name: "DBS Savings" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "DBS Savings" }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "WeChat" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Home" })).toBeInTheDocument();
   });
@@ -178,7 +185,9 @@ describe("accounts page", () => {
     await renderReadyApp();
     router.history.replace("/accounts?owner=m-1");
     window.history.replaceState(null, "", "/accounts?owner=m-1");
-    expect(await screen.findByRole("heading", { name: "DBS Savings" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "DBS Savings" }),
+    ).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Home" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "WeChat" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Walt" })).toHaveAttribute(
@@ -238,6 +247,32 @@ describe("accounts page", () => {
     await user.click(screen.getByRole("button", { name: "Add account" }));
     expect(screen.getByLabelText("Name")).toHaveFocus();
   });
+
+  it("creates a holdings investment account without an initial amount", async () => {
+    const user = userEvent.setup();
+    const accounts: AccountRecordDto[] = [];
+    mockAccountStore(accounts);
+    await renderReadyApp();
+    await user.click(screen.getByRole("link", { name: "Accounts" }));
+    await user.click(await screen.findByRole("button", { name: "Add account" }));
+    await user.type(screen.getByLabelText("Name"), "Brokerage");
+    await user.selectOptions(screen.getByLabelText("Category"), "brokerage_account");
+    expect(screen.queryByLabelText("Amount")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(
+      await screen.findByRole("heading", { name: "Brokerage" }),
+    ).toBeInTheDocument();
+    expect(commands.createAccount).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "Brokerage",
+        primaryCategory: "investment",
+        secondaryCategory: "brokerage_account",
+        trackingMode: "holdings",
+        initialAmount: null,
+        defaultCurrency: "CNY",
+      }),
+    );
+  });
 });
 
 function householdAccounts(): AccountRecordDto[] {
@@ -290,7 +325,9 @@ function mockAccountStore(accounts: AccountRecordDto[]) {
   vi.mocked(commands.createAccount).mockImplementation(async (input) => {
     const created = accountRecord(`a-${accounts.length + 1}`, input.name, {
       institutionId: input.institutionId,
-      latestValue: { amount: input.initialAmount, currency: input.defaultCurrency },
+      latestValue: input.initialAmount
+        ? { amount: input.initialAmount, currency: input.defaultCurrency }
+        : null,
       owners: input.owners.map((owner) => ({
         memberId: owner.memberId,
         memberName: owner.memberId === "m-1" ? "Walt" : "Spouse",
@@ -308,6 +345,7 @@ function mockAccountStore(accounts: AccountRecordDto[]) {
     const updated = {
       ...account,
       latestValue: { amount: input.amount, currency: account.defaultCurrency },
+      valuation: emptyValuation(account.defaultCurrency, input.amount),
     };
     Object.assign(account, updated);
     return { status: "ok", data: { ...updated } };

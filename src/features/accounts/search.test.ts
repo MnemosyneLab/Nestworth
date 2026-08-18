@@ -51,11 +51,11 @@ describe("account search filters", () => {
     expect(accountMatchesSearch(dbs, { category: "property" })).toBe(false);
     expect(accountMatchesSearch(dbs, { institution: "i-1" })).toBe(true);
     expect(accountMatchesSearch(home, { institution: "i-1" })).toBe(false);
-    expect(
-      accountMatchesSearch(home, { owner: SHARED_OWNER, group: "g-1" }),
-    ).toBe(true);
-    expect(
-      accountMatchesSearch(home, { owner: SHARED_OWNER, group: "g-2" }),
-    ).toBe(false);
+    expect(accountMatchesSearch(home, { owner: SHARED_OWNER, group: "g-1" })).toBe(
+      true,
+    );
+    expect(accountMatchesSearch(home, { owner: SHARED_OWNER, group: "g-2" })).toBe(
+      false,
+    );
   });
 });

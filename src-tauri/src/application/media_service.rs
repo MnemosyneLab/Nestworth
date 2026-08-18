@@ -10,6 +10,7 @@ use super::{
     group_service::{self, GroupRecordDto},
     image::{self, ImageKind, OUTPUT_MIME},
     institution_service::{self, InstitutionRecordDto},
+    instrument_service::{self, InstrumentRecordDto},
     member_service::{self, MemberRecordDto},
     reference::{
         begin_read_tx, begin_write_tx, finish_read_tx, finish_write_tx, map_read_error,
@@ -17,7 +18,9 @@ use super::{
     },
 };
 use crate::{
-    domain::{AccountGroupId, AccountId, InstitutionId, MediaAssetId, MemberId, Timestamp},
+    domain::{
+        AccountGroupId, AccountId, InstitutionId, InstrumentId, MediaAssetId, MemberId, Timestamp,
+    },
     error::AppError,
     state::AppState,
 };
@@ -83,6 +86,17 @@ pub async fn set_account_logo(
     let database = state.writable_db()?;
     let mut tx = begin_write_tx(database).await?;
     let result = set_account_logo_in_tx(&mut tx, &input.id, png).await;
+    finish_write_tx(tx, result).await
+}
+
+pub async fn set_instrument_logo(
+    state: &AppState,
+    input: SetMediaInput,
+) -> Result<InstrumentRecordDto, AppError> {
+    let png = prepare_image(state, &input.path, ImageKind::Logo)?;
+    let database = state.writable_db()?;
+    let mut tx = begin_write_tx(database).await?;
+    let result = set_instrument_logo_in_tx(&mut tx, &input.id, png).await;
     finish_write_tx(tx, result).await
 }
 
@@ -210,6 +224,34 @@ async fn set_account_logo_in_tx(
     account_service::load_account_detail(tx, &household_id, &account.id().to_string()).await
 }
 
+async fn set_instrument_logo_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    id: &str,
+    png: Vec<u8>,
+) -> Result<InstrumentRecordDto, AppError> {
+    let household_id = require_household_id_tx(tx).await?;
+    let instrument_id = InstrumentId::parse(id)?;
+    let mut instrument =
+        instrument_service::load_instrument_domain(tx, &household_id, &instrument_id.to_string())
+            .await?;
+    let previous = instrument.logo_asset_id();
+    let asset_id = insert_media(tx, &household_id, &png).await?;
+    instrument.set_logo(asset_id, Timestamp::now());
+    update_asset_column(
+        tx,
+        "UPDATE instruments SET logo_asset_id = ?, updated_at = ? WHERE id = ? AND household_id = ?",
+        "instrument.logo_failed",
+        &asset_id.to_string(),
+        instrument.updated_at().to_rfc3339(),
+        &instrument.id().to_string(),
+        &household_id,
+    )
+    .await?;
+    delete_unused_media(tx, previous).await?;
+    tracing::info!(event = "media.set", entity = "instrument", instrument_id = %instrument.id(), "instrument logo updated");
+    instrument_service::load_instrument(tx, &household_id, &instrument.id().to_string()).await
+}
+
 async fn get_media_in_tx(
     tx: &mut Transaction<'_, Sqlite>,
     asset_id: &str,
@@ -293,8 +335,10 @@ async fn delete_unused_media(
             (SELECT COUNT(*) FROM members WHERE avatar_asset_id = ?)
           + (SELECT COUNT(*) FROM institutions WHERE logo_asset_id = ?)
           + (SELECT COUNT(*) FROM account_groups WHERE logo_asset_id = ?)
-          + (SELECT COUNT(*) FROM accounts WHERE logo_asset_id = ?)",
+          + (SELECT COUNT(*) FROM accounts WHERE logo_asset_id = ?)
+          + (SELECT COUNT(*) FROM instruments WHERE logo_asset_id = ?)",
     )
+    .bind(&previous_id)
     .bind(&previous_id)
     .bind(&previous_id)
     .bind(&previous_id)
@@ -390,7 +434,7 @@ mod tests {
                     percent: Some("100".to_owned()),
                     share_bps: None,
                 }],
-                initial_amount: "100".to_owned(),
+                initial_amount: Some("100".to_owned()),
             },
         )
         .await

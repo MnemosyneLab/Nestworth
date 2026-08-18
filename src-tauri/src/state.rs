@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use sqlx::SqlitePool;
 
 use crate::{
+    application::providers::{FxAdapter, QuoteAdapter},
     error::AppError,
     infrastructure::database_bootstrap::{initialize_database, DatabaseBootstrapStatus},
 };
@@ -21,10 +22,25 @@ pub struct AppState {
     database: DatabaseRuntime,
     status: DatabaseBootstrapStatus,
     db_path: PathBuf,
+    quote_provider: QuoteAdapter,
+    fx_provider: FxAdapter,
 }
 
 impl AppState {
     pub async fn initialize(db_path: PathBuf) -> Self {
+        Self::initialize_with_providers(
+            db_path,
+            QuoteAdapter::Unconfigured,
+            FxAdapter::Unconfigured,
+        )
+        .await
+    }
+
+    pub async fn initialize_with_providers(
+        db_path: PathBuf,
+        quote_provider: QuoteAdapter,
+        fx_provider: FxAdapter,
+    ) -> Self {
         let result = initialize_database(db_path.clone()).await;
         let status = result.status.clone();
         let database = match result.pool {
@@ -39,6 +55,8 @@ impl AppState {
             database,
             status,
             db_path,
+            quote_provider,
+            fx_provider,
         }
     }
     pub fn unavailable(db_path: PathBuf) -> Self {
@@ -50,6 +68,8 @@ impl AppState {
             },
             status,
             db_path,
+            quote_provider: QuoteAdapter::Unconfigured,
+            fx_provider: FxAdapter::Unconfigured,
         }
     }
 
@@ -70,6 +90,14 @@ impl AppState {
 
     pub fn is_writable(&self) -> bool {
         matches!(self.database, DatabaseRuntime::Writable { .. })
+    }
+
+    pub fn quote_provider(&self) -> &QuoteAdapter {
+        &self.quote_provider
+    }
+
+    pub fn fx_provider(&self) -> &FxAdapter {
+        &self.fx_provider
     }
 
     #[cfg(test)]

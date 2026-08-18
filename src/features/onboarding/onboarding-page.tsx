@@ -412,3 +412,5 @@ function applyServerFieldErrors(
     });
   }
 }
+
+export default OnboardingPage;

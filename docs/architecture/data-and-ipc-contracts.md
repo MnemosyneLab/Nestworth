@@ -45,16 +45,22 @@ The migration version is inspected through a read-only connection before any wri
 | `accounts` | Account metadata and financial classification | Household and optional reference FKs, category and tracking checks, boolean checks |
 | `account_ownership` | Member shares for Accounts | Composite identity, positive bounded shares, restricted Member deletion |
 | `account_values` | Append-only balance or manual-value observations | Account FK, value-kind and currency checks, latest-value index |
+| `instruments` | Household-scoped tradable or valued assets | Household FK, quote currency, quote preference, optional unique provider identity |
+| `holdings` | Current Instrument quantity in a Holdings Account | Account and Instrument FKs, unique active Instrument per Account |
+| `account_cash_values` | Append-only cash-by-currency observations | Account FK, currency checks, latest-value index |
+| `instrument_quotes` | Append-only Instrument prices | Instrument FK, source, quote time, latest-quote index |
+| `fx_quote_preferences` | Manual or provider preference per unordered pair | Household FK and canonical currency pair |
+| `fx_quotes` | Append-only FX observations | Household FK, distinct currencies, source, quote time |
 | `media_assets` | Household-scoped binary images | Household FK and cascading Household deletion |
 | `app_settings` | Singleton language, appearance, and last Household pointer | Fixed row ID and enumerated settings values |
 
-SQLite constraints provide structural integrity. Rules requiring sums, comparisons with current state, retained archived references, or last-active-member checks remain application-service responsibilities. Database triggers are not used for v0.1.1.
+SQLite constraints provide structural integrity. Rules requiring sums, comparisons with current state, retained archived references, last-active-member checks, quote selection, or valuation remain application-service responsibilities. Database triggers are not used.
 
 ## Transactions and Query Guarantees
 
 Write use cases begin with `BEGIN IMMEDIATE`. Success commits once; any validation, lookup, SQL, or DTO assembly error rolls the entire transaction back. Creation and update flows must never leave partial Accounts, Ownership, Values, Household setup, or reference records.
 
-Read models that combine multiple queries use one read transaction so they observe one SQLite snapshot. Overview reads the Household, Accounts, Members, Institutions, and Groups under the same transaction.
+Read models that combine multiple queries use one read transaction so they observe one SQLite snapshot. Overview and portfolio reads load Accounts, Holdings, cash, quotes, and FX under the same transaction.
 
 List queries are bounded by collection type, not row count. Account List loads Accounts with latest values in one query and Ownership in one batch query. Queries inside a loop over returned Accounts are prohibited.
 
@@ -64,10 +70,16 @@ All default lists are deterministic:
 sort_order ASC, name COLLATE NOCASE ASC, id ASC
 ```
 
-Latest Account Value uses:
+Latest Account Value and Account Cash use:
 
 ```text
 effective_at DESC, created_at DESC, id DESC
+```
+
+Latest Instrument Quote and FX Quote use:
+
+```text
+quoted_at DESC, created_at DESC, id DESC
 ```
 
 ## Mutation Guarantees
@@ -80,13 +92,15 @@ effective_at DESC, created_at DESC, id DESC
 - New Account references must be active and belong to the current Household.
 - Account updates may retain, but may not newly select, an archived reference.
 - TrackingMode cannot change after Account creation.
-- Account Value updates append a new observation; they do not overwrite prior observations.
+- Account Value and Account Cash updates append a new observation; they do not overwrite prior observations.
+- Instrument Quote and FX Quote writes are append-only.
+- Refresh persists each successful quote in its own short write transaction and does not hold a write transaction during provider I/O.
 
 Canonical business reasoning for these guarantees is in the [domain model](domain-model.md).
 
 ## Command Surface
 
-The v0.1.1 command surface is grouped by use case:
+The command surface is grouped by use case:
 
 | Group | Commands |
 | --- | --- |
@@ -97,10 +111,16 @@ The v0.1.1 command surface is grouped by use case:
 | Groups | list, create, update, archive, restore, `set_group_logo` |
 | Accounts | list, get, create, update, update value, archive, restore, `set_account_logo` |
 | Overview | `get_overview` |
+| Instruments | list, get, create, update, archive, restore, `set_instrument_logo` |
+| Holdings | list, create, update, archive, restore |
+| Account cash | list, append |
+| Quotes | list instrument quotes, append manual instrument quote, set instrument quote preference, list required FX, list FX quotes, append manual FX quote, set FX quote preference |
+| Portfolio | `get_portfolio` |
+| Refresh | search provider instruments, refresh instrument, refresh required FX, refresh all |
 | Media | `get_media` |
 | Settings | `get_settings`, `update_settings` |
 
-v0.1.1 does not expose `get_household`, `update_household`, or media-clear commands. Household name and base currency are displayed from bootstrap; language and appearance are the mutable settings.
+The application does not expose `get_household`, `update_household`, or media-clear commands. Household name and base currency are displayed from bootstrap; language and appearance are the mutable settings. Production quote adapters are unconfigured; search and refresh return safe provider-unavailable errors unless a test fake is injected.
 
 Command adapters remain thin. Application services own transactions and domain conversion. Frontend code calls the generated `commands` client rather than using raw Tauri invoke names.
 
@@ -124,9 +144,9 @@ Every command returns either its typed result or a `CommandError` containing:
 - `message`: safe user-facing English text
 - `fields`: optional structured context for forms or diagnostics
 
-Current error categories include validation, not found, conflict, already onboarded, invalid Ownership total, base-currency change restriction, invalid Category, invalid Money, invalid Media, database error or unavailability, unsupported future database, migration failure, and internal error.
+Current error categories include validation, not found, conflict, already onboarded, invalid Ownership total, base-currency change restriction, invalid Category, invalid Money, invalid Quantity, invalid UnitPrice, invalid FxRate, decimal overflow, duplicate Holding, quote unavailable, incomplete valuation, unsupported provider symbol, provider authentication, rate limit, provider unavailable, malformed provider response, invalid Media, database error or unavailability, unsupported future database, migration failure, and internal error.
 
-Raw SQL, filenames other than the explicit blocked-startup database path, query text, driver details, and sensitive values must not appear in frontend errors. Detailed failures are logged locally with stable event names.
+Raw SQL, filenames other than the explicit blocked-startup database path, query text, driver details, credentials, raw provider payloads, and sensitive values must not appear in frontend errors. Detailed failures are logged locally with stable event names.
 
 ## Archive References
 
@@ -144,4 +164,4 @@ MediaAsset bytes are stored in SQLite and referenced with nullable typed IDs. Th
 - Replacing a reference deletes the previous asset only when nothing else still references it.
 - Invalid, oversized, or undecodable input returns `MEDIA_INVALID` and writes nothing.
 
-v0.1.1 can set and replace avatars and logos. It does not clear a media reference, and it does not rewrite EXIF orientation as a separate metadata-stripping pass beyond decode and PNG encode.
+v0.1.2 can set and replace avatars and logos, including Instrument logos. It does not clear a media reference, and it does not rewrite EXIF orientation as a separate metadata-stripping pass beyond decode and PNG encode.

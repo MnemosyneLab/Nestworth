@@ -35,6 +35,8 @@
     "empty": "这个家庭的资产负债表还是空的。",
     "emptyHint": "添加第一个账户，开始跟踪净资产。",
     "netWorth": "净资产",
+    "incomplete": "因为缺少所需报价，这个合计还不完整。",
+    "unvalued": "未估值项目",
     "assets": "资产",
     "liabilities": "负债",
     "byCategory": "按类别",
@@ -52,6 +54,8 @@
   "nav": {
     "label": "家庭",
     "overview": "总览",
+    "investments": "投资",
+    "instruments": "标的",
     "accounts": "账户",
     "all": "全部",
     "shared": "共同",
@@ -131,6 +135,25 @@
     "noValue": "还没有价值",
     "updateValue": "更新价值",
     "amount": "金额",
+    "currency": "货币",
+    "trackingMode": "跟踪方式",
+    "trackingModes": {
+      "balance": "余额",
+      "manual_value": "手动估值",
+      "holdings": "持仓"
+    },
+    "nativeValue": "原币金额",
+    "baseValue": "基础货币金额",
+    "freshness": "报价状态",
+    "holdings": "持仓",
+    "cash": "现金",
+    "addHolding": "添加持仓",
+    "archiveHolding": "归档 {{name}}",
+    "addCash": "添加现金",
+    "quantity": "数量",
+    "instrument": "标的",
+    "noHoldings": "还没有持仓。",
+    "noCash": "还没有现金余额。",
     "category": "类别",
     "institution": "机构",
     "group": "分组",
@@ -185,7 +208,75 @@
       "ownerDuplicate": "所有者不能重复。",
       "ownersTotal": "所有权份额合计必须为 100%。",
       "date": "请使用 YYYY-MM-DD。",
-      "closedOn": "关闭日期不能早于开户日期。"
+      "closedOn": "关闭日期不能早于开户日期。",
+      "currency": "请使用三个大写字母。",
+      "quantity": "请输入非负数量，整数最多 18 位，小数最多 8 位。",
+      "unitPrice": "请输入非负单价，整数最多 12 位，小数最多 8 位。",
+      "rate": "请输入正数汇率，整数最多 8 位，小数最多 12 位。"
+    }
+  },
+  "instruments": {
+    "title": "标的",
+    "empty": "添加标的后即可记录持仓。",
+    "add": "添加标的",
+    "symbol": "代码",
+    "type": "类型",
+    "archiveName": "归档 {{name}}",
+    "restoreName": "恢复 {{name}}",
+    "types": {
+      "stock": "股票",
+      "etf": "ETF",
+      "mutual_fund": "共同基金",
+      "crypto": "加密资产",
+      "bond": "债券",
+      "precious_metal": "贵金属",
+      "bank_investment_product": "银行理财",
+      "other": "其他"
+    }
+  },
+  "investments": {
+    "eyebrow": "投资",
+    "title": "投资组合",
+    "total": "组合价值",
+    "complete": "所需报价均已齐全。",
+    "incomplete": "不完整 · 覆盖率 {{coverage}}",
+    "empty": "添加持仓账户后即可查看投资组合。",
+    "positions": "持仓",
+    "byCurrency": "按货币",
+    "byCountry": "按国家",
+    "byType": "按标的类型",
+    "refresh": "刷新报价",
+    "refreshing": "正在刷新",
+    "refreshComplete": "刷新完成。",
+    "refreshPartial": "部分报价未能刷新。",
+    "nothingToRefresh": "没有需要刷新的项目。"
+  },
+  "fx": {
+    "title": "所需汇率"
+  },
+  "quotes": {
+    "incomplete": "不完整",
+    "unavailable": "不可用",
+    "noPrice": "还没有价格。",
+    "addPrice": "添加手工价格",
+    "addRate": "添加手工汇率",
+    "unitPrice": "单价",
+    "preferenceLabel": "报价偏好",
+    "preference": {
+      "manual": "手工",
+      "provider": "数据源"
+    },
+    "freshness": {
+      "fresh": "新鲜",
+      "delayed": "延迟",
+      "stale": "过期",
+      "manual": "手工",
+      "unavailable": "不可用"
+    },
+    "reasons": {
+      "fx_quote": "缺少汇率",
+      "instrument_quote": "缺少标的报价",
+      "quote": "缺少报价"
     }
   },
   "media": {
@@ -218,6 +309,18 @@
     "BASE_CURRENCY_CHANGE_NOT_ALLOWED": "不能修改基础货币。",
     "INVALID_CATEGORY": "账户类别无效。",
     "INVALID_MONEY": "金额无效。",
+    "INVALID_QUANTITY": "数量无效。",
+    "INVALID_UNIT_PRICE": "单价无效。",
+    "INVALID_FX_RATE": "汇率无效。",
+    "DECIMAL_OVERFLOW": "计算结果过大，无法保存。",
+    "QUOTE_UNAVAILABLE": "缺少所需报价。",
+    "INCOMPLETE_VALUATION": "这个合计还不完整。",
+    "DUPLICATE_HOLDING": "该账户已持有这个标的。",
+    "UNSUPPORTED_PROVIDER_SYMBOL": "数据源无法识别这个代码。",
+    "PROVIDER_AUTHENTICATION": "数据源认证失败。",
+    "PROVIDER_RATE_LIMIT": "已达到数据源频率限制。",
+    "PROVIDER_UNAVAILABLE": "数据源不可用。",
+    "MALFORMED_PROVIDER_RESPONSE": "数据源返回了无效数值。",
     "MEDIA_INVALID": "所选图片无效。",
     "DATABASE_ERROR": "数据库无法完成此操作。",
     "DATABASE_UNAVAILABLE": "数据库不可用。",

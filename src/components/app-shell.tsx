@@ -12,6 +12,7 @@ import { useBootstrapQuery } from "@/lib/tauri/bootstrap";
 import { cn } from "@/lib/utils";
 
 const TOP_NAV = [
+  { to: "/instruments", key: "instruments" },
   { to: "/groups", key: "groups" },
   { to: "/institutions", key: "institutions" },
 ] as const;
@@ -28,8 +29,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   });
   const parsedSearch = validateAccountSearch(searchRecord(search));
   const ownerFilter = pathname === "/accounts" ? parsedSearch.owner : undefined;
-  const accountsActive =
-    pathname === "/accounts" || pathname.startsWith("/accounts/");
+  const accountsActive = pathname === "/accounts" || pathname.startsWith("/accounts/");
 
   return (
     <div className="flex min-h-screen">
@@ -42,6 +42,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         </p>
         <NavLink active={pathname === "/overview"} to="/overview">
           {t("nav.overview")}
+        </NavLink>
+        <NavLink active={pathname === "/investments"} to="/investments">
+          {t("nav.investments")}
         </NavLink>
         <div>
           <NavLink active={accountsActive} search={{}} to="/accounts">
@@ -59,9 +62,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <NavLink
                 active={ownerFilter === member.id}
                 key={member.id}
-                search={(prev) =>
-                  mergeAccountSearch(prev, { owner: member.id })
-                }
+                search={(prev) => mergeAccountSearch(prev, { owner: member.id })}
                 to="/accounts"
               >
                 {member.name}
@@ -69,9 +70,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             ))}
             <NavLink
               active={ownerFilter === SHARED_OWNER}
-              search={(prev) =>
-                mergeAccountSearch(prev, { owner: SHARED_OWNER })
-              }
+              search={(prev) => mergeAccountSearch(prev, { owner: SHARED_OWNER })}
               to="/accounts"
             >
               {t("nav.shared")}
@@ -80,9 +79,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
         {TOP_NAV.map((item) => (
           <NavLink
-            active={
-              pathname === item.to || pathname.startsWith(`${item.to}/`)
-            }
+            active={pathname === item.to || pathname.startsWith(`${item.to}/`)}
             key={item.to}
             to={item.to}
           >
@@ -90,23 +87,14 @@ export function AppShell({ children }: { children: ReactNode }) {
           </NavLink>
         ))}
         <div>
-          <NavLink
-            active={pathname.startsWith("/settings")}
-            to="/settings/general"
-          >
+          <NavLink active={pathname.startsWith("/settings")} to="/settings/general">
             {t("nav.settings")}
           </NavLink>
           <div className="mt-1 ml-3 flex flex-col gap-0.5">
-            <NavLink
-              active={pathname === "/settings/general"}
-              to="/settings/general"
-            >
+            <NavLink active={pathname === "/settings/general"} to="/settings/general">
               {t("nav.general")}
             </NavLink>
-            <NavLink
-              active={pathname === "/settings/members"}
-              to="/settings/members"
-            >
+            <NavLink active={pathname === "/settings/members"} to="/settings/members">
               {t("nav.members")}
             </NavLink>
           </div>
@@ -128,6 +116,8 @@ function NavLink({
   search?: AccountSearch | ((prev: AccountSearch) => AccountSearch);
   to:
     | "/overview"
+    | "/investments"
+    | "/instruments"
     | "/accounts"
     | "/groups"
     | "/institutions"

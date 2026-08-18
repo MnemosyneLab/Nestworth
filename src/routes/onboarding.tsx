@@ -1,5 +1,5 @@
-import { OnboardingPage } from "@/features/onboarding/onboarding-page";
+import { lazyRouteComponent } from "@tanstack/react-router";
 
-export function OnboardingRoute() {
-  return <OnboardingPage />;
-}
+export const OnboardingRoute = lazyRouteComponent(
+  () => import("@/features/onboarding/onboarding-page"),
+);

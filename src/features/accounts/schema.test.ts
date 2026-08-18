@@ -45,6 +45,16 @@ describe("account schema helpers", () => {
     });
   });
 
+  it("defaults investment accounts to holdings tracking", () => {
+    expect(categoryDefaults("brokerage_account")).toEqual({
+      primaryCategory: "investment",
+      trackingMode: "holdings",
+      includeInNetWorth: true,
+      includeInInvestment: true,
+      includeInLiquidAssets: false,
+    });
+  });
+
   it("clamps share basis points to 0..=10000", () => {
     expect(clampShareBps(10_000)).toBe(10_000);
     expect(clampShareBps(12_000)).toBe(10_000);

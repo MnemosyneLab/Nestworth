@@ -23,6 +23,11 @@ impl Timestamp {
     pub fn to_rfc3339(&self) -> String {
         self.0.to_rfc3339_opts(SecondsFormat::Millis, true)
     }
+
+    #[must_use]
+    pub fn is_older_than_hours(&self, now: &Timestamp, hours: i64) -> bool {
+        now.0.signed_duration_since(self.0) > chrono::Duration::hours(hours)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

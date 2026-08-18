@@ -1,4 +1,5 @@
 import { Navigate, Outlet, useRouterState } from "@tanstack/react-router";
+import { Suspense } from "react";
 import { useTranslation } from "react-i18next";
 
 import { destinationForBootstrap, useBootstrapQuery } from "@/lib/tauri/bootstrap";
@@ -28,7 +29,15 @@ export function RootRoute() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <Outlet />
+      <Suspense
+        fallback={
+          <p className="px-8 py-10" role="status">
+            {t("references.loading")}
+          </p>
+        }
+      >
+        <Outlet />
+      </Suspense>
     </div>
   );
 }

@@ -371,3 +371,5 @@ function GroupEditor({
     </form>
   );
 }
+
+export default GroupsPage;

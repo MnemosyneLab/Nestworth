@@ -55,7 +55,9 @@ describe("institutions page", () => {
     await user.clear(name);
     await user.type(name, "DBS Bank");
     await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(await screen.findByRole("heading", { name: "DBS Bank" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "DBS Bank" }),
+    ).toBeInTheDocument();
     expect(commands.updateInstitution).toHaveBeenCalledWith({
       id: "i-1",
       name: "DBS Bank",
@@ -67,14 +69,20 @@ describe("institutions page", () => {
 
     await user.click(screen.getByRole("button", { name: "Archive DBS Bank" }));
     await waitFor(() => {
-      expect(screen.queryByRole("heading", { name: "DBS Bank" })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("heading", { name: "DBS Bank" }),
+      ).not.toBeInTheDocument();
     });
     await user.click(screen.getByLabelText("Show archived"));
-    expect(await screen.findByRole("heading", { name: "DBS Bank" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "DBS Bank" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Archived")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Restore DBS Bank" }));
     await user.click(screen.getByLabelText("Show archived"));
-    expect(await screen.findByRole("heading", { name: "DBS Bank" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "DBS Bank" }),
+    ).toBeInTheDocument();
     expect(screen.queryByText("Archived")).not.toBeInTheDocument();
   });
 
@@ -97,15 +105,21 @@ describe("institutions page", () => {
     mockInstitutionStore(institutions);
     vi.mocked(commands.updateInstitution).mockResolvedValue({
       status: "error",
-      error: commandError("VALIDATION_ERROR", "Country code must be two uppercase letters.", {
-        countryCode: "Country code must be two uppercase letters.",
-      }),
+      error: commandError(
+        "VALIDATION_ERROR",
+        "Country code must be two uppercase letters.",
+        {
+          countryCode: "Country code must be two uppercase letters.",
+        },
+      ),
     });
     await renderReadyApp();
     await user.click(screen.getByRole("link", { name: "Institutions" }));
     await user.click(await screen.findByRole("button", { name: "Edit" }));
     await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(await screen.findByText("Please check the highlighted fields.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Please check the highlighted fields."),
+    ).toBeInTheDocument();
     expect(screen.getByLabelText("Country")).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByLabelText("Country")).toHaveFocus();
     expect(

@@ -40,6 +40,8 @@ pub struct OverviewDto {
     pub by_member: Vec<BreakdownRowDto>,
     pub by_institution: Vec<BreakdownRowDto>,
     pub by_group: Vec<BreakdownRowDto>,
+    pub is_complete: bool,
+    pub unvalued_items: Vec<crate::application::valuation_service::UnvaluedItemDto>,
 }
 
 pub async fn get_overview(state: &AppState) -> Result<OverviewDto, AppError> {
@@ -83,6 +85,8 @@ fn compute_overview(
     let mut institution_net: HashMap<Option<String>, Decimal> = HashMap::new();
     let mut group_assets: HashMap<Option<String>, Decimal> = HashMap::new();
     let mut group_net: HashMap<Option<String>, Decimal> = HashMap::new();
+    let mut overview_complete = true;
+    let mut unvalued_items = Vec::new();
 
     for member in members {
         if member.archived_at.is_none() {
@@ -97,8 +101,12 @@ fn compute_overview(
         if !account.include_in_net_worth {
             continue;
         }
-        let money = latest_money(account, currency)?;
+        let money = contribution_money(account, currency)?;
         let value = money.amount();
+        if !account.valuation.complete {
+            overview_complete = false;
+            unvalued_items.extend(account.valuation.unvalued_items.iter().cloned());
+        }
         let primary = PrimaryCategory::parse(&account.primary_category)?;
         let signed = primary.signed_amount(money);
         if primary == PrimaryCategory::Liability {
@@ -167,19 +175,17 @@ fn compute_overview(
             assets,
             base_currency,
         ),
+        is_complete: overview_complete,
+        unvalued_items,
     })
 }
 
-fn latest_money(account: &AccountRecordDto, currency: CurrencyCode) -> Result<Money, AppError> {
-    match &account.latest_value {
-        Some(value) => {
-            if value.currency != currency.as_str() {
-                return Err(AppError::invalid_money(
-                    "Account value currency must match the household base currency.",
-                ));
-            }
-            Money::parse(&value.amount, currency)
-        }
+fn contribution_money(
+    account: &AccountRecordDto,
+    currency: CurrencyCode,
+) -> Result<Money, AppError> {
+    match &account.valuation.base {
+        Some(value) => Money::parse(&value.amount, CurrencyCode::parse(&value.currency)?),
         None => Money::parse("0", currency),
     }
 }
@@ -347,10 +353,19 @@ mod tests {
     use crate::{
         application::{
             account_service::{
-                archive_account, create_account, CreateAccountInput, OwnershipShareInput,
+                archive_account, create_account, get_account, CreateAccountInput,
+                OwnershipShareInput,
             },
+            cash_service::{append_account_cash, AppendAccountCashInput},
+            holding_service::{create_holding, CreateHoldingInput},
             institution_service::{create_institution, CreateInstitutionInput},
+            instrument_service::{create_instrument, CreateInstrumentInput},
             member_service::list_members,
+            portfolio_service::get_portfolio,
+            quote_service::{
+                append_manual_fx_quote, append_manual_instrument_quote, AppendManualFxQuoteInput,
+                AppendManualInstrumentQuoteInput,
+            },
         },
         error::AppError,
         test_support::{blocked_future_state, cleanup, file_hash, onboarded_state},
@@ -390,7 +405,7 @@ mod tests {
             opened_on: None,
             closed_on: None,
             owners,
-            initial_amount: amount.to_owned(),
+            initial_amount: Some(amount.to_owned()),
         }
     }
 
@@ -517,6 +532,173 @@ mod tests {
     }
 
     #[test]
+    fn golden_holdings_portfolio_totals_62190_cny() {
+        tauri::async_runtime::block_on(async {
+            let (state, path) = onboarded_state("overview-portfolio-golden").await;
+            let members = list_members(&state, false).await.expect("members");
+            let account = create_account(
+                &state,
+                CreateAccountInput {
+                    name: "Brokerage".to_owned(),
+                    primary_category: "investment".to_owned(),
+                    secondary_category: "brokerage_account".to_owned(),
+                    default_currency: "SGD".to_owned(),
+                    institution_id: None,
+                    group_id: None,
+                    tracking_mode: Some("holdings".to_owned()),
+                    note: None,
+                    include_in_net_worth: true,
+                    include_in_investment: true,
+                    include_in_liquid_assets: false,
+                    opened_on: None,
+                    closed_on: None,
+                    owners: vec![owner(&members[0].id, "100")],
+                    initial_amount: None,
+                },
+            )
+            .await
+            .expect("brokerage");
+
+            let qqq = create_instrument(
+                &state,
+                CreateInstrumentInput {
+                    name: "Invesco QQQ".to_owned(),
+                    symbol: Some("QQQ".to_owned()),
+                    instrument_type: "etf".to_owned(),
+                    quote_currency: "USD".to_owned(),
+                    market_code: Some("XNAS".to_owned()),
+                    country_code: Some("US".to_owned()),
+                    isin: None,
+                    provider_key: None,
+                    provider_symbol: None,
+                    quote_preference: Some("manual".to_owned()),
+                    note: None,
+                },
+            )
+            .await
+            .expect("qqq");
+            let es3 = create_instrument(
+                &state,
+                CreateInstrumentInput {
+                    name: "SPDR STI ETF".to_owned(),
+                    symbol: Some("ES3".to_owned()),
+                    instrument_type: "etf".to_owned(),
+                    quote_currency: "SGD".to_owned(),
+                    market_code: Some("XSES".to_owned()),
+                    country_code: Some("SG".to_owned()),
+                    isin: None,
+                    provider_key: None,
+                    provider_symbol: None,
+                    quote_preference: Some("manual".to_owned()),
+                    note: None,
+                },
+            )
+            .await
+            .expect("es3");
+
+            create_holding(
+                &state,
+                CreateHoldingInput {
+                    account_id: account.id.clone(),
+                    instrument_id: qqq.id.clone(),
+                    quantity: "3".to_owned(),
+                    note: None,
+                },
+            )
+            .await
+            .expect("qqq holding");
+            create_holding(
+                &state,
+                CreateHoldingInput {
+                    account_id: account.id.clone(),
+                    instrument_id: es3.id.clone(),
+                    quantity: "1000".to_owned(),
+                    note: None,
+                },
+            )
+            .await
+            .expect("es3 holding");
+            append_account_cash(
+                &state,
+                AppendAccountCashInput {
+                    account_id: account.id.clone(),
+                    amount: "5000".to_owned(),
+                    currency: "SGD".to_owned(),
+                },
+            )
+            .await
+            .expect("cash");
+            append_manual_instrument_quote(
+                &state,
+                AppendManualInstrumentQuoteInput {
+                    instrument_id: qqq.id,
+                    unit_price: "700".to_owned(),
+                    quoted_at: None,
+                },
+            )
+            .await
+            .expect("qqq quote");
+            append_manual_instrument_quote(
+                &state,
+                AppendManualInstrumentQuoteInput {
+                    instrument_id: es3.id,
+                    unit_price: "4".to_owned(),
+                    quoted_at: None,
+                },
+            )
+            .await
+            .expect("es3 quote");
+            append_manual_fx_quote(
+                &state,
+                AppendManualFxQuoteInput {
+                    base_currency: "USD".to_owned(),
+                    quote_currency: "CNY".to_owned(),
+                    rate: "6.9".to_owned(),
+                    quoted_at: None,
+                },
+            )
+            .await
+            .expect("usd cny");
+            append_manual_fx_quote(
+                &state,
+                AppendManualFxQuoteInput {
+                    base_currency: "SGD".to_owned(),
+                    quote_currency: "CNY".to_owned(),
+                    rate: "5.3".to_owned(),
+                    quoted_at: None,
+                },
+            )
+            .await
+            .expect("sgd cny");
+
+            let overview = get_overview(&state).await.expect("overview");
+            assert!(overview.is_complete);
+            assert_eq!(overview.net_worth.amount, "62190");
+            assert_eq!(overview.net_worth.currency, "CNY");
+            assert_eq!(overview.assets.amount, "62190");
+
+            let detail = get_account(&state, &account.id).await.expect("account");
+            assert_eq!(
+                detail
+                    .valuation
+                    .base
+                    .as_ref()
+                    .map(|value| value.amount.as_str()),
+                Some("62190")
+            );
+            assert!(detail.valuation.complete);
+
+            let portfolio = get_portfolio(&state).await.expect("portfolio");
+            assert_eq!(portfolio.total.amount, "62190");
+            assert_eq!(portfolio.total.currency, "CNY");
+            assert!(portfolio.is_complete);
+            assert_eq!(portfolio.coverage_bps, 10_000);
+            assert_eq!(portfolio.positions.len(), 2);
+            cleanup(&path);
+        });
+    }
+
+    #[test]
     fn member_share_uses_assets_not_net_worth() {
         tauri::async_runtime::block_on(async {
             let (state, path) = onboarded_state("overview-member-share").await;
@@ -628,7 +810,7 @@ mod tests {
                 error,
                 AppError::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 1
+                    supported: 2
                 }
             ));
             assert_eq!(file_hash(&path), before_hash);

@@ -32,7 +32,9 @@ describe("groups page", () => {
     await user.click(screen.getByRole("button", { name: "Shield" }));
     await user.click(screen.getByRole("button", { name: "#2563EB" }));
     await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(await screen.findByRole("heading", { name: "Emergency" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Emergency" }),
+    ).toBeInTheDocument();
     expect(commands.createGroup).toHaveBeenCalledWith({
       name: "Emergency",
       iconKey: "shield",
@@ -95,7 +97,9 @@ describe("groups page", () => {
     await user.click(await screen.findByRole("button", { name: "Add group" }));
     await user.type(screen.getByLabelText("Name"), "Emergency");
     await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(await screen.findByText("Please check the highlighted fields.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Please check the highlighted fields."),
+    ).toBeInTheDocument();
     expect(screen.getByText("Use a #RRGGBB color.")).toBeInTheDocument();
   });
 
@@ -144,7 +148,9 @@ describe("groups page", () => {
     }
     expect(save).toHaveFocus();
     await user.keyboard("{Enter}");
-    expect(await screen.findByRole("heading", { name: "Emergency" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Emergency" }),
+    ).toBeInTheDocument();
   });
 });
 

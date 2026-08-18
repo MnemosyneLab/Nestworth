@@ -40,6 +40,20 @@ pub fn parse_optional_note(value: Option<&str>) -> Result<Option<String>, AppErr
     parse_optional_text(value, NOTE_MAX_CHARS, "note")
 }
 
+pub fn parse_country_code(value: Option<&str>) -> Result<Option<String>, AppError> {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    if value.len() == 2 && value.bytes().all(|byte| byte.is_ascii_uppercase()) {
+        Ok(Some(value.to_owned()))
+    } else {
+        Err(AppError::validation(
+            "countryCode",
+            "Country code must be two uppercase letters.",
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{parse_name, parse_optional_note};

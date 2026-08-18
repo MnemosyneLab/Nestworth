@@ -57,7 +57,11 @@ export function translateAccountError(
     message === "ownerDuplicate" ||
     message === "ownersTotal" ||
     message === "date" ||
-    message === "closedOn"
+    message === "closedOn" ||
+    message === "currency" ||
+    message === "quantity" ||
+    message === "unitPrice" ||
+    message === "rate"
   ) {
     return t(`accounts.errors.${message}`);
   }
@@ -74,6 +78,8 @@ const ACCOUNT_FIELDS: Array<Path<AccountFormValues>> = [
   "closedOn",
   "owners",
   "initialAmount",
+  "trackingMode",
+  "defaultCurrency",
 ];
 
 export function AccountForm({
@@ -99,10 +105,15 @@ export function AccountForm({
   const form = useForm<AccountFormValues>({
     defaultValues: account
       ? accountToFormValues(account)
-      : emptyAccountValues(members[0]?.id ?? ""),
+      : emptyAccountValues(members[0]?.id ?? "", defaultCurrency),
   });
   const owners = useFieldArray({ control: form.control, name: "owners" });
   const ownerOptions = ownerChoices(members, account);
+  const trackingMode = form.watch("trackingMode");
+  const secondaryCategory = form.watch("secondaryCategory");
+  const defaults = categoryDefaults(secondaryCategory);
+  const showTrackingMode = defaults.primaryCategory === "investment" && !account;
+  const showInitialAmount = !account && trackingMode !== "holdings";
 
   const mutation = useMutation({
     mutationFn: async (values: AccountFormValues) => {
@@ -126,10 +137,13 @@ export function AccountForm({
   });
 
   function applyCategory(secondary: string) {
-    const defaults = categoryDefaults(secondary);
-    form.setValue("includeInNetWorth", defaults.includeInNetWorth);
-    form.setValue("includeInInvestment", defaults.includeInInvestment);
-    form.setValue("includeInLiquidAssets", defaults.includeInLiquidAssets);
+    const next = categoryDefaults(secondary);
+    form.setValue("includeInNetWorth", next.includeInNetWorth);
+    form.setValue("includeInInvestment", next.includeInInvestment);
+    form.setValue("includeInLiquidAssets", next.includeInLiquidAssets);
+    if (!account) {
+      form.setValue("trackingMode", next.trackingMode);
+    }
   }
 
   return (
@@ -207,6 +221,53 @@ export function AccountForm({
             ))}
           </NativeSelect>
         </div>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        {account ? (
+          <div className="space-y-2">
+            <p className="text-sm font-medium">{t("accounts.currency")}</p>
+            <p className="text-sm text-muted-foreground">{account.defaultCurrency}</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <label className="text-sm font-medium" htmlFor={`${formId}-currency`}>
+              {t("accounts.currency")}
+            </label>
+            <Input
+              aria-invalid={form.formState.errors.defaultCurrency ? true : undefined}
+              autoCapitalize="characters"
+              id={`${formId}-currency`}
+              maxLength={3}
+              {...form.register("defaultCurrency")}
+            />
+            <FieldError
+              message={translateAccountError(
+                t,
+                form.formState.errors.defaultCurrency?.message,
+              )}
+            />
+          </div>
+        )}
+        {showTrackingMode ? (
+          <div className="space-y-2">
+            <label className="text-sm font-medium" htmlFor={`${formId}-mode`}>
+              {t("accounts.trackingMode")}
+            </label>
+            <NativeSelect id={`${formId}-mode`} {...form.register("trackingMode")}>
+              <option value="holdings">{t("accounts.trackingModes.holdings")}</option>
+              <option value="manual_value">
+                {t("accounts.trackingModes.manual_value")}
+              </option>
+            </NativeSelect>
+          </div>
+        ) : account ? (
+          <div className="space-y-2">
+            <p className="text-sm font-medium">{t("accounts.trackingMode")}</p>
+            <p className="text-sm text-muted-foreground">
+              {t(`accounts.trackingModes.${account.trackingMode}`)}
+            </p>
+          </div>
+        ) : null}
       </div>
       <div className="space-y-2">
         <label className="text-sm font-medium" htmlFor={`${formId}-group`}>
@@ -288,7 +349,7 @@ export function AccountForm({
           </GhostButton>
         </div>
       </fieldset>
-      {account ? null : (
+      {showInitialAmount ? (
         <div className="space-y-2">
           <label className="text-sm font-medium" htmlFor={`${formId}-amount`}>
             {t("accounts.amount")}
@@ -307,7 +368,7 @@ export function AccountForm({
             )}
           />
         </div>
-      )}
+      ) : null}
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" {...form.register("includeInNetWorth")} />
         {t("accounts.includeNetWorth")}

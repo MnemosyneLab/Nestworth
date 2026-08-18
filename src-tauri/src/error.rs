@@ -18,6 +18,14 @@ pub enum AppError {
     InvalidCategory { message: String },
     #[error("invalid money")]
     InvalidMoney { message: String },
+    #[error("invalid quantity")]
+    InvalidQuantity { message: String },
+    #[error("invalid unit price")]
+    InvalidUnitPrice { message: String },
+    #[error("invalid FX rate")]
+    InvalidFxRate { message: String },
+    #[error("decimal overflow")]
+    DecimalOverflow,
     #[error("the selected image is invalid")]
     MediaInvalid { message: String },
     #[error("household is already onboarded")]
@@ -26,6 +34,20 @@ pub enum AppError {
     NotFound { entity: String, id: String },
     #[error("{message}")]
     Conflict { message: String },
+    #[error("the holding already exists")]
+    DuplicateHolding,
+    #[error("required quote is unavailable")]
+    QuoteUnavailable { message: String },
+    #[error("provider authentication failed")]
+    ProviderAuthentication,
+    #[error("provider rate limit reached")]
+    ProviderRateLimit,
+    #[error("provider is unavailable")]
+    ProviderUnavailable { message: String },
+    #[error("provider response is malformed")]
+    MalformedProviderResponse { message: String },
+    #[error("provider symbol is unsupported")]
+    UnsupportedProviderSymbol { message: String },
     #[error("database is unavailable")]
     DatabaseUnavailable,
     #[error("database migration failed")]
@@ -73,6 +95,24 @@ impl AppError {
 
     pub fn invalid_money(message: &str) -> Self {
         Self::InvalidMoney {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn invalid_quantity(message: &str) -> Self {
+        Self::InvalidQuantity {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn invalid_unit_price(message: &str) -> Self {
+        Self::InvalidUnitPrice {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn invalid_fx_rate(message: &str) -> Self {
+        Self::InvalidFxRate {
             message: message.to_owned(),
         }
     }
@@ -137,6 +177,37 @@ impl AppError {
                     fields: Some(fields),
                 }
             }
+            Self::InvalidQuantity { message } => {
+                let mut fields = HashMap::new();
+                fields.insert("quantity".to_owned(), message);
+                CommandError {
+                    code: ErrorCode::InvalidQuantity,
+                    message: "The quantity is invalid.".to_owned(),
+                    fields: Some(fields),
+                }
+            }
+            Self::InvalidUnitPrice { message } => {
+                let mut fields = HashMap::new();
+                fields.insert("unitPrice".to_owned(), message);
+                CommandError {
+                    code: ErrorCode::InvalidUnitPrice,
+                    message: "The unit price is invalid.".to_owned(),
+                    fields: Some(fields),
+                }
+            }
+            Self::InvalidFxRate { message } => {
+                let mut fields = HashMap::new();
+                fields.insert("rate".to_owned(), message);
+                CommandError {
+                    code: ErrorCode::InvalidFxRate,
+                    message: "The FX rate is invalid.".to_owned(),
+                    fields: Some(fields),
+                }
+            }
+            Self::DecimalOverflow => CommandError::new(
+                ErrorCode::DecimalOverflow,
+                "The calculated amount is too large to store.",
+            ),
             Self::MediaInvalid { message } => {
                 let mut fields = HashMap::new();
                 fields.insert("image".to_owned(), message.clone());
@@ -172,6 +243,38 @@ impl AppError {
                     fields,
                 }
             }
+            Self::DuplicateHolding => CommandError::new(
+                ErrorCode::DuplicateHolding,
+                "This instrument is already held in the account.",
+            ),
+            Self::QuoteUnavailable { message } => CommandError {
+                code: ErrorCode::QuoteUnavailable,
+                message,
+                fields: None,
+            },
+            Self::ProviderAuthentication => CommandError::new(
+                ErrorCode::ProviderAuthentication,
+                "The quote provider rejected the stored credentials.",
+            ),
+            Self::ProviderRateLimit => CommandError::new(
+                ErrorCode::ProviderRateLimit,
+                "The quote provider rate limit was reached.",
+            ),
+            Self::ProviderUnavailable { message } => CommandError {
+                code: ErrorCode::ProviderUnavailable,
+                message,
+                fields: None,
+            },
+            Self::MalformedProviderResponse { message } => CommandError {
+                code: ErrorCode::MalformedProviderResponse,
+                message,
+                fields: None,
+            },
+            Self::UnsupportedProviderSymbol { message } => CommandError {
+                code: ErrorCode::UnsupportedProviderSymbol,
+                message,
+                fields: None,
+            },
             Self::DatabaseUnavailable => CommandError::new(
                 ErrorCode::DatabaseUnavailable,
                 "The database is unavailable.",
@@ -218,6 +321,18 @@ pub enum ErrorCode {
     BaseCurrencyChangeNotAllowed,
     InvalidCategory,
     InvalidMoney,
+    InvalidQuantity,
+    InvalidUnitPrice,
+    InvalidFxRate,
+    DecimalOverflow,
+    QuoteUnavailable,
+    IncompleteValuation,
+    DuplicateHolding,
+    UnsupportedProviderSymbol,
+    ProviderAuthentication,
+    ProviderRateLimit,
+    ProviderUnavailable,
+    MalformedProviderResponse,
     MediaInvalid,
     DatabaseError,
     DatabaseUnavailable,

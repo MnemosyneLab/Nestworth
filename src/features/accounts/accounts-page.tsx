@@ -23,7 +23,8 @@ import {
   type GroupRecordDto,
   type InstitutionRecordDto,
 } from "@/generated/tauri-bindings";
-import { bootstrapQueryKey, useBootstrapQuery } from "@/lib/tauri/bootstrap";
+import { invalidateValuation } from "@/lib/tauri/invalidate";
+import { useBootstrapQuery } from "@/lib/tauri/bootstrap";
 import { commandErrorFromUnknown, unwrapResult } from "@/lib/tauri/errors";
 import { cn } from "@/lib/utils";
 
@@ -57,8 +58,7 @@ export function AccountsPage() {
   });
 
   async function invalidate() {
-    await queryClient.invalidateQueries({ queryKey: ["accounts"] });
-    await queryClient.invalidateQueries({ queryKey: bootstrapQueryKey });
+    await invalidateValuation(queryClient);
   }
 
   const archive = useMutation({
@@ -128,10 +128,7 @@ export function AccountsPage() {
             details={<AccountSummary account={account} />}
             key={account.id}
             leading={
-              <AccountMark
-                account={account}
-                institutions={institutions.data ?? []}
-              />
+              <AccountMark account={account} institutions={institutions.data ?? []} />
             }
             name={account.name}
           >
@@ -237,13 +234,14 @@ function AccountFilters({
 
 function AccountSummary({ account }: { account: AccountRecordDto }) {
   const { t } = useTranslation();
-  const value = account.latestValue
-    ? formatMoney(account.latestValue.amount, account.latestValue.currency)
+  const value = account.valuation.base
+    ? formatMoney(account.valuation.base.amount, account.valuation.base.currency)
     : t("accounts.noValue");
   const owners = account.owners.map((owner) => owner.memberName).join(", ");
   return (
     <div className="mt-1 space-y-1 text-sm text-muted-foreground">
       <p>{value}</p>
+      {account.valuation.complete ? null : <p>{t("quotes.incomplete")}</p>}
       <p>{t(`accounts.categories.${account.secondaryCategory}`)}</p>
       {owners ? <p>{owners}</p> : null}
     </div>
@@ -270,3 +268,5 @@ function filterChoices<T extends { id: string; archivedAt: string | null }>(
     (record) => record.archivedAt === null || record.id === selectedId,
   );
 }
+
+export default AccountsPage;

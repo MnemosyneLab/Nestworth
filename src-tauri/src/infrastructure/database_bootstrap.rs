@@ -247,6 +247,13 @@ mod tests {
             .await
             .expect("schema query should succeed");
             assert_eq!(first_tables, 4);
+            let portfolio_tables: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('instruments', 'holdings', 'account_cash_values', 'instrument_quotes', 'fx_quotes', 'fx_quote_preferences')",
+            )
+            .fetch_one(&first_pool)
+            .await
+            .expect("portfolio schema query should succeed");
+            assert_eq!(portfolio_tables, 6);
             let foreign_keys: i64 = sqlx::query_scalar("PRAGMA foreign_keys")
                 .fetch_one(&first_pool)
                 .await
@@ -305,7 +312,7 @@ mod tests {
                 read_migration_version(&path)
                     .await
                     .expect("migrated database should be readable"),
-                1
+                2
             );
 
             remove_database(&path);
@@ -409,7 +416,7 @@ mod tests {
                 result.status,
                 DatabaseBootstrapStatus::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 1,
+                    supported: 2,
                 }
             );
             assert!(result.pool.is_none());
@@ -423,7 +430,7 @@ mod tests {
                 crate::state::DatabaseRuntime::Blocked {
                     status: DatabaseBootstrapStatus::UnsupportedNewerDatabase {
                         found: 999,
-                        supported: 1,
+                        supported: 2,
                     },
                     ..
                 }
@@ -432,10 +439,127 @@ mod tests {
                 app_state.writable_db(),
                 Err(crate::error::AppError::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 1,
+                    supported: 2,
                 })
             ));
 
+            remove_database(&path);
+        });
+    }
+
+    #[test]
+    fn version_one_fixture_migrates_to_two_and_preserves_account_values() {
+        tauri::async_runtime::block_on(async {
+            let path = test_path("v011-fixture");
+            remove_database(&path);
+            let pool = connect_writable(&path, true)
+                .await
+                .expect("v0.1.1 fixture should open");
+            let migration = super::MIGRATOR
+                .iter()
+                .find(|item| item.version == 1)
+                .expect("migration 001 should exist")
+                .clone();
+            {
+                let mut conn = pool.acquire().await.expect("connection");
+                sqlx::migrate::Migrate::ensure_migrations_table(&mut *conn)
+                    .await
+                    .expect("migration metadata table should be created");
+                sqlx::migrate::Migrate::apply(&mut *conn, &migration)
+                    .await
+                    .expect("v0.1.1 schema should apply");
+            }
+
+            let now = "2026-08-17T00:00:00.000Z";
+            let household_id = crate::domain::HouseholdId::new().to_string();
+            let member_id = crate::domain::MemberId::new().to_string();
+            let account_id = crate::domain::AccountId::new().to_string();
+            let value_id = crate::domain::AccountValueId::new().to_string();
+            sqlx::query(
+                "INSERT INTO households (id, name, base_currency, created_at, updated_at) VALUES (?, 'Wang Family', 'CNY', ?, ?)",
+            )
+            .bind(&household_id)
+            .bind(now)
+            .bind(now)
+            .execute(&pool)
+            .await
+            .expect("household");
+            sqlx::query(
+                "INSERT INTO members (id, household_id, name, sort_order, created_at, updated_at) VALUES (?, ?, 'Walt', 0, ?, ?)",
+            )
+            .bind(&member_id)
+            .bind(&household_id)
+            .bind(now)
+            .bind(now)
+            .execute(&pool)
+            .await
+            .expect("member");
+            sqlx::query(
+                "INSERT INTO accounts (id, household_id, name, primary_category, secondary_category, tracking_mode, default_currency, include_in_net_worth, include_in_investment, include_in_liquid_assets, sort_order, created_at, updated_at) VALUES (?, ?, 'DBS Savings', 'cash_equivalent', 'bank_account', 'balance', 'CNY', 1, 0, 1, 0, ?, ?)",
+            )
+            .bind(&account_id)
+            .bind(&household_id)
+            .bind(now)
+            .bind(now)
+            .execute(&pool)
+            .await
+            .expect("account");
+            sqlx::query(
+                "INSERT INTO account_ownership (account_id, member_id, share_bps) VALUES (?, ?, 10000)",
+            )
+            .bind(&account_id)
+            .bind(&member_id)
+            .execute(&pool)
+            .await
+            .expect("ownership");
+            sqlx::query(
+                "INSERT INTO account_values (id, account_id, value_kind, amount, currency, effective_at, created_at) VALUES (?, ?, 'balance', '100000', 'CNY', ?, ?)",
+            )
+            .bind(&value_id)
+            .bind(&account_id)
+            .bind(now)
+            .bind(now)
+            .execute(&pool)
+            .await
+            .expect("value");
+            sqlx::query(
+                "INSERT INTO app_settings (id, language, appearance, last_household_id, created_at, updated_at) VALUES (1, 'system', 'system', ?, ?, ?)",
+            )
+            .bind(&household_id)
+            .bind(now)
+            .bind(now)
+            .execute(&pool)
+            .await
+            .expect("settings");
+            pool.close().await;
+
+            let result = initialize_database(path.clone()).await;
+            assert_eq!(result.status, DatabaseBootstrapStatus::Migrated);
+            let pool = result.pool.expect("migrated fixture should be writable");
+            let version: i64 = sqlx::query_scalar("SELECT MAX(version) FROM _sqlx_migrations")
+                .fetch_one(&pool)
+                .await
+                .expect("version");
+            assert_eq!(version, 2);
+            let amount: String =
+                sqlx::query_scalar("SELECT amount FROM account_values WHERE id = ?")
+                    .bind(&value_id)
+                    .fetch_one(&pool)
+                    .await
+                    .expect("preserved value");
+            assert_eq!(amount, "100000");
+            let instruments: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE name = 'instruments'")
+                    .fetch_one(&pool)
+                    .await
+                    .expect("instruments table");
+            assert_eq!(instruments, 1);
+            let integrity: String = sqlx::query_scalar("PRAGMA integrity_check")
+                .fetch_one(&pool)
+                .await
+                .expect("integrity");
+            assert_eq!(integrity, "ok");
+            pool.close().await;
             remove_database(&path);
         });
     }

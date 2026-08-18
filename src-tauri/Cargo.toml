@@ -1,6 +1,6 @@
 [package]
 name = "nestworth"
-version = "0.1.1"
+version = "0.1.2"
 description = "A local-first household net worth tracker"
 authors = ["Nestworth contributors"]
 license = "MIT"
@@ -42,3 +42,5 @@ specta = { version = "=2.0.0-rc.22", features = ["derive", "function"] }
 specta-typescript = "=0.0.9"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp"] }
 base64 = "0.23.1"
+tokio = { version = "1", default-features = false, features = ["macros", "rt", "sync", "time"] }
+futures = { version = "0.3", default-features = false, features = ["std"] }

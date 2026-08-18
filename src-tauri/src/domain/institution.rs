@@ -1,6 +1,9 @@
 use super::{
     ids::{HouseholdId, InstitutionId, MediaAssetId},
-    text::{parse_name, parse_optional_note, parse_optional_text, NAME_MAX_CHARS, NOTE_MAX_CHARS},
+    text::{
+        parse_country_code, parse_name, parse_optional_note, parse_optional_text, NAME_MAX_CHARS,
+        NOTE_MAX_CHARS,
+    },
     time::Timestamp,
 };
 use crate::error::AppError;
@@ -197,20 +200,6 @@ impl Institution {
     #[must_use]
     pub fn is_archived(&self) -> bool {
         self.archived_at.is_some()
-    }
-}
-
-fn parse_country_code(value: Option<&str>) -> Result<Option<String>, AppError> {
-    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
-        return Ok(None);
-    };
-    if value.len() == 2 && value.bytes().all(|byte| byte.is_ascii_uppercase()) {
-        Ok(Some(value.to_owned()))
-    } else {
-        Err(AppError::validation(
-            "countryCode",
-            "Country code must be two uppercase letters.",
-        ))
     }
 }
 

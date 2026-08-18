@@ -255,3 +255,5 @@ function MemberEditor({
     </form>
   );
 }
+
+export default MembersPage;
