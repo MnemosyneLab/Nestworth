@@ -1,0 +1,231 @@
+{
+  "onboarding": {
+    "eyebrow": "Welcome",
+    "title": "Set up your household",
+    "step": "Step {{current}} of {{total}}",
+    "householdName": "Household name",
+    "baseCurrency": "Base currency",
+    "customCurrency": "Currency code",
+    "members": "Members",
+    "memberName": "Member {{number}}",
+    "addMember": "Add member",
+    "remove": "Remove",
+    "removeMember": "Remove member {{number}}",
+    "review": "Review",
+    "back": "Back",
+    "next": "Next",
+    "finish": "Finish",
+    "saving": "Saving",
+    "currencies": {
+      "CNY": "CNY — Chinese Yuan",
+      "SGD": "SGD — Singapore Dollar",
+      "USD": "USD — US Dollar",
+      "other": "Other currency"
+    },
+    "errors": {
+      "required": "This field is required.",
+      "tooLong": "Use 80 characters or fewer.",
+      "currency": "Use three uppercase letters.",
+      "members": "Add at least one member."
+    }
+  },
+  "overview": {
+    "eyebrow": "Overview",
+    "baseCurrency": "Base currency {{currency}}",
+    "empty": "Your household balance sheet is empty.",
+    "emptyHint": "Add your first account to start tracking your net worth.",
+    "netWorth": "Net worth",
+    "assets": "Assets",
+    "liabilities": "Liabilities",
+    "byCategory": "By category",
+    "byMember": "By member",
+    "byInstitution": "By institution",
+    "byGroup": "By group"
+  },
+  "startup": {
+    "eyebrow": "Startup",
+    "title": "Nestworth cannot open this database",
+    "loading": "Starting Nestworth…",
+    "unsupportedVersion": "This database is at migration {{found}}, but this app supports {{supported}}.",
+    "databasePath": "Database path: {{path}}"
+  },
+  "nav": {
+    "label": "Household",
+    "overview": "Overview",
+    "accounts": "Accounts",
+    "all": "All",
+    "shared": "Shared",
+    "institutions": "Institutions",
+    "groups": "Groups",
+    "members": "Members",
+    "settings": "Settings",
+    "general": "General"
+  },
+  "references": {
+    "add": "Add",
+    "edit": "Edit",
+    "archive": "Archive",
+    "restore": "Restore",
+    "showArchived": "Show archived",
+    "archived": "Archived",
+    "save": "Save",
+    "cancel": "Cancel",
+    "saving": "Saving",
+    "loading": "Loading…",
+    "name": "Name",
+    "note": "Note",
+    "errors": {
+      "required": "This field is required.",
+      "tooLong": "Use 80 characters or fewer.",
+      "noteTooLong": "Use 2000 characters or fewer.",
+      "country": "Use two uppercase letters.",
+      "color": "Use a #RRGGBB color."
+    }
+  },
+  "members": {
+    "title": "Members",
+    "empty": "No active members to show.",
+    "add": "Add member",
+    "archiveName": "Archive {{name}}",
+    "restoreName": "Restore {{name}}"
+  },
+  "institutions": {
+    "title": "Institutions",
+    "empty": "Add an institution before you create accounts.",
+    "add": "Add institution",
+    "type": "Type",
+    "country": "Country",
+    "website": "Website",
+    "archiveName": "Archive {{name}}",
+    "restoreName": "Restore {{name}}"
+  },
+  "groups": {
+    "title": "Groups",
+    "empty": "Add a group to organize accounts.",
+    "add": "Add group",
+    "icon": "Icon",
+    "color": "Color",
+    "description": "Description",
+    "archiveName": "Archive {{name}}",
+    "restoreName": "Restore {{name}}",
+    "icons": {
+      "wallet": "Wallet",
+      "home": "Home",
+      "shield": "Shield",
+      "briefcase": "Briefcase",
+      "heart": "Heart",
+      "star": "Star"
+    }
+  },
+  "accounts": {
+    "title": "Accounts",
+    "empty": "Add an account to start tracking net worth.",
+    "filterEmpty": "No accounts match these filters.",
+    "filters": "Account filters",
+    "allCategories": "All categories",
+    "allInstitutions": "All institutions",
+    "allGroups": "All groups",
+    "add": "Add account",
+    "open": "Open",
+    "back": "Back to accounts",
+    "noValue": "No value yet",
+    "updateValue": "Update value",
+    "amount": "Amount",
+    "category": "Category",
+    "institution": "Institution",
+    "group": "Group",
+    "owner": "Owner",
+    "owners": "Owners",
+    "percent": "Percent",
+    "addOwner": "Add owner",
+    "removeOwner": "Remove owner",
+    "splitEqually": "Split equally",
+    "none": "None",
+    "includeNetWorth": "Include in net worth",
+    "includeInvestment": "Include in investment",
+    "includeLiquid": "Include in liquid assets",
+    "archiveName": "Archive {{name}}",
+    "restoreName": "Restore {{name}}",
+    "primaries": {
+      "cash_equivalent": "Cash equivalent",
+      "investment": "Investment",
+      "property": "Property",
+      "receivable": "Receivable",
+      "liability": "Liability"
+    },
+    "categories": {
+      "cash": "Cash",
+      "bank_account": "Bank Account",
+      "digital_wallet": "Digital Wallet",
+      "broker_cash": "Broker Cash",
+      "other_cash_equivalent": "Other Cash Equivalent",
+      "brokerage_account": "Brokerage Account",
+      "investment_fund_account": "Investment Fund Account",
+      "bank_investment_product": "Bank Investment Product",
+      "insurance": "Insurance",
+      "manual_investment": "Manual Investment",
+      "other_investment": "Other Investment",
+      "real_estate": "Real Estate",
+      "vehicle": "Vehicle",
+      "collectible": "Collectible",
+      "other_property": "Other Property",
+      "loan_receivable": "Loan Receivable",
+      "other_receivable": "Other Receivable",
+      "credit_card": "Credit Card",
+      "mortgage": "Mortgage",
+      "auto_loan": "Auto Loan",
+      "consumer_loan": "Consumer Loan",
+      "personal_debt": "Personal Debt",
+      "other_liability": "Other Liability"
+    },
+    "errors": {
+      "amount": "Enter a non-negative amount with up to 12 integer digits and 4 decimal places.",
+      "percent": "Enter a percent greater than 0 and at most 100, with up to two decimal places.",
+      "owners": "Add at least one owner.",
+      "ownerDuplicate": "Owners must be unique.",
+      "ownersTotal": "Ownership shares must total 100%.",
+      "date": "Use YYYY-MM-DD.",
+      "closedOn": "Closed date cannot be earlier than opened date."
+    }
+  },
+  "media": {
+    "avatar": "Avatar",
+    "logo": "Logo",
+    "choose": "Choose image"
+  },
+  "settings": {
+    "title": "Settings",
+    "household": "Household",
+    "language": "Language",
+    "appearance": "Appearance",
+    "languages": {
+      "system": "System",
+      "en": "English",
+      "zh-CN": "简体中文"
+    },
+    "appearances": {
+      "system": "System",
+      "light": "Light",
+      "dark": "Dark"
+    }
+  },
+  "errors": {
+    "VALIDATION_ERROR": "Please check the highlighted fields.",
+    "NOT_FOUND": "The requested item could not be found.",
+    "CONFLICT": "This change conflicts with the current data.",
+    "ALREADY_ONBOARDED": "This household has already been set up.",
+    "OWNERSHIP_TOTAL_INVALID": "Ownership shares must total 100%.",
+    "BASE_CURRENCY_CHANGE_NOT_ALLOWED": "The base currency cannot be changed.",
+    "INVALID_CATEGORY": "The account category is invalid.",
+    "INVALID_MONEY": "The amount is invalid.",
+    "MEDIA_INVALID": "The selected image is invalid.",
+    "DATABASE_ERROR": "The database could not complete this action.",
+    "DATABASE_UNAVAILABLE": "The database is unavailable.",
+    "UNSUPPORTED_NEWER_DATABASE": "This database was created by a newer version of Nestworth.",
+    "MIGRATION_FAILED": "Database migration failed.",
+    "INTERNAL_ERROR": "An internal application error occurred.",
+    "reasons": {
+      "lastActiveMember": "Keep at least one active member."
+    }
+  }
+}

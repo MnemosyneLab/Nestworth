@@ -1,0 +1,231 @@
+{
+  "onboarding": {
+    "eyebrow": "欢迎",
+    "title": "创建你的家庭",
+    "step": "第 {{current}} 步，共 {{total}} 步",
+    "householdName": "家庭名称",
+    "baseCurrency": "基础货币",
+    "customCurrency": "货币代码",
+    "members": "成员",
+    "memberName": "成员 {{number}}",
+    "addMember": "添加成员",
+    "remove": "删除",
+    "removeMember": "删除成员 {{number}}",
+    "review": "确认信息",
+    "back": "上一步",
+    "next": "下一步",
+    "finish": "完成",
+    "saving": "正在保存",
+    "currencies": {
+      "CNY": "CNY — 人民币",
+      "SGD": "SGD — 新加坡元",
+      "USD": "USD — 美元",
+      "other": "其他货币"
+    },
+    "errors": {
+      "required": "此项为必填。",
+      "tooLong": "最多 80 个字符。",
+      "currency": "请使用三个大写字母。",
+      "members": "至少添加一位成员。"
+    }
+  },
+  "overview": {
+    "eyebrow": "总览",
+    "baseCurrency": "基础货币 {{currency}}",
+    "empty": "这个家庭的资产负债表还是空的。",
+    "emptyHint": "添加第一个账户，开始跟踪净资产。",
+    "netWorth": "净资产",
+    "assets": "资产",
+    "liabilities": "负债",
+    "byCategory": "按类别",
+    "byMember": "按成员",
+    "byInstitution": "按机构",
+    "byGroup": "按分组"
+  },
+  "startup": {
+    "eyebrow": "启动",
+    "title": "Nestworth 无法打开这个数据库",
+    "loading": "正在启动 Nestworth…",
+    "unsupportedVersion": "当前数据库迁移版本为 {{found}}，此应用支持 {{supported}}。",
+    "databasePath": "数据库路径：{{path}}"
+  },
+  "nav": {
+    "label": "家庭",
+    "overview": "总览",
+    "accounts": "账户",
+    "all": "全部",
+    "shared": "共同",
+    "institutions": "机构",
+    "groups": "分组",
+    "members": "成员",
+    "settings": "设置",
+    "general": "通用"
+  },
+  "references": {
+    "add": "添加",
+    "edit": "编辑",
+    "archive": "归档",
+    "restore": "恢复",
+    "showArchived": "显示已归档",
+    "archived": "已归档",
+    "save": "保存",
+    "cancel": "取消",
+    "saving": "正在保存",
+    "loading": "加载中…",
+    "name": "名称",
+    "note": "备注",
+    "errors": {
+      "required": "此项为必填。",
+      "tooLong": "最多 80 个字符。",
+      "noteTooLong": "最多 2000 个字符。",
+      "country": "请使用两个大写字母。",
+      "color": "请使用 #RRGGBB 颜色。"
+    }
+  },
+  "members": {
+    "title": "成员",
+    "empty": "没有可显示的活跃成员。",
+    "add": "添加成员",
+    "archiveName": "归档 {{name}}",
+    "restoreName": "恢复 {{name}}"
+  },
+  "institutions": {
+    "title": "机构",
+    "empty": "先添加机构，再创建账户。",
+    "add": "添加机构",
+    "type": "类型",
+    "country": "国家/地区",
+    "website": "网站",
+    "archiveName": "归档 {{name}}",
+    "restoreName": "恢复 {{name}}"
+  },
+  "groups": {
+    "title": "分组",
+    "empty": "添加分组来整理账户。",
+    "add": "添加分组",
+    "icon": "图标",
+    "color": "颜色",
+    "description": "描述",
+    "archiveName": "归档 {{name}}",
+    "restoreName": "恢复 {{name}}",
+    "icons": {
+      "wallet": "钱包",
+      "home": "家",
+      "shield": "盾牌",
+      "briefcase": "公文包",
+      "heart": "心形",
+      "star": "星星"
+    }
+  },
+  "accounts": {
+    "title": "账户",
+    "empty": "添加账户后即可开始跟踪净资产。",
+    "filterEmpty": "没有符合筛选条件的账户。",
+    "filters": "账户筛选",
+    "allCategories": "全部类别",
+    "allInstitutions": "全部机构",
+    "allGroups": "全部分组",
+    "add": "添加账户",
+    "open": "打开",
+    "back": "返回账户列表",
+    "noValue": "还没有价值",
+    "updateValue": "更新价值",
+    "amount": "金额",
+    "category": "类别",
+    "institution": "机构",
+    "group": "分组",
+    "owner": "所有者",
+    "owners": "所有者",
+    "percent": "百分比",
+    "addOwner": "添加所有者",
+    "removeOwner": "移除所有者",
+    "splitEqually": "平均分配",
+    "none": "无",
+    "includeNetWorth": "计入净资产",
+    "includeInvestment": "计入投资",
+    "includeLiquid": "计入流动资产",
+    "archiveName": "归档 {{name}}",
+    "restoreName": "恢复 {{name}}",
+    "primaries": {
+      "cash_equivalent": "现金等价物",
+      "investment": "投资",
+      "property": "不动产与物品",
+      "receivable": "应收",
+      "liability": "负债"
+    },
+    "categories": {
+      "cash": "现金",
+      "bank_account": "银行账户",
+      "digital_wallet": "电子钱包",
+      "broker_cash": "券商现金",
+      "other_cash_equivalent": "其他现金等价物",
+      "brokerage_account": "券商账户",
+      "investment_fund_account": "基金账户",
+      "bank_investment_product": "银行理财",
+      "insurance": "保险",
+      "manual_investment": "手工投资",
+      "other_investment": "其他投资",
+      "real_estate": "房产",
+      "vehicle": "车辆",
+      "collectible": "收藏品",
+      "other_property": "其他资产",
+      "loan_receivable": "借出款项",
+      "other_receivable": "其他应收",
+      "credit_card": "信用卡",
+      "mortgage": "房贷",
+      "auto_loan": "车贷",
+      "consumer_loan": "消费贷",
+      "personal_debt": "个人负债",
+      "other_liability": "其他负债"
+    },
+    "errors": {
+      "amount": "请输入非负金额，整数最多 12 位，小数最多 4 位。",
+      "percent": "请输入大于 0 且不超过 100 的百分比，最多两位小数。",
+      "owners": "至少添加一位所有者。",
+      "ownerDuplicate": "所有者不能重复。",
+      "ownersTotal": "所有权份额合计必须为 100%。",
+      "date": "请使用 YYYY-MM-DD。",
+      "closedOn": "关闭日期不能早于开户日期。"
+    }
+  },
+  "media": {
+    "avatar": "头像",
+    "logo": "标志",
+    "choose": "选择图片"
+  },
+  "settings": {
+    "title": "设置",
+    "household": "家庭",
+    "language": "语言",
+    "appearance": "外观",
+    "languages": {
+      "system": "跟随系统",
+      "en": "English",
+      "zh-CN": "简体中文"
+    },
+    "appearances": {
+      "system": "跟随系统",
+      "light": "浅色",
+      "dark": "深色"
+    }
+  },
+  "errors": {
+    "VALIDATION_ERROR": "请检查标出的字段。",
+    "NOT_FOUND": "找不到请求的内容。",
+    "CONFLICT": "此更改与当前数据冲突。",
+    "ALREADY_ONBOARDED": "这个家庭已经完成设置。",
+    "OWNERSHIP_TOTAL_INVALID": "所有权份额合计必须为 100%。",
+    "BASE_CURRENCY_CHANGE_NOT_ALLOWED": "不能修改基础货币。",
+    "INVALID_CATEGORY": "账户类别无效。",
+    "INVALID_MONEY": "金额无效。",
+    "MEDIA_INVALID": "所选图片无效。",
+    "DATABASE_ERROR": "数据库无法完成此操作。",
+    "DATABASE_UNAVAILABLE": "数据库不可用。",
+    "UNSUPPORTED_NEWER_DATABASE": "这个数据库由更新版本的 Nestworth 创建。",
+    "MIGRATION_FAILED": "数据库迁移失败。",
+    "INTERNAL_ERROR": "发生了内部错误。",
+    "reasons": {
+      "lastActiveMember": "请至少保留一位活跃成员。"
+    }
+  }
+}

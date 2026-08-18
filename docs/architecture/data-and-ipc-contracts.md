@@ -1,0 +1,147 @@
+# Data and IPC Contracts
+
+## Ownership of Contracts
+
+The migration files are the executable database schema. Rust command signatures and Specta derives are the executable IPC schema. This document records the stable behavior that implementations must preserve without duplicating full SQL or generated TypeScript.
+
+## SQLite Runtime
+
+The application stores business data in `nestworth.sqlite3` under the Tauri application data directory. Rust is the only database client.
+
+Writable connections use:
+
+- Foreign keys enabled
+- WAL journal mode
+- Normal synchronous mode
+- A five-second busy timeout
+- A pool capped at four connections
+
+Startup verifies foreign-key enforcement, WAL mode, `foreign_key_check`, and `integrity_check`. A failure produces a blocked runtime instead of deleting, replacing, or silently recreating the user's database.
+
+## Migration Compatibility State Machine
+
+Embedded SQLx migrations define the maximum supported migration version.
+
+| Condition | Runtime behavior |
+| --- | --- |
+| Database absent | Create it, run migrations, verify it, and initialize settings |
+| Database version supported and current | Open and verify it |
+| Database version older | Copy a sibling `{filename}.pre-migrate-{found}` snapshot, including `-wal` and `-shm` sidecars when present; if that copy fails, block with no migration. Then run pending migrations and verify. |
+| Database version newer than supported | Return `UnsupportedNewerDatabase` with no writable pool |
+| Migration failure | Return a blocked migration state |
+| Integrity or metadata failure | Return a blocked corrupt-database state |
+| Path or open failure | Return a blocked unavailable state |
+
+The migration version is inspected through a read-only connection before any writable connection is opened. An existing database that still needs a migration is copied to a sibling snapshot first; a failed snapshot copy blocks startup without running migrations. An unsupported future database must receive zero application writes, including settings initialization, migrations, recovery data, snapshot copies of that file, or metadata changes. All business commands obtain their database through `AppState::writable_db`, so the blocked state applies uniformly.
+
+## Current Persistence Responsibilities
+
+| Table | Responsibility | Important integrity boundary |
+| --- | --- | --- |
+| `households` | Singleton balance-sheet root | Database-enforced single row and valid currency shape |
+| `members` | Household people | Household FK, archive state, optional avatar reference |
+| `institutions` | Account providers or locations | Household FK, archive state, optional logo reference |
+| `account_groups` | User-defined organization | Household FK, archive state, optional logo reference |
+| `accounts` | Account metadata and financial classification | Household and optional reference FKs, category and tracking checks, boolean checks |
+| `account_ownership` | Member shares for Accounts | Composite identity, positive bounded shares, restricted Member deletion |
+| `account_values` | Append-only balance or manual-value observations | Account FK, value-kind and currency checks, latest-value index |
+| `media_assets` | Household-scoped binary images | Household FK and cascading Household deletion |
+| `app_settings` | Singleton language, appearance, and last Household pointer | Fixed row ID and enumerated settings values |
+
+SQLite constraints provide structural integrity. Rules requiring sums, comparisons with current state, retained archived references, or last-active-member checks remain application-service responsibilities. Database triggers are not used for v0.1.1.
+
+## Transactions and Query Guarantees
+
+Write use cases begin with `BEGIN IMMEDIATE`. Success commits once; any validation, lookup, SQL, or DTO assembly error rolls the entire transaction back. Creation and update flows must never leave partial Accounts, Ownership, Values, Household setup, or reference records.
+
+Read models that combine multiple queries use one read transaction so they observe one SQLite snapshot. Overview reads the Household, Accounts, Members, Institutions, and Groups under the same transaction.
+
+List queries are bounded by collection type, not row count. Account List loads Accounts with latest values in one query and Ownership in one batch query. Queries inside a loop over returned Accounts are prohibited.
+
+All default lists are deterministic:
+
+```text
+sort_order ASC, name COLLATE NOCASE ASC, id ASC
+```
+
+Latest Account Value uses:
+
+```text
+effective_at DESC, created_at DESC, id DESC
+```
+
+## Mutation Guarantees
+
+- Creation validates all input before or inside the same transaction as persistence.
+- Unknown mutation targets return `NOT_FOUND` and write nothing.
+- Invalid input leaves existing rows and timestamps unchanged.
+- Archive and restore are idempotent and do not touch `updated_at` when no state changes.
+- The final active Member cannot be archived, including under concurrent requests.
+- New Account references must be active and belong to the current Household.
+- Account updates may retain, but may not newly select, an archived reference.
+- TrackingMode cannot change after Account creation.
+- Account Value updates append a new observation; they do not overwrite prior observations.
+
+Canonical business reasoning for these guarantees is in the [domain model](domain-model.md).
+
+## Command Surface
+
+The v0.1.1 command surface is grouped by use case:
+
+| Group | Commands |
+| --- | --- |
+| Startup | `bootstrap` |
+| Onboarding | `complete_onboarding` |
+| Members | list, create, update, archive, restore, `set_member_avatar` |
+| Institutions | list, create, update, archive, restore, `set_institution_logo` |
+| Groups | list, create, update, archive, restore, `set_group_logo` |
+| Accounts | list, get, create, update, update value, archive, restore, `set_account_logo` |
+| Overview | `get_overview` |
+| Media | `get_media` |
+| Settings | `get_settings`, `update_settings` |
+
+v0.1.1 does not expose `get_household`, `update_household`, or media-clear commands. Household name and base currency are displayed from bootstrap; language and appearance are the mutable settings.
+
+Command adapters remain thin. Application services own transactions and domain conversion. Frontend code calls the generated `commands` client rather than using raw Tauri invoke names.
+
+## DTO and Serialization Rules
+
+- Rust structs and enums use Specta to generate TypeScript definitions.
+- Struct fields cross IPC in `camelCase`.
+- Error codes cross IPC in `SCREAMING_SNAKE_CASE`.
+- Money amounts and other decimals cross IPC as canonical strings.
+- IDs and timestamps cross IPC as strings after Rust validation.
+- Optional values use explicit nullable or optional fields from the generated type.
+- Frontend code must not hand-edit generated bindings.
+
+Run binding generation after any command or DTO change, then run the binding check to detect drift. The exact commands live in the [engineering guide](../development/engineering-guide.md).
+
+## Error Contract
+
+Every command returns either its typed result or a `CommandError` containing:
+
+- `code`: a stable machine-readable ErrorCode
+- `message`: safe user-facing English text
+- `fields`: optional structured context for forms or diagnostics
+
+Current error categories include validation, not found, conflict, already onboarded, invalid Ownership total, base-currency change restriction, invalid Category, invalid Money, invalid Media, database error or unavailability, unsupported future database, migration failure, and internal error.
+
+Raw SQL, filenames other than the explicit blocked-startup database path, query text, driver details, and sensitive values must not appear in frontend errors. Detailed failures are logged locally with stable event names.
+
+## Archive References
+
+The canonical lifecycle behavior is defined in the [domain model](domain-model.md#lifecycle-and-reference-rules). Persistence implements it by keeping archived rows and foreign keys intact, loading archived catalogs when a read model must resolve retained references, and comparing proposed Account references with the current Account inside the update transaction. Default list predicates and creation-picker DTOs omit archived rows. The same enforcement pattern applies to Member Ownership, Institution, and Group references.
+
+## Media Contract
+
+MediaAsset bytes are stored in SQLite and referenced with nullable typed IDs. The native import and read boundary is:
+
+- Accept PNG, JPEG, and WebP input up to 5 MB.
+- Decode safely, resize to at most 512×512, and encode as PNG. Avatars are center-cropped to square before downscale; logos keep aspect ratio and are not upscaled.
+- Store only Household-scoped normalized bytes and MIME metadata.
+- Return `{ mimeType, data }` as a display-safe base64 payload without exposing arbitrary filesystem paths.
+- Choose files through the native dialog (`dialog:allow-open` only). Rust reads the selected path; the frontend has no filesystem plugin.
+- Replacing a reference deletes the previous asset only when nothing else still references it.
+- Invalid, oversized, or undecodable input returns `MEDIA_INVALID` and writes nothing.
+
+v0.1.1 can set and replace avatars and logos. It does not clear a media reference, and it does not rewrite EXIF orientation as a separate metadata-stripping pass beyond decode and PNG encode.

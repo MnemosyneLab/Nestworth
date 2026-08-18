@@ -1,0 +1,99 @@
+# Product Roadmap
+
+## Strategy
+
+The v0.1 line develops Nestworth in dependency order:
+
+1. Establish a trustworthy household balance sheet.
+2. Value positions across currencies and instruments.
+3. Explain changes through an activity ledger and history.
+4. Calculate performance and attribution from that history.
+5. Reduce maintenance cost through automation, import, backup, and productivity tools.
+
+Each release must preserve local-first operation and manual fallback. A later capability may extend earlier entities, but it must not reinterpret historical money, ownership, or liability data.
+
+## Release Sequence
+
+### v0.1.1 — Household Balance Sheet
+
+**Theme:** Build the household balance sheet.
+
+**Status:** Development complete; release candidate.
+
+Deliver one Household with Members, Institutions, Groups, Accounts, exact Ownership, manually maintained balances or valuations, and a backend-computed Overview. Include local persistence, onboarding, archive and restore, account filtering, English and Simplified Chinese UI, appearance selection, media-backed avatars and logos, and release hardening.
+
+**Exit outcome:** A user can answer what the Household owns, owes, and is worth in one base currency.
+
+The detailed implementation contract is [v0.1.1](../releases/v0.1.1.md).
+
+### v0.1.2 — Multi-Currency and Portfolio
+
+**Theme:** Know what everything is worth.
+
+**Status:** Active planned release; implementation not started.
+
+Add account and instrument currencies, FX quotes, instruments, holdings, investment-account cash, market and manual quotes, data freshness, batch refresh, and a centralized valuation service. Provider failures must never prevent startup or manual valuation.
+
+**Exit outcome:** A Household can value cash and investment positions in the base currency while retaining native amounts and quote provenance.
+
+The detailed scope, design, and delivery phases are defined by the [v0.1.2 release contract](../releases/v0.1.2.md), [technical design](../releases/v0.1.2-technical-design.md), and [implementation plan](../releases/v0.1.2-implementation-plan.md). External provider selection is a preparation gate; manual valuation remains the provider-independent foundation.
+
+### v0.1.3 — Activity and History
+
+**Theme:** Understand how wealth changes.
+
+**Status:** Deferred roadmap direction.
+
+Add an activity ledger for adjustments, deposits, withdrawals, transfers, trades, income, fees, debt changes, and manual valuations. Add historical quotes, daily valuation snapshots, net-worth trends, activity filtering, and account timelines.
+
+**Exit outcome:** Internal transfers do not create false wealth changes, and the user can inspect what changed over time.
+
+### v0.1.4 — Analytics and Performance
+
+**Theme:** Know why wealth changed.
+
+**Status:** Deferred roadmap direction.
+
+Add cost basis, realized and unrealized gain, investment income, fees, time-weighted return, money-weighted return, benchmarks, cash-flow classification, net-worth attribution, and FX attribution.
+
+**Exit outcome:** Contributions, internal movement, market return, currency effects, income, and fees are separated instead of being inferred from ending value alone.
+
+### v0.1.5 — Sustainable Long-Term Use
+
+**Theme:** Make Nestworth easy to maintain for years.
+
+**Status:** Deferred roadmap direction.
+
+Add recurring and pending activities, freshness policies, valuation reminders, local backups, restore, machine-readable export, CSV import and export, importer boundaries, global search, a command palette, and keyboard-focused workflows.
+
+**Exit outcome:** The Household can maintain, protect, move, and recover its data without depending on Nestworth infrastructure.
+
+## Capability Matrix
+
+| Capability | 0.1.1 | 0.1.2 | 0.1.3 | 0.1.4 | 0.1.5 |
+| --- | --- | --- | --- | --- | --- |
+| Household, members, and exact ownership | Yes | Preserve | Preserve | Preserve | Preserve |
+| Institutions, groups, accounts, and current value | Yes | Extend | Preserve | Preserve | Preserve |
+| Net worth and basic allocation | Yes | Multi-currency | Historical | Attributed | Automated upkeep |
+| Multi-currency and FX | No | Yes | Historical | Attribution | Preserve |
+| Instruments and holdings | No | Yes | Activity-aware | Performance-aware | Importable |
+| Activity ledger and transfers | No | No | Yes | Analytics input | Automatable |
+| Historical trend | No | No | Yes | Explainable | Preserve |
+| Investment performance | No | No | No | Yes | Preserve |
+| Backup, import, export, and automation | No | No | No | No | Yes |
+
+`Yes` describes a release outcome, not the current implementation status. Status for the active release belongs in its release contract.
+
+## Dependency Rules
+
+- Multi-currency valuation requires explicit quote provenance and manual fallback before portfolio totals use it.
+- Holdings require Instruments and a valuation service; an Account must not impersonate an Instrument.
+- Performance requires Activity and historical valuation data; it must not be estimated from initial and current values.
+- Automation produces reviewable pending financial events when real execution price, date, FX, or fee may differ.
+- Backup and export include every durable component required to reconstruct the user's data.
+
+## Deferred Beyond v0.1
+
+Possible v0.2 directions include planning and target allocation, richer portfolio analysis, optional sync, and carefully scoped external integrations. Bank sync, broker APIs, crypto-wallet sync, statement parsing, AI-assisted import, household collaboration, plugin systems, tax reporting, and advanced risk modeling remain deferred until the local data and recovery model is mature.
+
+Detailed behavior, schemas, providers, and UI for deferred releases are intentionally undecided. Create a new release contract when a release becomes active, using the implemented previous release as its baseline.
