@@ -241,6 +241,7 @@
     "complete": "All required quotes are available.",
     "incomplete": "Incomplete · coverage {{coverage}}",
     "empty": "Add a holdings account to start the portfolio.",
+    "manualOnly": "Manual prices and FX are available offline; provider refresh is not configured.",
     "positions": "Positions",
     "byCurrency": "By currency",
     "byCountry": "By country",
@@ -252,7 +253,11 @@
     "nothingToRefresh": "There is nothing to refresh."
   },
   "fx": {
-    "title": "Required FX pairs"
+    "title": "Required FX pairs",
+    "equation": "1 {{baseCurrency}} = [rate] {{quoteCurrency}}",
+    "rateHelp": "Enter how many {{quoteCurrency}} equal 1 {{baseCurrency}}.",
+    "rateLabel": "Rate for 1 {{baseCurrency}} in {{quoteCurrency}}",
+    "selectedQuote": "Selected quote: 1 {{baseCurrency}} = {{rate}} {{quoteCurrency}}"
   },
   "quotes": {
     "incomplete": "Incomplete",
@@ -262,6 +267,7 @@
     "addRate": "Add manual rate",
     "unitPrice": "Unit price",
     "preferenceLabel": "Quote preference",
+    "providerUnavailable": "Provider quotes are unavailable in this release; enter a manual price instead.",
     "preference": {
       "manual": "Manual",
       "provider": "Provider"

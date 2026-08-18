@@ -36,6 +36,13 @@ impl Money {
         })
     }
 
+    pub(crate) fn from_unrounded(amount: Decimal, currency: CurrencyCode) -> Self {
+        Self {
+            amount: amount.normalize(),
+            currency,
+        }
+    }
+
     #[must_use]
     pub fn amount(self) -> Decimal {
         self.amount

@@ -155,7 +155,11 @@ liabilities = sum(included liability base values)
 net worth   = assets - liabilities
 ```
 
-An Account contributes nothing when it is archived or `include_in_net_worth` is false. A missing required quote excludes only the affected component, marks parent aggregates incomplete, and never substitutes zero or one. Identity conversion (native currency equals base) needs no FX quote. Direct and inverse FX against the Household base currency must produce the same rounded Money result. Multi-hop FX is not used.
+An Account contributes nothing when it is archived or `include_in_net_worth` is false. A missing required quote excludes only the affected component, marks parent aggregates incomplete, and never substitutes zero or one. Identity conversion (native currency equals base) needs no FX quote and carries no FX freshness; it must not override the Instrument Quote freshness. Direct and inverse FX against the Household base currency must produce the same rounded Money result. Multi-hop FX is not used.
+
+The Portfolio total is the sum of the authoritative base values of complete, active, non-liability Accounts with `include_in_investment`. An incomplete included Account is reported in `unvaluedItems`, excluded from the total, and lowers account-level coverage; missing values are never treated as zero. Existing Balance and Manual Value investment Accounts therefore remain visible and contribute when complete. Their allocation is represented by an explicit `manual` Instrument-type bucket, an unknown-country bucket, and their native-currency bucket. Holdings and cash allocations are added only for complete Holdings Accounts, so allocation amounts and percentages share the same complete-account denominator as the total.
+
+The Rust service retains full checked `Decimal` precision through quantity × price, FX conversion, and aggregation. Only Money DTO construction rounds to four fractional digits with midpoint-nearest-even. Overview, Account detail, and Investments never reconstruct aggregate inputs from rounded DTO strings.
 
 The latest Account Value or Account Cash observation is selected deterministically by:
 
@@ -169,7 +173,7 @@ The latest Instrument Quote or FX Quote for a preference is selected by:
 2. `created_at` descending
 3. ID descending
 
-Freshness of a selected provider quote is Fresh when it is at most 24 hours old, Delayed when the provider marks it delayed and it is still within 24 hours, and Stale when it is older than 24 hours. Manual quotes are labeled Manual. A missing required quote is Unavailable.
+Freshness of a selected provider quote is Fresh when it is at most 24 hours old, Delayed when the provider marks it delayed and it is still within 24 hours, and Stale when it is older than 24 hours. Manual quotes are labeled Manual. A missing required quote is Unavailable. Identity FX is neutral and preserves the selected Instrument Quote state.
 
 Overview breakdowns follow these definitions:
 
@@ -180,7 +184,7 @@ Overview breakdowns follow these definitions:
 | Institution | Net contribution for the bucket | Asset amount for the bucket |
 | Group | Net contribution for the bucket | Asset amount for the bucket |
 
-Portfolio allocation reports current value by native currency, country, and Instrument type. The Investments page reports current value, not return. Member allocation distributes rounding remainders deterministically and keeps each `shareBps` within `0..=10000`. Institution and Group include an unassigned bucket when applicable. The frontend formats these results but does not recalculate them.
+Portfolio allocation reports current value by native currency, country, and Instrument type. The Investments page reports current value, not return. Manual Balance and Manual Value investment Accounts use explicit unclassified/manual buckets because they cannot be attributed to an Instrument. Member allocation distributes rounding remainders deterministically and keeps each `shareBps` within `0..=10000`. Institution and Group include an unassigned bucket when applicable. The frontend formats these results but does not recalculate them.
 
 ## Lifecycle and Reference Rules
 

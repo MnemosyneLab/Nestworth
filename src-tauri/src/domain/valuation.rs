@@ -17,31 +17,17 @@ pub struct ConvertedValue {
     pub native: Money,
     pub base: Option<Money>,
     pub fx_quote_id: Option<FxQuoteId>,
-    pub freshness: Freshness,
+    pub freshness: Option<Freshness>,
     pub complete: bool,
     pub missing_reason: Option<String>,
 }
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HoldingValue {
-    pub native: Option<Money>,
-    pub base: Option<Money>,
-    pub instrument_quote_id: Option<InstrumentQuoteId>,
-    pub fx_quote_id: Option<FxQuoteId>,
-    pub freshness: Freshness,
-    pub complete: bool,
-    pub missing_reason: Option<String>,
-}
-
 pub fn holding_native_value(
     quantity: Quantity,
     quote: &InstrumentQuote,
 ) -> Result<Money, AppError> {
     let native = checked_mul(quantity.amount(), quote.unit_price().amount())?;
-    let rounded = round_to_money_scale(native)?;
-    Money::from_canonical(rounded, quote.quote_currency())
+    Ok(Money::from_unrounded(native, quote.quote_currency()))
 }
-
 pub fn convert_native_to_base(
     native: Money,
     household_base: CurrencyCode,
@@ -53,29 +39,29 @@ pub fn convert_native_to_base(
             native,
             base: Some(native),
             fx_quote_id: None,
-            freshness: Freshness::Manual,
+            freshness: None,
             complete: true,
             missing_reason: None,
         });
     }
     if let Some((id, rate, freshness)) = direct {
-        let converted = round_to_money_scale(convert_with_direct_rate(native.amount(), rate)?)?;
+        let converted = convert_with_direct_rate(native.amount(), rate)?;
         return Ok(ConvertedValue {
             native,
-            base: Some(Money::from_canonical(converted, household_base)?),
+            base: Some(Money::from_unrounded(converted, household_base)),
             fx_quote_id: Some(id),
-            freshness,
+            freshness: Some(freshness),
             complete: true,
             missing_reason: None,
         });
     }
     if let Some((id, rate, freshness)) = inverse {
-        let converted = round_to_money_scale(convert_with_inverse_rate(native.amount(), rate)?)?;
+        let converted = convert_with_inverse_rate(native.amount(), rate)?;
         return Ok(ConvertedValue {
             native,
-            base: Some(Money::from_canonical(converted, household_base)?),
+            base: Some(Money::from_unrounded(converted, household_base)),
             fx_quote_id: Some(id),
-            freshness,
+            freshness: Some(freshness),
             complete: true,
             missing_reason: None,
         });
@@ -84,10 +70,21 @@ pub fn convert_native_to_base(
         native,
         base: None,
         fx_quote_id: None,
-        freshness: Freshness::Unavailable,
+        freshness: Some(Freshness::Unavailable),
         complete: false,
         missing_reason: Some("fx_quote".to_owned()),
     })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HoldingValue {
+    pub native: Option<Money>,
+    pub base: Option<Money>,
+    pub instrument_quote_id: Option<InstrumentQuoteId>,
+    pub fx_quote_id: Option<FxQuoteId>,
+    pub freshness: Freshness,
+    pub complete: bool,
+    pub missing_reason: Option<String>,
 }
 
 pub fn unavailable_holding(reason: &str) -> HoldingValue {
@@ -157,12 +154,45 @@ mod tests {
     }
 
     #[test]
+    fn aggregate_rounding_happens_after_component_sum() {
+        let quote = InstrumentQuote::new(
+            InstrumentId::new(),
+            UnitPrice::parse("0.00005").expect("price"),
+            CurrencyCode::CNY,
+            QuoteSourceKind::Manual,
+            "manual",
+            false,
+            Timestamp::now(),
+            Timestamp::now(),
+        )
+        .expect("quote");
+        let first =
+            holding_native_value(Quantity::parse("1").expect("quantity"), &quote).expect("first");
+        let second =
+            holding_native_value(Quantity::parse("1").expect("quantity"), &quote).expect("second");
+        assert_eq!(first.canonical_amount(), "0.00005");
+        assert_eq!(
+            crate::domain::decimal::round_to_money_scale(first.amount()).expect("first round"),
+            rust_decimal::Decimal::ZERO
+        );
+        let aggregate = crate::domain::decimal::checked_add(first.amount(), second.amount())
+            .expect("aggregate");
+        assert_eq!(
+            crate::domain::decimal::canonical_decimal(
+                crate::domain::decimal::round_to_money_scale(aggregate).expect("aggregate round")
+            ),
+            "0.0001"
+        );
+    }
+
+    #[test]
     fn identity_conversion_needs_no_fx_quote() {
         let native = Money::parse("100000", CurrencyCode::CNY).expect("cash");
         let converted =
             convert_native_to_base(native, CurrencyCode::CNY, None, None).expect("identity");
         assert_eq!(converted.base.expect("base").canonical_amount(), "100000");
         assert!(converted.fx_quote_id.is_none());
+        assert!(converted.freshness.is_none());
     }
 
     #[test]

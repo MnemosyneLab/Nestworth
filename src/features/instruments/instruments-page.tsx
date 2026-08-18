@@ -321,15 +321,11 @@ function InstrumentEditor({
           />
         </div>
       </div>
-      <div className="space-y-2">
-        <label className="text-sm font-medium" htmlFor={`${formId}-preference`}>
-          {t("quotes.preferenceLabel")}
-        </label>
-        <NativeSelect id={`${formId}-preference`} {...form.register("quotePreference")}>
-          <option value="manual">{t("quotes.preference.manual")}</option>
-          <option value="provider">{t("quotes.preference.provider")}</option>
-        </NativeSelect>
-      </div>
+      {instrument?.quotePreference === "provider" ? (
+        <p className="text-sm text-muted-foreground" role="status">
+          {t("quotes.providerUnavailable")}
+        </p>
+      ) : null}
       <div className="space-y-2">
         <label className="text-sm font-medium" htmlFor={`${formId}-note`}>
           {t("references.note")}

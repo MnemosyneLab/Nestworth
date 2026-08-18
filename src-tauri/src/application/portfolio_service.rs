@@ -82,7 +82,6 @@ async fn get_portfolio_in_tx(tx: &mut Transaction<'_, Sqlite>) -> Result<Portfol
     let accounts = account_service::list_accounts_in_tx(tx, &household.id, false).await?;
     let snapshot = ValuationSnapshot::load(tx, &household.id, &household.base_currency).await?;
     let now = Timestamp::now();
-    let base = CurrencyCode::parse(&household.base_currency)?;
     let included: Vec<&AccountRecordDto> = accounts
         .iter()
         .filter(|account| account.include_in_investment && account.archived_at.is_none())
@@ -98,85 +97,149 @@ async fn get_portfolio_in_tx(tx: &mut Transaction<'_, Sqlite>) -> Result<Portfol
     let mut complete_total = Decimal::ZERO;
     let mut complete = true;
     let mut valued_components = 0i32;
-    let mut total_components = 0i32;
+    let total_components = i32::try_from(included.len()).map_err(|_| AppError::Internal)?;
     let mut unvalued = Vec::new();
     let mut positions = Vec::new();
+    let mut account_dtos = Vec::with_capacity(included.len());
     let mut by_currency: HashMap<String, Decimal> = HashMap::new();
     let mut by_country: HashMap<String, Decimal> = HashMap::new();
     let mut by_type: HashMap<String, Decimal> = HashMap::new();
     let mut cash_totals: HashMap<String, Decimal> = HashMap::new();
 
-    for holding in valuation_service::snapshot_holdings(&snapshot) {
-        if !included_ids.contains(holding.account_id.as_str()) {
-            continue;
-        }
-        let valued = valuation_service::value_holding(&snapshot, holding, &now)?;
-        total_components += 1;
-        if valued.complete {
+    for account in &included {
+        let calculated = valuation_service::value_account_calculation(&snapshot, account, &now)?;
+        let dto = calculated.clone().into_dto()?;
+        if calculated.complete {
             valued_components += 1;
-            if let Some(base_value) = &valued.base {
-                let amount = Money::parse(&base_value.amount, base)?.amount();
-                complete_total = checked_add(complete_total, amount)?;
-                if let Some(native) = &valued.native {
-                    *by_currency
-                        .entry(native.currency.clone())
-                        .or_insert(Decimal::ZERO) += amount;
+            if let Some(base_value) = calculated.base {
+                complete_total = checked_add(complete_total, base_value.amount())?;
+                if account.tracking_mode == "holdings" {
+                    for holding in valuation_service::snapshot_holdings(&snapshot)
+                        .iter()
+                        .filter(|holding| holding.account_id == account.id)
+                    {
+                        let valued =
+                            valuation_service::calculate_holding(&snapshot, holding, &now)?;
+                        if let (Some(native), Some(value)) = (valued.native, valued.base) {
+                            *by_currency
+                                .entry(native.currency().as_str().to_owned())
+                                .or_insert(Decimal::ZERO) = checked_add(
+                                *by_currency
+                                    .get(native.currency().as_str())
+                                    .unwrap_or(&Decimal::ZERO),
+                                value.amount(),
+                            )?;
+                            *by_country
+                                .entry(
+                                    valued
+                                        .dto
+                                        .country_code
+                                        .unwrap_or_else(|| "unknown".to_owned()),
+                                )
+                                .or_insert(Decimal::ZERO) = checked_add(
+                                *by_country
+                                    .get(valued.dto.country_code.as_deref().unwrap_or("unknown"))
+                                    .unwrap_or(&Decimal::ZERO),
+                                value.amount(),
+                            )?;
+                            *by_type
+                                .entry(valued.dto.instrument_type)
+                                .or_insert(Decimal::ZERO) = checked_add(
+                                *by_type
+                                    .get(&valued.dto.instrument_type)
+                                    .unwrap_or(&Decimal::ZERO),
+                                value.amount(),
+                            )?;
+                        }
+                    }
+                    for cash in valuation_service::snapshot_cash(&snapshot)
+                        .iter()
+                        .filter(|cash| cash.account_id == account.id)
+                    {
+                        let native =
+                            Money::parse(&cash.amount, CurrencyCode::parse(&cash.currency)?)?;
+                        let converted = valuation_service::convert_money(&snapshot, native, &now)?;
+                        if let Some(value) = converted.base {
+                            *by_currency
+                                .entry(cash.currency.clone())
+                                .or_insert(Decimal::ZERO) = checked_add(
+                                *by_currency.get(&cash.currency).unwrap_or(&Decimal::ZERO),
+                                value.amount(),
+                            )?;
+                            *by_country
+                                .entry("unknown".to_owned())
+                                .or_insert(Decimal::ZERO) = checked_add(
+                                *by_country.get("unknown").unwrap_or(&Decimal::ZERO),
+                                value.amount(),
+                            )?;
+                            *by_type.entry("cash".to_owned()).or_insert(Decimal::ZERO) =
+                                checked_add(
+                                    *by_type.get("cash").unwrap_or(&Decimal::ZERO),
+                                    value.amount(),
+                                )?;
+                        }
+                    }
+                } else {
+                    let currency = account
+                        .latest_value
+                        .as_ref()
+                        .map(|value| value.currency.clone())
+                        .unwrap_or_else(|| account.default_currency.clone());
+                    *by_currency.entry(currency).or_insert(Decimal::ZERO) = checked_add(
+                        *by_currency
+                            .get(
+                                account
+                                    .latest_value
+                                    .as_ref()
+                                    .map(|value| value.currency.as_str())
+                                    .unwrap_or(account.default_currency.as_str()),
+                            )
+                            .unwrap_or(&Decimal::ZERO),
+                        base_value.amount(),
+                    )?;
+                    *by_country
+                        .entry("unknown".to_owned())
+                        .or_insert(Decimal::ZERO) = checked_add(
+                        *by_country.get("unknown").unwrap_or(&Decimal::ZERO),
+                        base_value.amount(),
+                    )?;
+                    *by_type.entry("manual".to_owned()).or_insert(Decimal::ZERO) = checked_add(
+                        *by_type.get("manual").unwrap_or(&Decimal::ZERO),
+                        base_value.amount(),
+                    )?;
                 }
-                let country = valued
-                    .country_code
-                    .clone()
-                    .unwrap_or_else(|| "unknown".to_owned());
-                *by_country.entry(country).or_insert(Decimal::ZERO) += amount;
-                *by_type
-                    .entry(valued.instrument_type.clone())
-                    .or_insert(Decimal::ZERO) += amount;
             }
         } else {
             complete = false;
-            unvalued.push(UnvaluedItemDto {
-                kind: "holding".to_owned(),
-                id: valued.holding_id.clone(),
-                name: valued.instrument_name.clone(),
-                reason: valued
-                    .missing_reason
-                    .clone()
-                    .unwrap_or_else(|| "quote".to_owned()),
-            });
+            unvalued.extend(calculated.unvalued_items.clone());
         }
-        positions.push(valued);
+        account_dtos.push(PortfolioAccountDto {
+            account_id: account.id.clone(),
+            name: account.name.clone(),
+            base_value: dto.base,
+            complete: dto.complete,
+            freshness: dto.freshness,
+        });
     }
 
+    for holding in valuation_service::snapshot_holdings(&snapshot) {
+        if included_ids.contains(holding.account_id.as_str()) {
+            positions.push(valuation_service::value_holding(&snapshot, holding, &now)?);
+        }
+    }
     for cash in valuation_service::snapshot_cash(&snapshot) {
         if !included_ids.contains(cash.account_id.as_str()) {
             continue;
         }
-        let native = Money::parse(&cash.amount, CurrencyCode::parse(&cash.currency)?)?;
-        let converted = valuation_service::convert_money(&snapshot, native, &now)?;
-        total_components += 1;
-        if converted.complete {
-            valued_components += 1;
-            if let Some(base_value) = converted.base {
-                complete_total = checked_add(complete_total, base_value.amount())?;
-                *by_currency
-                    .entry(cash.currency.clone())
-                    .or_insert(Decimal::ZERO) += base_value.amount();
-                *by_country
-                    .entry("unknown".to_owned())
-                    .or_insert(Decimal::ZERO) += base_value.amount();
-                *by_type.entry("cash".to_owned()).or_insert(Decimal::ZERO) += base_value.amount();
-            }
-            *cash_totals
-                .entry(cash.currency.clone())
-                .or_insert(Decimal::ZERO) += native.amount();
-        } else {
-            complete = false;
-            unvalued.push(UnvaluedItemDto {
-                kind: "cash".to_owned(),
-                id: cash.id.clone(),
-                name: format!("{} cash", cash.currency),
-                reason: "fx_quote".to_owned(),
-            });
-        }
+        let amount = Decimal::from_str_exact(&cash.amount).map_err(|_| AppError::InvalidMoney {
+            message: "Stored account cash is invalid.".to_owned(),
+        })?;
+        *cash_totals
+            .entry(cash.currency.clone())
+            .or_insert(Decimal::ZERO) = checked_add(
+            *cash_totals.get(&cash.currency).unwrap_or(&Decimal::ZERO),
+            amount,
+        )?;
     }
 
     let required_fx = required_fx_status(tx, &household.id, &snapshot, &accounts).await?;
@@ -196,26 +259,19 @@ async fn get_portfolio_in_tx(tx: &mut Transaction<'_, Sqlite>) -> Result<Portfol
         coverage_bps,
         unvalued_items: unvalued,
         positions,
-        accounts: included
-            .iter()
-            .map(|account| PortfolioAccountDto {
-                account_id: account.id.clone(),
-                name: account.name.clone(),
-                base_value: account.valuation.base.clone(),
-                complete: account.valuation.complete,
-                freshness: account.valuation.freshness.clone(),
-            })
-            .collect(),
+        accounts: account_dtos,
         cash: cash_totals
             .into_iter()
-            .map(|(currency, amount)| MoneyDto {
-                amount: canonical_decimal(amount),
-                currency,
+            .map(|(currency, amount)| {
+                Ok(MoneyDto {
+                    amount: canonical_decimal(round_to_money_scale(amount)?),
+                    currency,
+                })
             })
-            .collect(),
-        by_currency: allocation_rows(by_currency, complete_total, &household.base_currency),
-        by_country: allocation_rows(by_country, complete_total, &household.base_currency),
-        by_instrument_type: allocation_rows(by_type, complete_total, &household.base_currency),
+            .collect::<Result<Vec<_>, AppError>>()?,
+        by_currency: allocation_rows(by_currency, complete_total, &household.base_currency)?,
+        by_country: allocation_rows(by_country, complete_total, &household.base_currency)?,
+        by_instrument_type: allocation_rows(by_type, complete_total, &household.base_currency)?,
         required_fx,
     })
 }
@@ -243,11 +299,13 @@ async fn required_fx_status(
                     || (quote.base_currency == pair.currency_b().as_str()
                         && quote.quote_currency == pair.currency_a().as_str()))
         });
+        let selected_rate = quote_service::selected_rate_for_pair(pair, selected)?;
         statuses.push(FxPairStatusDto {
             currency_a: pair.currency_a().as_str().to_owned(),
             currency_b: pair.currency_b().as_str().to_owned(),
             quote_preference: preference.as_str().to_owned(),
             selected_quote: selected.cloned(),
+            selected_rate,
         });
     }
     let _unused: Option<FxQuoteRecordDto> = None;
@@ -259,7 +317,7 @@ fn allocation_rows(
     totals: HashMap<String, Decimal>,
     whole: Decimal,
     currency: &str,
-) -> Vec<AllocationRowDto> {
+) -> Result<Vec<AllocationRowDto>, AppError> {
     let mut rows: Vec<(String, Decimal)> =
         totals.into_iter().filter(|row| !row.1.is_zero()).collect();
     rows.sort_by(|left, right| left.0.cmp(&right.0));
@@ -267,14 +325,16 @@ fn allocation_rows(
     let shares = allocate(&parts, whole);
     rows.into_iter()
         .zip(shares)
-        .map(|(row, share_bps)| AllocationRowDto {
-            key: row.0.clone(),
-            name: Some(row.0),
-            amount: MoneyDto {
-                amount: canonical_decimal(row.1),
-                currency: currency.to_owned(),
-            },
-            share_bps,
+        .map(|(row, share_bps)| {
+            Ok(AllocationRowDto {
+                key: row.0.clone(),
+                name: Some(row.0),
+                amount: MoneyDto {
+                    amount: canonical_decimal(round_to_money_scale(row.1)?),
+                    currency: currency.to_owned(),
+                },
+                share_bps,
+            })
         })
         .collect()
 }

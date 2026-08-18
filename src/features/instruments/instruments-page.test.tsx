@@ -68,4 +68,14 @@ describe("instruments page", () => {
       note: null,
     });
   });
+
+  it("does not expose an unusable provider choice in production", async () => {
+    const user = userEvent.setup();
+    vi.mocked(commands.listInstruments).mockResolvedValue({ status: "ok", data: [] });
+    await renderReadyApp();
+    await user.click(await screen.findByRole("link", { name: "Instruments" }));
+    await user.click(screen.getByRole("button", { name: "Add instrument" }));
+    expect(screen.queryByLabelText("Quote preference")).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Provider" })).not.toBeInTheDocument();
+  });
 });

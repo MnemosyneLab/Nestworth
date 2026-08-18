@@ -21,15 +21,18 @@ The current pull request is not itself a public release. Use an isolated test da
 - Instruments with type, quote currency, optional market metadata, and logos
 - Manual instrument prices and FX rates, including inverse conversion against the Household base currency
 - Native and base-currency values with quote provenance, freshness, and incomplete-total diagnostics
-- Investments page with portfolio total and allocation by currency, country, and instrument type
-- Batch quote refresh with partial-success reporting
-- Manual-only operation when no market-data provider is configured
+- Investments page with portfolio total and allocation by currency, country, and instrument type, including legacy manual-account buckets
+- Checked Rust Decimal valuation at full precision, with midpoint-nearest-even rounding only at Money DTO boundaries
+- Provider refresh plumbing with partial-success reporting that targets only explicitly Provider-selected Instruments and FX pairs
+- Manual-only operation when no market-data provider is configured; production provider controls remain unavailable
 
 ## Current Boundaries
 
 The Household name and base currency remain fixed after onboarding. Avatars and logos can be set or replaced but not cleared.
 
 v0.1.2 does not include a live market-data vendor, Activity ledger, cost basis, performance analytics, historical charts, automation, import/export, or user-managed backup. Holding quantity is current state, not a trade. FX conversion is direct or inverse against the base currency only.
+
+All financial totals and allocations are calculated by Rust. Complete active included investment Accounts contribute their authoritative base values, including legacy Balance and Manual Value Accounts; incomplete values remain visible as diagnostics and are never treated as zero. Manual prices and FX rates are the complete offline workflow. The frontend formats returned DTOs and performs no financial arithmetic.
 
 See the [v0.1.2 release contract](docs/releases/v0.1.2.md) for the exact delivered scope and accepted limitations.
 

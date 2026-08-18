@@ -13,7 +13,10 @@ use super::{
     reference::{begin_read_tx, finish_read_tx, require_household_tx},
 };
 use crate::{
-    domain::{CurrencyCode, Money, PrimaryCategory, TOTAL_BPS},
+    domain::{
+        checked_add, round_to_money_scale, CurrencyCode, Money, PrimaryCategory, Timestamp,
+        TOTAL_BPS,
+    },
     error::AppError,
     state::AppState,
 };
@@ -54,6 +57,12 @@ pub async fn get_overview(state: &AppState) -> Result<OverviewDto, AppError> {
 async fn get_overview_in_tx(tx: &mut Transaction<'_, Sqlite>) -> Result<OverviewDto, AppError> {
     let household = require_household_tx(tx).await?;
     let accounts = account_service::list_accounts_in_tx(tx, &household.id, false).await?;
+    let snapshot = crate::application::valuation_service::ValuationSnapshot::load(
+        tx,
+        &household.id,
+        &household.base_currency,
+    )
+    .await?;
     let members = member_service::list_members_in_tx(tx, &household.id, true).await?;
     let institutions =
         institution_service::list_institutions_in_tx(tx, &household.id, true).await?;
@@ -64,6 +73,8 @@ async fn get_overview_in_tx(tx: &mut Transaction<'_, Sqlite>) -> Result<Overview
         &members,
         &institutions,
         &groups,
+        &snapshot,
+        &Timestamp::now(),
     )
 }
 
@@ -73,6 +84,8 @@ fn compute_overview(
     members: &[MemberRecordDto],
     institutions: &[InstitutionRecordDto],
     groups: &[GroupRecordDto],
+    snapshot: &crate::application::valuation_service::ValuationSnapshot,
+    now: &Timestamp,
 ) -> Result<OverviewDto, AppError> {
     let currency = CurrencyCode::parse(base_currency)?;
     let account_count = i32::try_from(accounts.len()).map_err(|_| AppError::Internal)?;
@@ -101,62 +114,57 @@ fn compute_overview(
         if !account.include_in_net_worth {
             continue;
         }
-        let money = contribution_money(account, currency)?;
+        let calculation = crate::application::valuation_service::value_account_calculation(
+            snapshot, account, now,
+        )?;
+        let money = calculation
+            .base
+            .unwrap_or_else(|| Money::from_unrounded(Decimal::ZERO, currency));
         let value = money.amount();
-        if !account.valuation.complete {
+        if !calculation.complete {
             overview_complete = false;
-            unvalued_items.extend(account.valuation.unvalued_items.iter().cloned());
+            unvalued_items.extend(calculation.unvalued_items);
         }
         let primary = PrimaryCategory::parse(&account.primary_category)?;
         let signed = primary.signed_amount(money);
         if primary == PrimaryCategory::Liability {
-            liabilities += value;
+            liabilities = checked_add(liabilities, value)?;
         } else {
-            assets += value;
-            *category_assets.entry(primary).or_insert(Decimal::ZERO) += value;
+            assets = checked_add(assets, value)?;
+            add_map(&mut category_assets, primary, value)?;
         }
 
         let institution_key = account.institution_id.clone();
         if primary != PrimaryCategory::Liability {
-            *institution_assets
-                .entry(institution_key.clone())
-                .or_insert(Decimal::ZERO) += value;
+            add_map(&mut institution_assets, institution_key.clone(), value)?;
         }
-        *institution_net
-            .entry(institution_key)
-            .or_insert(Decimal::ZERO) += signed;
+        add_map(&mut institution_net, institution_key, signed)?;
 
         let group_key = account.group_id.clone();
         if primary != PrimaryCategory::Liability {
-            *group_assets
-                .entry(group_key.clone())
-                .or_insert(Decimal::ZERO) += value;
+            add_map(&mut group_assets, group_key.clone(), value)?;
         }
-        *group_net.entry(group_key).or_insert(Decimal::ZERO) += signed;
+        add_map(&mut group_net, group_key, signed)?;
 
         for owner in &account.owners {
             let share = signed * Decimal::from(owner.share_bps) / Decimal::from(TOTAL_BPS);
-            *member_net
-                .entry(owner.member_id.clone())
-                .or_insert(Decimal::ZERO) += share;
+            add_map(&mut member_net, owner.member_id.clone(), share)?;
             if primary != PrimaryCategory::Liability {
                 let asset_share = value * Decimal::from(owner.share_bps) / Decimal::from(TOTAL_BPS);
-                *member_assets
-                    .entry(owner.member_id.clone())
-                    .or_insert(Decimal::ZERO) += asset_share;
+                add_map(&mut member_assets, owner.member_id.clone(), asset_share)?;
             }
         }
     }
 
-    let net_worth = assets - liabilities;
+    let net_worth = checked_add(assets, -liabilities)?;
     Ok(OverviewDto {
         base_currency: base_currency.to_owned(),
         account_count,
-        assets: money_dto(assets, base_currency),
-        liabilities: money_dto(liabilities, base_currency),
-        net_worth: money_dto(net_worth, base_currency),
-        by_category: category_rows(category_assets, assets, base_currency),
-        by_member: member_rows(members, member_net, member_assets, assets, base_currency),
+        assets: money_dto(assets, base_currency)?,
+        liabilities: money_dto(liabilities, base_currency)?,
+        net_worth: money_dto(net_worth, base_currency)?,
+        by_category: category_rows(category_assets, assets, base_currency)?,
+        by_member: member_rows(members, member_net, member_assets, assets, base_currency)?,
         by_institution: named_rows(
             institutions
                 .iter()
@@ -165,7 +173,7 @@ fn compute_overview(
             institution_net,
             assets,
             base_currency,
-        ),
+        )?,
         by_group: named_rows(
             groups
                 .iter()
@@ -174,48 +182,37 @@ fn compute_overview(
             group_net,
             assets,
             base_currency,
-        ),
+        )?,
         is_complete: overview_complete,
         unvalued_items,
     })
-}
-
-fn contribution_money(
-    account: &AccountRecordDto,
-    currency: CurrencyCode,
-) -> Result<Money, AppError> {
-    match &account.valuation.base {
-        Some(value) => Money::parse(&value.amount, CurrencyCode::parse(&value.currency)?),
-        None => Money::parse("0", currency),
-    }
 }
 
 fn category_rows(
     totals: HashMap<PrimaryCategory, Decimal>,
     assets: Decimal,
     currency: &str,
-) -> Vec<BreakdownRowDto> {
-    [
+) -> Result<Vec<BreakdownRowDto>, AppError> {
+    let mut rows = Vec::new();
+    for primary in [
         PrimaryCategory::CashEquivalent,
         PrimaryCategory::Investment,
         PrimaryCategory::Property,
         PrimaryCategory::Receivable,
-    ]
-    .into_iter()
-    .filter_map(|primary| {
+    ] {
         let amount = totals.get(&primary).copied().unwrap_or(Decimal::ZERO);
         if amount.is_zero() {
-            return None;
+            continue;
         }
-        Some(BreakdownRowDto {
+        rows.push(BreakdownRowDto {
             key: primary.as_str().to_owned(),
             id: None,
             name: None,
-            amount: money_dto(amount, currency),
+            amount: money_dto(amount, currency)?,
             share_bps: share_bps(amount, assets),
-        })
-    })
-    .collect()
+        });
+    }
+    Ok(rows)
 }
 
 fn member_rows(
@@ -224,7 +221,7 @@ fn member_rows(
     assets_by_member: HashMap<String, Decimal>,
     assets: Decimal,
     currency: &str,
-) -> Vec<BreakdownRowDto> {
+) -> Result<Vec<BreakdownRowDto>, AppError> {
     let rows: Vec<&MemberRecordDto> = members
         .iter()
         .filter(|member| totals.contains_key(&member.id))
@@ -243,13 +240,13 @@ fn member_rows(
         .zip(shares)
         .map(|(member, share_bps)| {
             let amount = totals.get(&member.id).copied().unwrap_or(Decimal::ZERO);
-            BreakdownRowDto {
+            Ok(BreakdownRowDto {
                 key: "member".to_owned(),
                 id: Some(member.id.clone()),
                 name: Some(member.name.clone()),
-                amount: money_dto(amount, currency),
+                amount: money_dto(amount, currency)?,
                 share_bps,
-            }
+            })
         })
         .collect()
 }
@@ -292,7 +289,7 @@ fn named_rows(
     net_by_id: HashMap<Option<String>, Decimal>,
     assets: Decimal,
     currency: &str,
-) -> Vec<BreakdownRowDto> {
+) -> Result<Vec<BreakdownRowDto>, AppError> {
     let catalog: Vec<(String, String)> = catalog.into_iter().collect();
     let mut rows = Vec::new();
     for (id, name) in &catalog {
@@ -306,7 +303,7 @@ fn named_rows(
             key: id.clone(),
             id: Some(id.clone()),
             name: Some(name.clone()),
-            amount: money_dto(net, currency),
+            amount: money_dto(net, currency)?,
             share_bps: share_bps(bucket_assets, assets),
         });
     }
@@ -317,11 +314,11 @@ fn named_rows(
             key: "unassigned".to_owned(),
             id: None,
             name: None,
-            amount: money_dto(unassigned_net, currency),
+            amount: money_dto(unassigned_net, currency)?,
             share_bps: share_bps(unassigned_assets, assets),
         });
     }
-    rows
+    Ok(rows)
 }
 
 fn share_bps(part: Decimal, whole: Decimal) -> i32 {
@@ -336,15 +333,24 @@ fn clamp_share_bps(value: i32) -> i32 {
     value.clamp(0, TOTAL_BPS)
 }
 
-fn money_dto(amount: Decimal, currency: &str) -> MoneyDto {
-    MoneyDto {
-        amount: canonical_decimal(amount),
+fn money_dto(amount: Decimal, currency: &str) -> Result<MoneyDto, AppError> {
+    Ok(MoneyDto {
+        amount: canonical_decimal(round_to_money_scale(amount)?),
         currency: currency.to_owned(),
-    }
+    })
 }
 
 fn canonical_decimal(amount: Decimal) -> String {
     amount.normalize().to_string()
+}
+
+fn add_map<K>(map: &mut HashMap<K, Decimal>, key: K, value: Decimal) -> Result<(), AppError>
+where
+    K: Eq + std::hash::Hash,
+{
+    let current = map.get(&key).copied().unwrap_or(Decimal::ZERO);
+    map.insert(key, checked_add(current, value)?);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -536,6 +542,28 @@ mod tests {
         tauri::async_runtime::block_on(async {
             let (state, path) = onboarded_state("overview-portfolio-golden").await;
             let members = list_members(&state, false).await.expect("members");
+            let manual = create_account(
+                &state,
+                CreateAccountInput {
+                    name: "Legacy Manual Investment".to_owned(),
+                    primary_category: "investment".to_owned(),
+                    secondary_category: "manual_investment".to_owned(),
+                    default_currency: "CNY".to_owned(),
+                    institution_id: None,
+                    group_id: None,
+                    tracking_mode: Some("manual_value".to_owned()),
+                    note: None,
+                    include_in_net_worth: true,
+                    include_in_investment: true,
+                    include_in_liquid_assets: false,
+                    opened_on: None,
+                    closed_on: None,
+                    owners: vec![owner(&members[0].id, "100")],
+                    initial_amount: Some("1000".to_owned()),
+                },
+            )
+            .await
+            .expect("legacy manual");
             let account = create_account(
                 &state,
                 CreateAccountInput {
@@ -673,9 +701,9 @@ mod tests {
 
             let overview = get_overview(&state).await.expect("overview");
             assert!(overview.is_complete);
-            assert_eq!(overview.net_worth.amount, "62190");
+            assert_eq!(overview.net_worth.amount, "63190");
             assert_eq!(overview.net_worth.currency, "CNY");
-            assert_eq!(overview.assets.amount, "62190");
+            assert_eq!(overview.assets.amount, "63190");
 
             let detail = get_account(&state, &account.id).await.expect("account");
             assert_eq!(
@@ -689,11 +717,201 @@ mod tests {
             assert!(detail.valuation.complete);
 
             let portfolio = get_portfolio(&state).await.expect("portfolio");
-            assert_eq!(portfolio.total.amount, "62190");
+            assert_eq!(portfolio.total.amount, "63190");
             assert_eq!(portfolio.total.currency, "CNY");
             assert!(portfolio.is_complete);
             assert_eq!(portfolio.coverage_bps, 10_000);
+            assert_eq!(portfolio.accounts.len(), 2);
+            assert!(portfolio
+                .accounts
+                .iter()
+                .any(|item| item.account_id == manual.id
+                    && item.base_value.as_ref().map(|value| value.amount.as_str())
+                        == Some("1000")));
             assert_eq!(portfolio.positions.len(), 2);
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn incomplete_foreign_manual_investment_is_excluded_from_portfolio_total() {
+        tauri::async_runtime::block_on(async {
+            let (state, path) = onboarded_state("overview-portfolio-incomplete-manual").await;
+            let members = list_members(&state, false).await.expect("members");
+            let account = create_account(
+                &state,
+                CreateAccountInput {
+                    name: "Foreign Manual Investment".to_owned(),
+                    primary_category: "investment".to_owned(),
+                    secondary_category: "manual_investment".to_owned(),
+                    default_currency: "USD".to_owned(),
+                    institution_id: None,
+                    group_id: None,
+                    tracking_mode: Some("manual_value".to_owned()),
+                    note: None,
+                    include_in_net_worth: true,
+                    include_in_investment: true,
+                    include_in_liquid_assets: false,
+                    opened_on: None,
+                    closed_on: None,
+                    owners: vec![owner(&members[0].id, "100")],
+                    initial_amount: Some("100".to_owned()),
+                },
+            )
+            .await
+            .expect("foreign manual account");
+            let portfolio = get_portfolio(&state).await.expect("portfolio");
+            assert_eq!(portfolio.total.amount, "0");
+            assert!(!portfolio.is_complete);
+            assert_eq!(portfolio.coverage_bps, 0);
+            assert_eq!(portfolio.accounts[0].account_id, account.id);
+            assert!(portfolio.accounts[0].base_value.is_none());
+            assert!(portfolio
+                .unvalued_items
+                .iter()
+                .any(|item| item.kind == "account" && item.id == account.id));
+            assert!(portfolio.by_currency.is_empty());
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn missing_manual_account_value_is_incomplete_and_excluded() {
+        tauri::async_runtime::block_on(async {
+            let (state, path) = onboarded_state("overview-portfolio-missing-value").await;
+            let members = list_members(&state, false).await.expect("members");
+            let account = create_account(
+                &state,
+                CreateAccountInput {
+                    name: "Missing Manual Investment".to_owned(),
+                    primary_category: "investment".to_owned(),
+                    secondary_category: "manual_investment".to_owned(),
+                    default_currency: "CNY".to_owned(),
+                    institution_id: None,
+                    group_id: None,
+                    tracking_mode: Some("manual_value".to_owned()),
+                    note: None,
+                    include_in_net_worth: true,
+                    include_in_investment: true,
+                    include_in_liquid_assets: false,
+                    opened_on: None,
+                    closed_on: None,
+                    owners: vec![owner(&members[0].id, "100")],
+                    initial_amount: Some("100".to_owned()),
+                },
+            )
+            .await
+            .expect("manual account");
+            sqlx::query("DELETE FROM account_values WHERE account_id = ?")
+                .bind(&account.id)
+                .execute(state.writable_db().expect("database"))
+                .await
+                .expect("remove value");
+
+            let portfolio = get_portfolio(&state).await.expect("portfolio");
+            assert_eq!(portfolio.total.amount, "0");
+            assert!(!portfolio.is_complete);
+            assert_eq!(portfolio.coverage_bps, 0);
+            assert!(portfolio.accounts[0].base_value.is_none());
+            assert!(portfolio.unvalued_items.iter().any(|item| {
+                item.kind == "account" && item.id == account.id && item.reason == "account_value"
+            }));
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn account_portfolio_and_overview_round_after_aggregate() {
+        tauri::async_runtime::block_on(async {
+            let (state, path) = onboarded_state("overview-aggregate-rounding").await;
+            let members = list_members(&state, false).await.expect("members");
+            let account = create_account(
+                &state,
+                CreateAccountInput {
+                    name: "Precision Holdings".to_owned(),
+                    primary_category: "investment".to_owned(),
+                    secondary_category: "brokerage_account".to_owned(),
+                    default_currency: "CNY".to_owned(),
+                    institution_id: None,
+                    group_id: None,
+                    tracking_mode: Some("holdings".to_owned()),
+                    note: None,
+                    include_in_net_worth: true,
+                    include_in_investment: true,
+                    include_in_liquid_assets: false,
+                    opened_on: None,
+                    closed_on: None,
+                    owners: vec![owner(&members[0].id, "100")],
+                    initial_amount: None,
+                },
+            )
+            .await
+            .expect("account");
+            let instrument = |name: &str, symbol: &str| {
+                let state = &state;
+                let name = name.to_owned();
+                let symbol = symbol.to_owned();
+                async move {
+                    create_instrument(
+                        state,
+                        CreateInstrumentInput {
+                            name,
+                            symbol: Some(symbol),
+                            instrument_type: "other".to_owned(),
+                            quote_currency: "CNY".to_owned(),
+                            market_code: None,
+                            country_code: None,
+                            isin: None,
+                            provider_key: None,
+                            provider_symbol: None,
+                            quote_preference: Some("manual".to_owned()),
+                            note: None,
+                        },
+                    )
+                    .await
+                    .expect("instrument")
+                }
+            };
+            let first = instrument("First", "FIRST").await;
+            let second = instrument("Second", "SECOND").await;
+            for item in [&first, &second] {
+                create_holding(
+                    &state,
+                    CreateHoldingInput {
+                        account_id: account.id.clone(),
+                        instrument_id: item.id.clone(),
+                        quantity: "1".to_owned(),
+                        note: None,
+                    },
+                )
+                .await
+                .expect("holding");
+                append_manual_instrument_quote(
+                    &state,
+                    AppendManualInstrumentQuoteInput {
+                        instrument_id: item.id.clone(),
+                        unit_price: "0.00005".to_owned(),
+                        quoted_at: None,
+                    },
+                )
+                .await
+                .expect("quote");
+            }
+            let overview = get_overview(&state).await.expect("overview");
+            let detail = get_account(&state, &account.id).await.expect("detail");
+            let portfolio = get_portfolio(&state).await.expect("portfolio");
+            assert_eq!(overview.assets.amount, "0.0001");
+            assert_eq!(overview.net_worth.amount, "0.0001");
+            assert_eq!(
+                detail
+                    .valuation
+                    .base
+                    .as_ref()
+                    .map(|value| value.amount.as_str()),
+                Some("0.0001")
+            );
+            assert_eq!(portfolio.total.amount, "0.0001");
+            assert!(portfolio.is_complete);
             cleanup(&path);
         });
     }

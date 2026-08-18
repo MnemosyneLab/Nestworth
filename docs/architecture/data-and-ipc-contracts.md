@@ -94,7 +94,9 @@ quoted_at DESC, created_at DESC, id DESC
 - TrackingMode cannot change after Account creation.
 - Account Value and Account Cash updates append a new observation; they do not overwrite prior observations.
 - Instrument Quote and FX Quote writes are append-only.
-- Refresh persists each successful quote in its own short write transaction and does not hold a write transaction during provider I/O.
+- Refresh performs provider I/O without a SQLite write transaction and persists each successful normalized quote in its own short write transaction. A failed item does not remove manual data or previous successful quotes.
+
+All valuation calculations remain checked Rust `Decimal` values through aggregation. Only Money DTO boundaries round to four fractional digits using midpoint-nearest-even. Frontend code formats returned strings and never calculates totals, reciprocal FX rates, or allocation percentages.
 
 Canonical business reasoning for these guarantees is in the [domain model](domain-model.md).
 
@@ -120,7 +122,7 @@ The command surface is grouped by use case:
 | Media | `get_media` |
 | Settings | `get_settings`, `update_settings` |
 
-The application does not expose `get_household`, `update_household`, or media-clear commands. Household name and base currency are displayed from bootstrap; language and appearance are the mutable settings. Production quote adapters are unconfigured; search and refresh return safe provider-unavailable errors unless a test fake is injected.
+The application does not expose `get_household`, `update_household`, or media-clear commands. Household name and base currency are displayed from bootstrap; language and appearance are the mutable settings. Production quote adapters are unconfigured, so production UI does not offer provider preference, provider search, or automatic refresh controls. Backend search and refresh remain available for deterministic fake-adapter tests and future integration, returning safe provider-unavailable errors with the production adapters.
 
 Command adapters remain thin. Application services own transactions and domain conversion. Frontend code calls the generated `commands` client rather than using raw Tauri invoke names.
 
@@ -130,11 +132,16 @@ Command adapters remain thin. Application services own transactions and domain c
 - Struct fields cross IPC in `camelCase`.
 - Error codes cross IPC in `SCREAMING_SNAKE_CASE`.
 - Money amounts and other decimals cross IPC as canonical strings.
+- `FxPairStatusDto.selectedQuote` preserves the stored quote orientation; `selectedRate` is Rust-normalized to the displayed `1 currencyB = rate currencyA` direction so the frontend never calculates a reciprocal.
 - IDs and timestamps cross IPC as strings after Rust validation.
 - Optional values use explicit nullable or optional fields from the generated type.
 - Frontend code must not hand-edit generated bindings.
 
 Run binding generation after any command or DTO change, then run the binding check to detect drift. The exact commands live in the [engineering guide](../development/engineering-guide.md).
+
+## Compatibility Evidence
+
+The repository contains a deterministic sanitized released v0.1.1 fixture at `src-tauri/test-fixtures/v0.1.1.sql`. Migration tests capture its pre-migration Overview, apply schema version 2, verify representative rows and retained archived references, close and reopen idempotently, and pass `foreign_key_check` and `integrity_check`. Unsupported future-version tests verify zero application writes.
 
 ## Error Contract
 

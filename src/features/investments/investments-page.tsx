@@ -33,23 +33,11 @@ import { invalidateValuation } from "@/lib/tauri/invalidate";
 
 export function InvestmentsPage() {
   const { t } = useTranslation();
-  const queryClient = useQueryClient();
-  const [actionError, setActionError] = useState<CommandError | null>(null);
   const portfolio = useQuery({
     queryKey: ["portfolio"],
     queryFn: () => unwrapResult(commands.getPortfolio()),
   });
-  const refresh = useMutation({
-    mutationFn: () => unwrapResult(commands.refreshAll()),
-    onSuccess: async () => {
-      setActionError(null);
-      await invalidateValuation(queryClient);
-    },
-    onError: (error) => setActionError(commandErrorFromUnknown(error)),
-  });
-  const error = portfolio.error
-    ? commandErrorFromUnknown(portfolio.error)
-    : actionError;
+  const error = portfolio.error ? commandErrorFromUnknown(portfolio.error) : null;
 
   return (
     <AppShell>
@@ -61,14 +49,10 @@ export function InvestmentsPage() {
           <h1 className="text-4xl font-semibold tracking-tight">
             {t("investments.title")}
           </h1>
-          <Button
-            disabled={refresh.isPending}
-            onClick={() => refresh.mutate()}
-            type="button"
-          >
-            {refresh.isPending ? t("investments.refreshing") : t("investments.refresh")}
-          </Button>
         </div>
+        <p className="mt-2 text-sm text-muted-foreground">
+          {t("investments.manualOnly")}
+        </p>
         {portfolio.isPending ? (
           <p className="mt-10" role="status">
             {t("references.loading")}
@@ -79,51 +63,104 @@ export function InvestmentsPage() {
             {formatCommandError(t, error)}
           </p>
         ) : null}
-        {refresh.data ? <RefreshStatus result={refresh.data.items} /> : null}
         {portfolio.data ? <PortfolioBody portfolio={portfolio.data} /> : null}
       </main>
     </AppShell>
   );
 }
-
-function RefreshStatus({
-  result,
-}: {
-  result: Array<{
-    key: string;
-    ok: boolean;
-    errorCode: string | null;
-    message: string | null;
-  }>;
-}) {
+function FxPairCard({ pair }: { pair: FxPairStatusDto }) {
   const { t } = useTranslation();
-  const failed = result.filter((item) => !item.ok);
-  if (result.length === 0) {
-    return (
-      <p className="mt-4 text-sm text-muted-foreground" role="status">
-        {t("investments.nothingToRefresh")}
-      </p>
-    );
-  }
-  if (failed.length === 0) {
-    return (
-      <p className="mt-4 text-sm text-muted-foreground" role="status">
-        {t("investments.refreshComplete")}
-      </p>
-    );
-  }
+  const queryClient = useQueryClient();
+  const formId = useId();
+  const [serverError, setServerError] = useState<CommandError | null>(null);
+  const form = useForm<FxRateFormValues>({ defaultValues: { rate: "" } });
+  const mutation = useMutation({
+    mutationFn: async (values: FxRateFormValues) =>
+      unwrapResult(
+        commands.appendManualFxQuote({
+          baseCurrency: pair.currencyB,
+          quoteCurrency: pair.currencyA,
+          rate: values.rate.trim(),
+          quotedAt: null,
+        }),
+      ),
+    onSuccess: async () => {
+      form.reset({ rate: "" });
+      await invalidateValuation(queryClient);
+    },
+    onError: (error) => setServerError(commandErrorFromUnknown(error)),
+  });
+
   return (
-    <div className="mt-4 text-sm text-destructive" role="status">
-      <p>{t("investments.refreshPartial")}</p>
-      <ul className="mt-2 list-disc pl-5">
-        {failed.map((item) => (
-          <li key={item.key}>
-            {item.key}
-            {item.message ? `: ${item.message}` : ""}
-          </li>
-        ))}
-      </ul>
-    </div>
+    <article className="space-y-3 rounded-xl border border-muted bg-card px-4 py-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="font-medium">
+          {t("fx.equation", {
+            baseCurrency: pair.currencyB,
+            quoteCurrency: pair.currencyA,
+          })}
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          {pair.selectedQuote
+            ? t("fx.selectedQuote", {
+                baseCurrency: pair.currencyB,
+                quoteCurrency: pair.currencyA,
+                rate: pair.selectedRate ?? pair.selectedQuote.rate,
+              })
+            : t("quotes.unavailable")}
+          {pair.selectedQuote
+            ? ` · ${t(`quotes.preference.${pair.selectedQuote.sourceKind}`)}${
+                pair.selectedQuote.delayed ? ` · ${t("quotes.freshness.delayed")}` : ""
+              }`
+            : ""}
+        </p>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        {t("fx.rateHelp", {
+          baseCurrency: pair.currencyB,
+          quoteCurrency: pair.currencyA,
+        })}
+      </p>
+      {serverError ? (
+        <p className="text-sm text-destructive" role="alert">
+          {formatCommandError(t, serverError)}
+        </p>
+      ) : null}
+      <form
+        className="flex flex-wrap items-end gap-2"
+        noValidate
+        onSubmit={form.handleSubmit((values) => {
+          const parsed = fxRateSchema.safeParse(values);
+          if (!parsed.success) {
+            applyZodIssues(form, parsed.error.issues, ["rate"]);
+            return;
+          }
+          setServerError(null);
+          mutation.mutate(parsed.data);
+        })}
+      >
+        <div className="space-y-1">
+          <label className="text-sm" htmlFor={`${formId}-rate`}>
+            {t("fx.rateLabel", {
+              baseCurrency: pair.currencyB,
+              quoteCurrency: pair.currencyA,
+            })}
+          </label>
+          <Input
+            id={`${formId}-rate`}
+            inputMode="decimal"
+            type="text"
+            {...form.register("rate")}
+          />
+          <FieldError
+            message={translateAccountError(t, form.formState.errors.rate?.message)}
+          />
+        </div>
+        <Button disabled={mutation.isPending} type="submit">
+          {mutation.isPending ? t("references.saving") : t("references.save")}
+        </Button>
+      </form>
+    </article>
   );
 }
 
@@ -132,7 +169,8 @@ function PortfolioBody({ portfolio }: { portfolio: PortfolioDto }) {
   const empty =
     portfolio.positions.length === 0 &&
     portfolio.cash.length === 0 &&
-    portfolio.accounts.length === 0;
+    portfolio.accounts.length === 0 &&
+    portfolio.requiredFx.length === 0;
   if (empty) {
     return (
       <div className="mt-10 space-y-4">
@@ -302,83 +340,6 @@ function FxPanel({ pairs }: { pairs: FxPairStatusDto[] }) {
         <FxPairCard key={`${pair.currencyA}:${pair.currencyB}`} pair={pair} />
       ))}
     </section>
-  );
-}
-
-function FxPairCard({ pair }: { pair: FxPairStatusDto }) {
-  const { t } = useTranslation();
-  const queryClient = useQueryClient();
-  const formId = useId();
-  const [serverError, setServerError] = useState<CommandError | null>(null);
-  const form = useForm<FxRateFormValues>({ defaultValues: { rate: "" } });
-  const mutation = useMutation({
-    mutationFn: async (values: FxRateFormValues) =>
-      unwrapResult(
-        commands.appendManualFxQuote({
-          baseCurrency: pair.currencyB,
-          quoteCurrency: pair.currencyA,
-          rate: values.rate.trim(),
-          quotedAt: null,
-        }),
-      ),
-    onSuccess: async () => {
-      form.reset({ rate: "" });
-      await invalidateValuation(queryClient);
-    },
-    onError: (error) => setServerError(commandErrorFromUnknown(error)),
-  });
-
-  return (
-    <article className="space-y-3 rounded-xl border border-muted bg-card px-4 py-4">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="font-medium">
-          {pair.currencyA}/{pair.currencyB}
-        </h3>
-        <p className="text-sm text-muted-foreground">
-          {pair.selectedQuote
-            ? `${pair.selectedQuote.rate} · ${t(`quotes.preference.${pair.selectedQuote.sourceKind}`)}${
-                pair.selectedQuote.delayed ? ` · ${t("quotes.freshness.delayed")}` : ""
-              }`
-            : t("quotes.unavailable")}
-        </p>
-      </div>
-      {serverError ? (
-        <p className="text-sm text-destructive" role="alert">
-          {formatCommandError(t, serverError)}
-        </p>
-      ) : null}
-      <form
-        className="flex flex-wrap items-end gap-2"
-        noValidate
-        onSubmit={form.handleSubmit((values) => {
-          const parsed = fxRateSchema.safeParse(values);
-          if (!parsed.success) {
-            applyZodIssues(form, parsed.error.issues, ["rate"]);
-            return;
-          }
-          setServerError(null);
-          mutation.mutate(parsed.data);
-        })}
-      >
-        <div className="space-y-1">
-          <label className="text-sm" htmlFor={`${formId}-rate`}>
-            {t("quotes.addRate")}
-          </label>
-          <Input
-            id={`${formId}-rate`}
-            inputMode="decimal"
-            type="text"
-            {...form.register("rate")}
-          />
-          <FieldError
-            message={translateAccountError(t, form.formState.errors.rate?.message)}
-          />
-        </div>
-        <Button disabled={mutation.isPending} type="submit">
-          {mutation.isPending ? t("references.saving") : t("references.save")}
-        </Button>
-      </form>
-    </article>
   );
 }
 

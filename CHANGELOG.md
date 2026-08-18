@@ -15,7 +15,9 @@ v0.1.2 is development-complete and is undergoing release-candidate validation.
 - One Rust ValuationService shared by Overview, Account detail, and Investments
 - Native amount, base-currency value, quote provenance, freshness, completeness, and unvalued diagnostics
 - Investments page with portfolio total, positions, and allocation by currency, country, and instrument type
-- Deduplicated batch quote refresh with partial-success reporting
+- Legacy Balance and Manual Value investment Accounts included in complete portfolio totals with explicit manual/unclassified allocation buckets
+- Full-precision checked Decimal aggregation with four-place midpoint-nearest-even Money DTO rounding
+- Provider-only batch refresh with deduplication, manual-pair exclusion, and partial-success reporting
 - Foreign-currency Balance and Manual Value Accounts valued through explicit FX quotes
 - Route-level lazy loading for primary application pages
 
@@ -24,6 +26,7 @@ v0.1.2 is development-complete and is undergoing release-candidate validation.
 - Migration `002` for instruments, holdings, account cash, instrument quotes, FX preferences, and FX quotes
 - Deterministic fake quote and FX adapters for offline provider tests
 - Golden CNY/SGD/USD holdings fixture totaling `62190 CNY`
+- Committed sanitized v0.1.1 migration fixture with pre-migration Overview and relationship-preservation evidence
 - Compatibility coverage for migrating a v0.1.1 schema without rewriting prior Account Values
 
 ### Accepted v0.1.2 Limitations

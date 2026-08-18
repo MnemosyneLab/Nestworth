@@ -82,7 +82,7 @@ export function toCreateInstrumentInput(
     isin: emptyToNull(values.isin),
     providerKey: null,
     providerSymbol: null,
-    quotePreference: values.quotePreference,
+    quotePreference: "manual",
     note: emptyToNull(values.note),
   };
 }

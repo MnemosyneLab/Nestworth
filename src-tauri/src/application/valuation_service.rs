@@ -145,11 +145,40 @@ pub fn enrich_accounts(
     Ok(())
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct AccountValuationCalculation {
+    pub native: Option<Money>,
+    pub base: Option<Money>,
+    pub complete: bool,
+    pub freshness: Freshness,
+    pub unvalued_items: Vec<UnvaluedItemDto>,
+}
+
+impl AccountValuationCalculation {
+    pub(crate) fn into_dto(self) -> Result<AccountValuationDto, AppError> {
+        Ok(AccountValuationDto {
+            native: self.native.map(money_dto).transpose()?,
+            base: self.base.map(money_dto).transpose()?,
+            complete: self.complete,
+            freshness: self.freshness.as_str().to_owned(),
+            unvalued_items: self.unvalued_items,
+        })
+    }
+}
+
 pub fn value_account(
     snapshot: &ValuationSnapshot,
     account: &AccountRecordDto,
     now: &Timestamp,
 ) -> Result<AccountValuationDto, AppError> {
+    value_account_calculation(snapshot, account, now)?.into_dto()
+}
+
+pub(crate) fn value_account_calculation(
+    snapshot: &ValuationSnapshot,
+    account: &AccountRecordDto,
+    now: &Timestamp,
+) -> Result<AccountValuationCalculation, AppError> {
     if account.tracking_mode == TrackingMode::Holdings.as_str() {
         return value_holdings_account(snapshot, account, now);
     }
@@ -160,11 +189,22 @@ fn value_simple_account(
     snapshot: &ValuationSnapshot,
     account: &AccountRecordDto,
     now: &Timestamp,
-) -> Result<AccountValuationDto, AppError> {
-    let native = match &account.latest_value {
-        Some(value) => Money::parse(&value.amount, CurrencyCode::parse(&value.currency)?)?,
-        None => Money::parse("0", CurrencyCode::parse(&account.default_currency)?)?,
+) -> Result<AccountValuationCalculation, AppError> {
+    let Some(value) = account.latest_value.as_ref() else {
+        return Ok(AccountValuationCalculation {
+            native: None,
+            base: None,
+            complete: false,
+            freshness: Freshness::Unavailable,
+            unvalued_items: vec![UnvaluedItemDto {
+                kind: "account".to_owned(),
+                id: account.id.clone(),
+                name: account.name.clone(),
+                reason: "account_value".to_owned(),
+            }],
+        });
     };
+    let native = Money::parse(&value.amount, CurrencyCode::parse(&value.currency)?)?;
     let converted = convert_amount(snapshot, native, now)?;
     let mut unvalued = Vec::new();
     if !converted.complete {
@@ -178,11 +218,11 @@ fn value_simple_account(
                 .unwrap_or_else(|| "fx_quote".to_owned()),
         });
     }
-    Ok(AccountValuationDto {
-        native: Some(money_dto(native)),
-        base: converted.base.map(money_dto),
+    Ok(AccountValuationCalculation {
+        native: Some(native),
+        base: converted.base,
         complete: converted.complete,
-        freshness: converted.freshness.as_str().to_owned(),
+        freshness: converted.freshness.unwrap_or(Freshness::Manual),
         unvalued_items: unvalued,
     })
 }
@@ -191,7 +231,7 @@ fn value_holdings_account(
     snapshot: &ValuationSnapshot,
     account: &AccountRecordDto,
     now: &Timestamp,
-) -> Result<AccountValuationDto, AppError> {
+) -> Result<AccountValuationCalculation, AppError> {
     let mut total = Decimal::ZERO;
     let mut complete = true;
     let mut freshness = Freshness::Manual;
@@ -201,15 +241,12 @@ fn value_holdings_account(
         .iter()
         .filter(|holding| holding.account_id == account.id)
     {
-        let valued = value_holding(snapshot, holding, now)?;
+        let valued = calculate_holding(snapshot, holding, now)?;
         if valued.complete {
-            if let Some(base) = &valued.base {
-                total = checked_add(
-                    total,
-                    Money::parse(&base.amount, snapshot.base_currency)?.amount(),
-                )?;
+            if let Some(base) = valued.base {
+                total = checked_add(total, base.amount())?;
             }
-            freshness = merge_freshness(freshness, Freshness::parse(&valued.freshness)?);
+            freshness = merge_freshness(freshness, valued.freshness);
         } else {
             complete = false;
             unvalued.push(UnvaluedItemDto {
@@ -217,6 +254,7 @@ fn value_holdings_account(
                 id: holding.id.clone(),
                 name: holding.instrument_name.clone(),
                 reason: valued
+                    .dto
                     .missing_reason
                     .clone()
                     .unwrap_or_else(|| "quote".to_owned()),
@@ -234,7 +272,9 @@ fn value_holdings_account(
             if let Some(base) = converted.base {
                 total = checked_add(total, base.amount())?;
             }
-            freshness = merge_freshness(freshness, converted.freshness);
+            if let Some(cash_freshness) = converted.freshness {
+                freshness = merge_freshness(freshness, cash_freshness);
+            }
         } else {
             complete = false;
             unvalued.push(UnvaluedItemDto {
@@ -247,26 +287,15 @@ fn value_holdings_account(
             });
         }
     }
-    let base = if complete {
-        Some(MoneyDto {
-            amount: canonical_decimal(round_to_money_scale(total)?),
-            currency: snapshot.base_currency.as_str().to_owned(),
-        })
-    } else if total.is_zero() {
-        None
+    let base = if complete || !total.is_zero() {
+        Some(Money::from_unrounded(total, snapshot.base_currency))
     } else {
-        Some(MoneyDto {
-            amount: canonical_decimal(round_to_money_scale(total)?),
-            currency: snapshot.base_currency.as_str().to_owned(),
-        })
+        None
     };
-    Ok(AccountValuationDto {
-        native: None,
-        base,
-        complete,
-        freshness: if complete {
-            freshness.as_str().to_owned()
-        } else if unvalued.len()
+    let freshness = if complete {
+        freshness
+    } else if !unvalued.is_empty()
+        && unvalued.len()
             == snapshot
                 .holdings
                 .iter()
@@ -277,12 +306,16 @@ fn value_holdings_account(
                     .iter()
                     .filter(|cash| cash.account_id == account.id)
                     .count()
-            && !unvalued.is_empty()
-        {
-            Freshness::Unavailable.as_str().to_owned()
-        } else {
-            freshness.as_str().to_owned()
-        },
+    {
+        Freshness::Unavailable
+    } else {
+        freshness
+    };
+    Ok(AccountValuationCalculation {
+        native: None,
+        base,
+        complete,
+        freshness,
         unvalued_items: unvalued,
     })
 }
@@ -292,36 +325,64 @@ pub fn value_holding(
     holding: &HoldingRecordDto,
     now: &Timestamp,
 ) -> Result<HoldingValuationDto, AppError> {
+    Ok(calculate_holding(snapshot, holding, now)?.dto)
+}
+
+pub(crate) struct HoldingCalculation {
+    pub(crate) dto: HoldingValuationDto,
+    pub(crate) native: Option<Money>,
+    pub(crate) base: Option<Money>,
+    pub(crate) freshness: Freshness,
+    pub(crate) complete: bool,
+}
+
+pub(crate) fn calculate_holding(
+    snapshot: &ValuationSnapshot,
+    holding: &HoldingRecordDto,
+    now: &Timestamp,
+) -> Result<HoldingCalculation, AppError> {
     let instrument = snapshot
         .instruments
         .get(&holding.instrument_id)
         .ok_or_else(|| AppError::not_found("instrument", &holding.instrument_id))?;
     let Some(quote_dto) = selected_instrument_quote(snapshot, instrument) else {
-        return Ok(holding_dto(
-            snapshot,
-            holding,
-            instrument,
-            None,
-            None,
-            false,
-            Freshness::Unavailable,
-            None,
-            Some("instrument_quote"),
-        ));
+        return Ok(HoldingCalculation {
+            dto: holding_dto(
+                snapshot,
+                holding,
+                instrument,
+                None,
+                None,
+                false,
+                Freshness::Unavailable,
+                None,
+                Some("instrument_quote"),
+            )?,
+            native: None,
+            base: None,
+            freshness: Freshness::Unavailable,
+            complete: false,
+        });
     };
     let quote = quote_service::parse_instrument_quote(quote_dto)?;
     if quote.quote_currency().as_str() != instrument.quote_currency {
-        return Ok(holding_dto(
-            snapshot,
-            holding,
-            instrument,
-            None,
-            None,
-            false,
-            Freshness::Unavailable,
-            None,
-            Some("instrument_quote"),
-        ));
+        return Ok(HoldingCalculation {
+            dto: holding_dto(
+                snapshot,
+                holding,
+                instrument,
+                None,
+                None,
+                false,
+                Freshness::Unavailable,
+                None,
+                Some("instrument_quote"),
+            )?,
+            native: None,
+            base: None,
+            freshness: Freshness::Unavailable,
+            complete: false,
+        });
     }
     let native = holding_native_value(Quantity::parse(&holding.quantity)?, &quote)?;
     let converted = convert_amount(snapshot, native, now)?;
@@ -331,22 +392,32 @@ pub fn value_holding(
         quote.quoted_at(),
         now,
     );
-    let freshness = merge_freshness(quote_freshness, converted.freshness);
-    Ok(holding_dto(
+    let freshness = converted
+        .freshness
+        .map_or(quote_freshness, |fx| merge_freshness(quote_freshness, fx));
+    let complete = converted.complete;
+    let dto = holding_dto(
         snapshot,
         holding,
         instrument,
-        Some(money_dto(native)),
-        converted.base.map(money_dto),
-        converted.complete,
-        if converted.complete {
+        Some(money_dto(native)?),
+        converted.base.map(money_dto).transpose()?,
+        complete,
+        if complete {
             freshness
         } else {
             Freshness::Unavailable
         },
         Some(quote_dto.quoted_at.clone()),
         converted.missing_reason.as_deref(),
-    ))
+    )?;
+    Ok(HoldingCalculation {
+        dto,
+        native: Some(native),
+        base: converted.base,
+        freshness,
+        complete,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -360,9 +431,9 @@ fn holding_dto(
     freshness: Freshness,
     quoted_at: Option<String>,
     missing_reason: Option<&str>,
-) -> HoldingValuationDto {
+) -> Result<HoldingValuationDto, AppError> {
     let _ = snapshot;
-    HoldingValuationDto {
+    Ok(HoldingValuationDto {
         holding_id: holding.id.clone(),
         account_id: holding.account_id.clone(),
         instrument_id: holding.instrument_id.clone(),
@@ -378,12 +449,12 @@ fn holding_dto(
         quoted_at,
         source_kind: Some(instrument.quote_preference.clone()),
         missing_reason: missing_reason.map(ToOwned::to_owned),
-    }
+    })
 }
 
 struct Converted {
     base: Option<Money>,
-    freshness: Freshness,
+    freshness: Option<Freshness>,
     complete: bool,
     missing_reason: Option<String>,
 }
@@ -469,24 +540,11 @@ fn merge_freshness(left: Freshness, right: Freshness) -> Freshness {
     }
 }
 
-fn money_dto(money: Money) -> MoneyDto {
-    MoneyDto {
-        amount: money.canonical_amount(),
+fn money_dto(money: Money) -> Result<MoneyDto, AppError> {
+    Ok(MoneyDto {
+        amount: canonical_decimal(round_to_money_scale(money.amount())?),
         currency: money.currency().as_str().to_owned(),
-    }
-}
-
-impl Freshness {
-    fn parse(value: &str) -> Result<Self, AppError> {
-        match value {
-            "manual" => Ok(Self::Manual),
-            "fresh" => Ok(Self::Fresh),
-            "delayed" => Ok(Self::Delayed),
-            "stale" => Ok(Self::Stale),
-            "unavailable" => Ok(Self::Unavailable),
-            _ => Err(AppError::Internal),
-        }
-    }
+    })
 }
 
 pub fn required_fx_pairs(
@@ -538,6 +596,23 @@ pub fn required_fx_pairs(
         )
     });
     Ok(ordered)
+}
+
+pub fn provider_fx_pairs(
+    snapshot: &ValuationSnapshot,
+    accounts: &[AccountRecordDto],
+) -> Result<Vec<FxPair>, AppError> {
+    Ok(required_fx_pairs(snapshot, accounts)?
+        .into_iter()
+        .filter(|pair| {
+            snapshot
+                .fx_preferences
+                .get(pair)
+                .copied()
+                .unwrap_or(QuoteSourceKind::Manual)
+                == QuoteSourceKind::Provider
+        })
+        .collect())
 }
 
 pub fn required_instrument_ids(
@@ -595,4 +670,24 @@ pub fn snapshot_base(snapshot: &ValuationSnapshot) -> CurrencyCode {
 
 pub fn account_is_liability(account: &AccountRecordDto) -> Result<bool, AppError> {
     Ok(PrimaryCategory::parse(&account.primary_category)? == PrimaryCategory::Liability)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::merge_freshness;
+    use crate::domain::Freshness;
+
+    #[test]
+    fn base_currency_identity_preserves_instrument_quote_freshness() {
+        for freshness in [
+            Freshness::Manual,
+            Freshness::Fresh,
+            Freshness::Delayed,
+            Freshness::Stale,
+        ] {
+            let neutral_fx: Option<Freshness> = None;
+            let merged = neutral_fx.map_or(freshness, |fx| merge_freshness(freshness, fx));
+            assert_eq!(merged, freshness);
+        }
+    }
 }

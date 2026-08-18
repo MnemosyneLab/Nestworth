@@ -53,6 +53,9 @@ describe("investments page", () => {
     await user.click(await screen.findByRole("link", { name: "Investments" }));
     expect(await screen.findByText("CNY 62,190")).toBeInTheDocument();
     expect(screen.getByText("All required quotes are available.")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Refresh quotes" }),
+    ).not.toBeInTheDocument();
     expect(screen.getByText("QQQ")).toBeInTheDocument();
     expect(screen.getAllByText("CNY 14,490").length).toBeGreaterThan(0);
     expect(screen.getByText("SGD 5,000")).toBeInTheDocument();
@@ -101,5 +104,60 @@ describe("investments page", () => {
     expect(await screen.findByText(/Incomplete/)).toBeInTheDocument();
     expect(screen.getByText("QQQ — Missing instrument quote")).toBeInTheDocument();
     expect(screen.getByText("Unavailable")).toBeInTheDocument();
+  });
+
+  it("explains and submits FX rates in the persisted direction", async () => {
+    const user = userEvent.setup();
+    vi.mocked(commands.getPortfolio).mockResolvedValue({
+      status: "ok",
+      data: {
+        ...emptyPortfolio(),
+        requiredFx: [
+          {
+            currencyA: "CNY",
+            currencyB: "SGD",
+            quotePreference: "manual",
+            selectedQuote: {
+              id: "fx-1",
+              baseCurrency: "SGD",
+              quoteCurrency: "CNY",
+              rate: "5.3",
+              sourceKind: "manual",
+              sourceKey: "manual",
+              delayed: false,
+              quotedAt: "2026-08-18T00:00:00.000Z",
+              createdAt: "2026-08-18T00:00:00.000Z",
+            },
+            selectedRate: "5.3",
+          },
+        ],
+      },
+    });
+    vi.mocked(commands.appendManualFxQuote).mockResolvedValue({
+      status: "ok",
+      data: {
+        id: "fx-2",
+        baseCurrency: "SGD",
+        quoteCurrency: "CNY",
+        rate: "5.3",
+        sourceKind: "manual",
+        sourceKey: "manual",
+        delayed: false,
+        quotedAt: "2026-08-18T00:00:00.000Z",
+        createdAt: "2026-08-18T00:00:00.000Z",
+      },
+    });
+    await renderReadyApp();
+    await user.click(await screen.findByRole("link", { name: "Investments" }));
+    expect(await screen.findByText("1 SGD = [rate] CNY")).toBeInTheDocument();
+    expect(screen.getByText(/Selected quote: 1 SGD = 5\.3 CNY/)).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Rate for 1 SGD in CNY"), "5.3");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(commands.appendManualFxQuote).toHaveBeenCalledWith({
+      baseCurrency: "SGD",
+      quoteCurrency: "CNY",
+      rate: "5.3",
+      quotedAt: null,
+    });
   });
 });

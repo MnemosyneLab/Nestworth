@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use sqlx::{Row, Sqlite, Transaction};
+use std::str::FromStr;
 
 use super::{
     instrument_service,
@@ -11,8 +12,8 @@ use super::{
 };
 use crate::{
     domain::{
-        CurrencyCode, FxPair, FxQuote, FxQuoteId, FxRate, HouseholdId, InstrumentId,
-        InstrumentQuote, InstrumentQuoteId, QuoteSourceKind, Timestamp, UnitPrice,
+        canonical_decimal, CurrencyCode, FxPair, FxQuote, FxQuoteId, FxRate, HouseholdId,
+        InstrumentId, InstrumentQuote, InstrumentQuoteId, QuoteSourceKind, Timestamp, UnitPrice,
     },
     error::AppError,
     state::AppState,
@@ -98,6 +99,7 @@ pub struct FxPairStatusDto {
     pub currency_b: String,
     pub quote_preference: String,
     pub selected_quote: Option<FxQuoteRecordDto>,
+    pub selected_rate: Option<String>,
 }
 
 pub async fn list_instrument_quotes(
@@ -502,12 +504,39 @@ async fn load_fx_pair_status(
                 || (quote.base_currency == pair.currency_b().as_str()
                     && quote.quote_currency == pair.currency_a().as_str()))
     });
+    let selected_rate = selected_rate_for_pair(pair, selected.as_ref())?;
     Ok(FxPairStatusDto {
         currency_a: pair.currency_a().as_str().to_owned(),
         currency_b: pair.currency_b().as_str().to_owned(),
         quote_preference,
         selected_quote: selected,
+        selected_rate,
     })
+}
+
+pub(crate) fn selected_rate_for_pair(
+    pair: FxPair,
+    selected: Option<&FxQuoteRecordDto>,
+) -> Result<Option<String>, AppError> {
+    let Some(selected) = selected else {
+        return Ok(None);
+    };
+    if selected.base_currency == pair.currency_b().as_str()
+        && selected.quote_currency == pair.currency_a().as_str()
+    {
+        return Ok(Some(selected.rate.clone()));
+    }
+    if selected.base_currency == pair.currency_a().as_str()
+        && selected.quote_currency == pair.currency_b().as_str()
+    {
+        let rate = rust_decimal::Decimal::from_str(&selected.rate)
+            .map_err(|_| AppError::DatabaseUnavailable)?;
+        let inverted = rust_decimal::Decimal::ONE
+            .checked_div(rate)
+            .ok_or(AppError::DecimalOverflow)?;
+        return Ok(Some(canonical_decimal(inverted)));
+    }
+    Ok(None)
 }
 
 fn instrument_quote_dto(quote: &InstrumentQuote) -> InstrumentQuoteRecordDto {
@@ -636,4 +665,37 @@ pub fn parse_fx_quote(
         Timestamp::parse(&dto.quoted_at)?,
         Timestamp::parse(&dto.created_at)?,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{selected_rate_for_pair, FxQuoteRecordDto};
+    use crate::domain::{CurrencyCode, FxPair};
+
+    fn quote(base_currency: &str, quote_currency: &str, rate: &str) -> FxQuoteRecordDto {
+        FxQuoteRecordDto {
+            id: "fx-test".to_owned(),
+            base_currency: base_currency.to_owned(),
+            quote_currency: quote_currency.to_owned(),
+            rate: rate.to_owned(),
+            source_kind: "manual".to_owned(),
+            source_key: "manual".to_owned(),
+            delayed: false,
+            quoted_at: "2026-01-01T00:00:00Z".to_owned(),
+            created_at: "2026-01-01T00:00:00Z".to_owned(),
+        }
+    }
+
+    #[test]
+    fn selected_rate_uses_persisted_pair_direction() {
+        let pair = FxPair::new(CurrencyCode::CNY, CurrencyCode::SGD).expect("pair");
+        assert_eq!(
+            selected_rate_for_pair(pair, Some(&quote("SGD", "CNY", "5.3"))).expect("direct"),
+            Some("5.3".to_owned())
+        );
+        assert_eq!(
+            selected_rate_for_pair(pair, Some(&quote("CNY", "SGD", "0.2"))).expect("inverse"),
+            Some("5".to_owned())
+        );
+    }
 }

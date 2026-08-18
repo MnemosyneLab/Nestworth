@@ -241,6 +241,7 @@
     "complete": "所需报价均已齐全。",
     "incomplete": "不完整 · 覆盖率 {{coverage}}",
     "empty": "添加持仓账户后即可查看投资组合。",
+    "manualOnly": "可离线使用手工价格和汇率；当前未配置数据源刷新。",
     "positions": "持仓",
     "byCurrency": "按货币",
     "byCountry": "按国家",
@@ -252,7 +253,11 @@
     "nothingToRefresh": "没有需要刷新的项目。"
   },
   "fx": {
-    "title": "所需汇率"
+    "title": "所需汇率",
+    "equation": "1 {{baseCurrency}} = [rate] {{quoteCurrency}}",
+    "rateHelp": "请输入 1 {{baseCurrency}} 可兑换多少 {{quoteCurrency}}。",
+    "rateLabel": "1 {{baseCurrency}} 对 {{quoteCurrency}} 的汇率",
+    "selectedQuote": "当前汇率：1 {{baseCurrency}} = {{rate}} {{quoteCurrency}}"
   },
   "quotes": {
     "incomplete": "不完整",
@@ -262,6 +267,7 @@
     "addRate": "添加手工汇率",
     "unitPrice": "单价",
     "preferenceLabel": "报价偏好",
+    "providerUnavailable": "当前版本未配置数据源报价，请改用手工价格。",
     "preference": {
       "manual": "手工",
       "provider": "数据源"

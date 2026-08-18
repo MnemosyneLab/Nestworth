@@ -164,6 +164,8 @@ async fn required_refresh_targets(
                         .get(&holding.instrument_id)
                     {
                         if instrument.quote_preference == QuoteSourceKind::Provider.as_str()
+                            && instrument.provider_key.is_some()
+                            && instrument.provider_symbol.is_some()
                             && instrument.archived_at.is_none()
                         {
                             instruments.push(instrument.clone());
@@ -172,7 +174,7 @@ async fn required_refresh_targets(
                 }
             }
         }
-        let pairs = valuation_service::required_fx_pairs(&snapshot, &accounts)?;
+        let pairs = valuation_service::provider_fx_pairs(&snapshot, &accounts)?;
         Ok((instruments, pairs))
     }
     .await;
@@ -376,8 +378,11 @@ mod tests {
                 FakeFxProvider, FakeQuoteProvider, FxAdapter, ProviderFxQuote, ProviderInstrument,
                 ProviderQuote, QuoteAdapter, QuoteFailure,
             },
-            quote_service::list_instrument_quotes,
-            quote_service::ListInstrumentQuotesInput,
+            quote_service::{
+                append_manual_instrument_quote, list_fx_quotes, list_instrument_quotes,
+                set_fx_quote_preference, AppendManualInstrumentQuoteInput, ListFxQuotesInput,
+                ListInstrumentQuotesInput, SetFxQuotePreferenceInput,
+            },
         },
         domain::{CurrencyCode, FxRate, Timestamp, UnitPrice},
         error::AppError,
@@ -680,6 +685,142 @@ mod tests {
                 .expect("slow");
             assert!(!item.ok);
             assert_eq!(item.error_code.as_deref(), Some("PROVIDER_UNAVAILABLE"));
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn refresh_all_skips_manual_fx_pairs_and_preserves_partial_successes() {
+        tauri::async_runtime::block_on(async {
+            let quotes = FakeQuoteProvider::new();
+            let fx = FakeFxProvider::new();
+            fx.insert_quote(ProviderFxQuote {
+                base_currency: CurrencyCode::SGD,
+                quote_currency: CurrencyCode::CNY,
+                rate: FxRate::parse("5.3").expect("rate"),
+                quoted_at: Timestamp::now(),
+                delayed: false,
+            });
+            fx.fail("USD", "CNY", QuoteFailure::Unavailable);
+            let path = test_path("phase6", "refresh-fx-preferences");
+            let state = AppState::initialize_with_providers(
+                path.clone(),
+                QuoteAdapter::Fake(quotes),
+                FxAdapter::Fake(fx.clone()),
+            )
+            .await;
+            crate::application::onboarding_service::complete_onboarding(
+                &state,
+                crate::test_support::valid_onboarding_input(),
+            )
+            .await
+            .expect("onboard");
+            let members = list_members(&state, false).await.expect("members");
+            let account = create_account(&state, holdings_account(&members[0].id, "Broker"))
+                .await
+                .expect("account");
+            let create_manual = |name: &str, symbol: &str, currency: CurrencyCode| {
+                let state = &state;
+                let name = name.to_owned();
+                let symbol = symbol.to_owned();
+                async move {
+                    create_instrument(
+                        state,
+                        CreateInstrumentInput {
+                            name,
+                            symbol: Some(symbol),
+                            instrument_type: "etf".to_owned(),
+                            quote_currency: currency.as_str().to_owned(),
+                            market_code: None,
+                            country_code: None,
+                            isin: None,
+                            provider_key: None,
+                            provider_symbol: None,
+                            quote_preference: Some("manual".to_owned()),
+                            note: None,
+                        },
+                    )
+                    .await
+                    .expect("instrument")
+                }
+            };
+            let sgd = create_manual("SGD ETF", "SGD", CurrencyCode::SGD).await;
+            let usd = create_manual("USD ETF", "USD", CurrencyCode::USD).await;
+            for instrument in [&sgd, &usd] {
+                create_holding(
+                    &state,
+                    CreateHoldingInput {
+                        account_id: account.id.clone(),
+                        instrument_id: instrument.id.clone(),
+                        quantity: "1".to_owned(),
+                        note: None,
+                    },
+                )
+                .await
+                .expect("holding");
+                append_manual_instrument_quote(
+                    &state,
+                    AppendManualInstrumentQuoteInput {
+                        instrument_id: instrument.id.clone(),
+                        unit_price: "1".to_owned(),
+                        quoted_at: None,
+                    },
+                )
+                .await
+                .expect("manual quote");
+            }
+
+            let manual = refresh_all(&state).await.expect("manual refresh");
+            assert!(manual.items.is_empty());
+            assert_eq!(fx.request_count(), 0);
+
+            set_fx_quote_preference(
+                &state,
+                SetFxQuotePreferenceInput {
+                    currency_a: "CNY".to_owned(),
+                    currency_b: "SGD".to_owned(),
+                    quote_preference: "provider".to_owned(),
+                },
+            )
+            .await
+            .expect("sgd provider preference");
+            let provider_only = refresh_all(&state).await.expect("provider refresh");
+            assert_eq!(fx.request_count(), 1);
+            assert!(provider_only
+                .items
+                .iter()
+                .any(|item| item.key == "CNY/SGD" && item.ok));
+
+            set_fx_quote_preference(
+                &state,
+                SetFxQuotePreferenceInput {
+                    currency_a: "CNY".to_owned(),
+                    currency_b: "USD".to_owned(),
+                    quote_preference: "provider".to_owned(),
+                },
+            )
+            .await
+            .expect("usd provider preference");
+            let mixed = refresh_all(&state).await.expect("mixed refresh");
+            assert_eq!(fx.request_count(), 3);
+            assert!(mixed
+                .items
+                .iter()
+                .any(|item| item.key == "CNY/SGD" && item.ok));
+            assert!(mixed
+                .items
+                .iter()
+                .any(|item| item.key == "CNY/USD" && !item.ok));
+            let preserved = list_fx_quotes(
+                &state,
+                ListFxQuotesInput {
+                    base_currency: "SGD".to_owned(),
+                    quote_currency: "CNY".to_owned(),
+                },
+            )
+            .await
+            .expect("preserved fx quote");
+            assert!(!preserved.is_empty());
             cleanup(&path);
         });
     }

@@ -18,7 +18,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "format": "prettier --write \"src/**/*.{ts,tsx,css,json}\" \"*.{json,js,ts}\" \"src-tauri/**/*.{json,toml}\"",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css,json}\" \"!src/generated/**/*\" \"*.{json,js,ts}\" \"src-tauri/**/*.{json,toml}\"",
     "rust:test": "cargo test --manifest-path src-tauri/Cargo.toml --all-targets",
     "fmt": "cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check",
     "clippy": "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",

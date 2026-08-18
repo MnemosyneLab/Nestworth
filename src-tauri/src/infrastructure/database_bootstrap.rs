@@ -198,13 +198,19 @@ mod tests {
         fs,
         hash::{Hash, Hasher},
         path::{Path, PathBuf},
+        str::FromStr,
         time::SystemTime,
     };
 
+    use rust_decimal::Decimal;
     use sqlx::Row;
 
     use super::{initialize_database, pre_migration_snapshot_path, DatabaseBootstrapStatus};
-    use crate::infrastructure::database::{connect_writable, read_migration_version};
+    use crate::{
+        application::overview_service::get_overview,
+        infrastructure::database::{connect_writable, read_migration_version},
+        state::AppState,
+    };
 
     fn test_path(name: &str) -> PathBuf {
         let nonce = SystemTime::now()
@@ -448,9 +454,9 @@ mod tests {
     }
 
     #[test]
-    fn version_one_fixture_migrates_to_two_and_preserves_account_values() {
+    fn released_v011_fixture_migrates_without_changing_overview_or_relationships() {
         tauri::async_runtime::block_on(async {
-            let path = test_path("v011-fixture");
+            let path = test_path("v011-released-fixture");
             remove_database(&path);
             let pool = connect_writable(&path, true)
                 .await
@@ -469,98 +475,118 @@ mod tests {
                     .await
                     .expect("v0.1.1 schema should apply");
             }
+            sqlx::raw_sql(include_str!("../../test-fixtures/v0.1.1.sql"))
+                .execute(&pool)
+                .await
+                .expect("released fixture should load");
 
-            let now = "2026-08-17T00:00:00.000Z";
-            let household_id = crate::domain::HouseholdId::new().to_string();
-            let member_id = crate::domain::MemberId::new().to_string();
-            let account_id = crate::domain::AccountId::new().to_string();
-            let value_id = crate::domain::AccountValueId::new().to_string();
-            sqlx::query(
-                "INSERT INTO households (id, name, base_currency, created_at, updated_at) VALUES (?, 'Wang Family', 'CNY', ?, ?)",
+            let rows = sqlx::query(
+                "SELECT a.primary_category, v.amount
+                 FROM accounts a
+                 JOIN (
+                   SELECT account_id, amount,
+                          ROW_NUMBER() OVER (PARTITION BY account_id ORDER BY effective_at DESC, created_at DESC, id DESC) AS rn
+                   FROM account_values
+                 ) v ON v.account_id = a.id AND v.rn = 1
+                 WHERE a.archived_at IS NULL AND a.include_in_net_worth = 1",
             )
-            .bind(&household_id)
-            .bind(now)
-            .bind(now)
-            .execute(&pool)
+            .fetch_all(&pool)
             .await
-            .expect("household");
-            sqlx::query(
-                "INSERT INTO members (id, household_id, name, sort_order, created_at, updated_at) VALUES (?, ?, 'Walt', 0, ?, ?)",
-            )
-            .bind(&member_id)
-            .bind(&household_id)
-            .bind(now)
-            .bind(now)
-            .execute(&pool)
-            .await
-            .expect("member");
-            sqlx::query(
-                "INSERT INTO accounts (id, household_id, name, primary_category, secondary_category, tracking_mode, default_currency, include_in_net_worth, include_in_investment, include_in_liquid_assets, sort_order, created_at, updated_at) VALUES (?, ?, 'DBS Savings', 'cash_equivalent', 'bank_account', 'balance', 'CNY', 1, 0, 1, 0, ?, ?)",
-            )
-            .bind(&account_id)
-            .bind(&household_id)
-            .bind(now)
-            .bind(now)
-            .execute(&pool)
-            .await
-            .expect("account");
-            sqlx::query(
-                "INSERT INTO account_ownership (account_id, member_id, share_bps) VALUES (?, ?, 10000)",
-            )
-            .bind(&account_id)
-            .bind(&member_id)
-            .execute(&pool)
-            .await
-            .expect("ownership");
-            sqlx::query(
-                "INSERT INTO account_values (id, account_id, value_kind, amount, currency, effective_at, created_at) VALUES (?, ?, 'balance', '100000', 'CNY', ?, ?)",
-            )
-            .bind(&value_id)
-            .bind(&account_id)
-            .bind(now)
-            .bind(now)
-            .execute(&pool)
-            .await
-            .expect("value");
-            sqlx::query(
-                "INSERT INTO app_settings (id, language, appearance, last_household_id, created_at, updated_at) VALUES (1, 'system', 'system', ?, ?, ?)",
-            )
-            .bind(&household_id)
-            .bind(now)
-            .bind(now)
-            .execute(&pool)
-            .await
-            .expect("settings");
+            .expect("legacy overview rows");
+            let mut before_assets = Decimal::ZERO;
+            let mut before_liabilities = Decimal::ZERO;
+            for row in rows {
+                let category: String = row.get("primary_category");
+                let amount: Decimal =
+                    Decimal::from_str(&row.get::<String, _>("amount")).expect("fixture amount");
+                if category == "liability" {
+                    before_liabilities += amount;
+                } else {
+                    before_assets += amount;
+                }
+            }
+            let before_net_worth = before_assets - before_liabilities;
+            assert_eq!(before_assets, Decimal::from_str("125000").expect("assets"));
+            assert_eq!(
+                before_liabilities,
+                Decimal::from_str("5000").expect("liabilities")
+            );
+            assert_eq!(
+                before_net_worth,
+                Decimal::from_str("120000").expect("net worth")
+            );
             pool.close().await;
 
-            let result = initialize_database(path.clone()).await;
-            assert_eq!(result.status, DatabaseBootstrapStatus::Migrated);
-            let pool = result.pool.expect("migrated fixture should be writable");
+            let migrated = initialize_database(path.clone()).await;
+            assert_eq!(migrated.status, DatabaseBootstrapStatus::Migrated);
+            let pool = migrated.pool.expect("migrated fixture should be writable");
             let version: i64 = sqlx::query_scalar("SELECT MAX(version) FROM _sqlx_migrations")
                 .fetch_one(&pool)
                 .await
                 .expect("version");
             assert_eq!(version, 2);
-            let amount: String =
-                sqlx::query_scalar("SELECT amount FROM account_values WHERE id = ?")
-                    .bind(&value_id)
+            for (table, expected) in [
+                ("households", 1),
+                ("app_settings", 1),
+                ("media_assets", 1),
+                ("members", 2),
+                ("institutions", 2),
+                ("account_groups", 2),
+                ("accounts", 4),
+                ("account_ownership", 4),
+                ("account_values", 6),
+            ] {
+                let count: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table}"))
                     .fetch_one(&pool)
                     .await
-                    .expect("preserved value");
-            assert_eq!(amount, "100000");
-            let instruments: i64 =
-                sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE name = 'instruments'")
-                    .fetch_one(&pool)
-                    .await
-                    .expect("instruments table");
-            assert_eq!(instruments, 1);
+                    .expect("representative row count");
+                assert_eq!(count, expected, "row count for {table}");
+            }
+            let retained: (String, String) = sqlx::query_as(
+                "SELECT institution_id, group_id FROM accounts WHERE id = '99999999-9999-4999-8999-999999999999'",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("retained archived references");
+            assert_eq!(retained.0, "55555555-5555-4555-8555-555555555555");
+            assert_eq!(retained.1, "77777777-7777-4777-8777-777777777777");
+            let history: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM account_values WHERE account_id = '99999999-9999-4999-8999-999999999999'",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("account value history");
+            assert_eq!(history, 2);
+            let foreign_keys = sqlx::query("PRAGMA foreign_key_check")
+                .fetch_all(&pool)
+                .await
+                .expect("foreign key check");
+            assert!(foreign_keys.is_empty());
             let integrity: String = sqlx::query_scalar("PRAGMA integrity_check")
                 .fetch_one(&pool)
                 .await
-                .expect("integrity");
+                .expect("integrity check");
             assert_eq!(integrity, "ok");
             pool.close().await;
+
+            let overview = {
+                let state = AppState::initialize(path.clone()).await;
+                get_overview(&state).await.expect("migrated overview")
+            };
+            assert_eq!(overview.account_count, 3);
+            assert_eq!(overview.assets.amount, "125000");
+            assert_eq!(overview.liabilities.amount, "5000");
+            assert_eq!(overview.net_worth.amount, "120000");
+            assert_eq!(overview.assets.amount, before_assets.to_string());
+            assert_eq!(overview.liabilities.amount, before_liabilities.to_string());
+            assert_eq!(overview.net_worth.amount, before_net_worth.to_string());
+
+            let reopened = initialize_database(path.clone()).await;
+            assert_eq!(reopened.status, DatabaseBootstrapStatus::Ready);
+            reopened.pool.expect("reopened pool").close().await;
+            let snapshot = pre_migration_snapshot_path(&path, 1);
             remove_database(&path);
+            remove_database(&snapshot);
         });
     }
 
