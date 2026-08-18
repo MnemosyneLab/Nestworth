@@ -1,0 +1,95 @@
+name: Bug report
+description: Report a reproducible problem in Nestworth.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for helping improve Nestworth. Do not include credentials, private financial data, real database files, or unredacted local paths in issues, samples, or logs.
+
+  - type: input
+    id: version
+    attributes:
+      label: Nestworth version or commit
+      description: Use the app version, release artifact name, or commit SHA.
+      placeholder: v0.1.1 or 413ac78
+    validations:
+      required: true
+
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: macOS 26.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: hardware
+    attributes:
+      label: Hardware
+      options:
+        - Apple Silicon (arm64)
+        - Intel
+        - Unknown
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: database
+    attributes:
+      label: Data safety
+      options:
+        - label: I reproduced this with an isolated application-data environment or a disposable test database.
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe what went wrong and how it affected your workflow.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Nestworth...
+        2. Navigate to...
+        3. Observe...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: sample
+    attributes:
+      label: Minimal safe sample
+      description: Include the smallest redacted example that reproduces the problem, if applicable.
+      render: text
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste only relevant, sanitized logs. Remove usernames, private paths, financial data, and credentials.
+      render: shell
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues for the same problem.
+          required: true
+        - label: I removed sensitive information from samples and logs.
+          required: true
