@@ -259,9 +259,9 @@ export function OnboardingPage() {
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-lg font-medium">{t("onboarding.members")}</h2>
               <Button
-                className="bg-transparent text-foreground shadow-none hover:bg-muted"
                 onClick={() => members.append({ name: "" })}
                 type="button"
+                variant="ghost"
               >
                 {t("onboarding.addMember")}
               </Button>
@@ -284,10 +284,10 @@ export function OnboardingPage() {
                   />
                   <Button
                     aria-label={t("onboarding.removeMember", { number: index + 1 })}
-                    className="bg-transparent text-foreground shadow-none hover:bg-muted"
                     disabled={members.fields.length === 1}
                     onClick={() => members.remove(index)}
                     type="button"
+                    variant="ghost"
                   >
                     {t("onboarding.remove")}
                   </Button>
@@ -334,9 +334,9 @@ export function OnboardingPage() {
         <div className="flex gap-3">
           {step > 0 ? (
             <Button
-              className="bg-transparent text-foreground shadow-none hover:bg-muted"
               onClick={() => setStep((current) => current - 1)}
               type="button"
+              variant="ghost"
             >
               {t("onboarding.back")}
             </Button>

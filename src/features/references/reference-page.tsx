@@ -113,7 +113,8 @@ export function GhostButton({
   return (
     <Button
       {...props}
-      className="h-9 bg-transparent px-3 text-foreground shadow-none hover:bg-muted"
+      className="h-9 px-3"
+      variant="ghost"
     >
       {children}
     </Button>
