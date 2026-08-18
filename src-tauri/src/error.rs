@@ -26,6 +26,20 @@ pub enum AppError {
     InvalidFxRate { message: String },
     #[error("decimal overflow")]
     DecimalOverflow,
+    #[error("the activity is invalid")]
+    InvalidActivity { message: String },
+    #[error("the activity time is invalid")]
+    InvalidActivityTime { message: String },
+    #[error("the activity legs are invalid")]
+    InvalidActivityLegs { message: String },
+    #[error("insufficient balance")]
+    InsufficientBalance,
+    #[error("insufficient quantity")]
+    InsufficientQuantity,
+    #[error("transfer amounts do not match")]
+    TransferMismatch { message: String },
+    #[error("trade totals do not match")]
+    TradeTotalMismatch { message: String },
     #[error("the selected image is invalid")]
     MediaInvalid { message: String },
     #[error("household is already onboarded")]
@@ -115,6 +129,36 @@ impl AppError {
 
     pub fn invalid_fx_rate(message: &str) -> Self {
         Self::InvalidFxRate {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn invalid_activity(message: &str) -> Self {
+        Self::InvalidActivity {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn invalid_activity_time(message: &str) -> Self {
+        Self::InvalidActivityTime {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn invalid_activity_legs(message: &str) -> Self {
+        Self::InvalidActivityLegs {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn transfer_mismatch(message: &str) -> Self {
+        Self::TransferMismatch {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn trade_total_mismatch(message: &str) -> Self {
+        Self::TradeTotalMismatch {
             message: message.to_owned(),
         }
     }
@@ -210,6 +254,39 @@ impl AppError {
                 ErrorCode::DecimalOverflow,
                 "The calculated amount is too large to store.",
             ),
+            Self::InvalidActivity { message } => CommandError {
+                code: ErrorCode::InvalidActivity,
+                message,
+                fields: None,
+            },
+            Self::InvalidActivityTime { message } => CommandError {
+                code: ErrorCode::InvalidActivityTime,
+                message,
+                fields: None,
+            },
+            Self::InvalidActivityLegs { message } => CommandError {
+                code: ErrorCode::InvalidActivityLegs,
+                message,
+                fields: None,
+            },
+            Self::InsufficientBalance => CommandError::new(
+                ErrorCode::InsufficientBalance,
+                "This activity would make the balance negative.",
+            ),
+            Self::InsufficientQuantity => CommandError::new(
+                ErrorCode::InsufficientQuantity,
+                "This activity would make the holding quantity negative.",
+            ),
+            Self::TransferMismatch { message } => CommandError {
+                code: ErrorCode::TransferMismatch,
+                message,
+                fields: None,
+            },
+            Self::TradeTotalMismatch { message } => CommandError {
+                code: ErrorCode::TradeTotalMismatch,
+                message,
+                fields: None,
+            },
             Self::MediaInvalid { message } => {
                 let mut fields = HashMap::new();
                 fields.insert("image".to_owned(), message.clone());
@@ -331,6 +408,13 @@ pub enum ErrorCode {
     InvalidUnitPrice,
     InvalidFxRate,
     DecimalOverflow,
+    InvalidActivity,
+    InvalidActivityTime,
+    InvalidActivityLegs,
+    InsufficientBalance,
+    InsufficientQuantity,
+    TransferMismatch,
+    TradeTotalMismatch,
     QuoteUnavailable,
     IncompleteValuation,
     DuplicateHolding,

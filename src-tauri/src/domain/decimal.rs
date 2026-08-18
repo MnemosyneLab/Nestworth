@@ -88,6 +88,19 @@ pub fn checked_add(left: Decimal, right: Decimal) -> Result<Decimal, AppError> {
     left.checked_add(right).ok_or(AppError::DecimalOverflow)
 }
 
+pub fn checked_sub(left: Decimal, right: Decimal) -> Result<Decimal, AppError> {
+    left.checked_sub(right).ok_or(AppError::DecimalOverflow)
+}
+
+pub fn round_to_quantity_scale(amount: Decimal) -> Result<Decimal, AppError> {
+    let rounded = amount.round_dp_with_strategy(8, RoundingStrategy::MidpointNearestEven);
+    let max = Decimal::from_str("999999999999999999.99999999").expect("literal quantity maximum");
+    if rounded.abs() > max {
+        return Err(AppError::DecimalOverflow);
+    }
+    Ok(rounded)
+}
+
 fn is_valid_integer_part(integer: &str, max_integer_digits: usize) -> bool {
     if integer == "0" {
         return true;
