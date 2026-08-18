@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AccountForm, translateAccountError } from "@/features/accounts/account-form";
 import { AccountMark } from "@/features/accounts/account-mark";
+import { AccountTimeline } from "@/features/activity/account-timeline";
 import {
   cashSchema,
   holdingSchema,
@@ -198,6 +199,7 @@ export function AccountDetailPage({ accountId }: { accountId: string }) {
                 onSaved={invalidate}
               />
             )}
+            <AccountTimeline account={account} catalog={catalog} />
             {editing ? (
               <AccountForm
                 account={account}

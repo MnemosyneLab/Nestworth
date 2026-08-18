@@ -6,13 +6,19 @@ import App from "@/App";
 import { router } from "@/app/router";
 import type {
   AccountRecordDto,
+  AccountTimelinePageDto,
   AccountValuationDto,
+  ActivityDetailDto,
+  ActivityPageDto,
   BootstrapDto,
   CommandError,
   ErrorCode,
   GroupRecordDto,
+  HistoryOriginDto,
+  HistoryStatusDto,
   InstitutionRecordDto,
   MemberRecordDto,
+  NetWorthTrendDto,
   OverviewDto,
   PortfolioDto,
   ReferenceCatalogDto,
@@ -225,6 +231,95 @@ export function emptyPortfolio(currency = "CNY"): PortfolioDto {
   };
 }
 
+export function confirmedHistoryOrigin(): HistoryOriginDto {
+  return {
+    id: "origin-1",
+    timezone: "UTC",
+    timezoneConfirmed: true,
+    originAt: TIMESTAMP,
+    originLocalDate: "2026-08-17",
+    source: "onboarding",
+    schemaVersion: 3,
+    createdAt: TIMESTAMP,
+    accountValues: [],
+    cashValues: [],
+    holdings: [],
+  };
+}
+
+export function emptyActivityPage(): ActivityPageDto {
+  return { items: [], nextCursor: null, hasMore: false };
+}
+
+export function emptyTimelinePage(): AccountTimelinePageDto {
+  return { items: [], nextCursor: null, hasMore: false };
+}
+
+export function emptyHistoryStatus(): HistoryStatusDto {
+  return {
+    timezone: "UTC",
+    timezoneConfirmed: true,
+    originAt: TIMESTAMP,
+    originLocalDate: "2026-08-17",
+    dirtyFrom: null,
+    lastCompletedOn: null,
+    lastClosedOn: null,
+    rebuildStatus: "idle",
+    rebuildCursorOn: null,
+  };
+}
+
+export function emptyNetWorthTrend(currency = "CNY"): NetWorthTrendDto {
+  const zero = { amount: "0", currency };
+  return {
+    baseCurrency: currency,
+    range: "all",
+    originLocalDate: "2026-08-17",
+    dirtyFrom: null,
+    points: [],
+    current: {
+      date: null,
+      asOf: TIMESTAMP,
+      assets: zero,
+      liabilities: zero,
+      netWorth: zero,
+      isComplete: true,
+      isLive: true,
+      coverageBps: 10_000,
+      missingCount: 0,
+      valuedComponentCount: 0,
+      totalComponentCount: 0,
+    },
+  };
+}
+
+export function activityDetail(
+  id: string,
+  extras: Partial<ActivityDetailDto> = {},
+): ActivityDetailDto {
+  return {
+    id,
+    kind: "deposit",
+    classification: "external_inflow",
+    effectiveAt: TIMESTAMP,
+    effectiveLocalDate: "2026-08-17",
+    createdAt: TIMESTAMP,
+    note: null,
+    reverses: null,
+    corrects: null,
+    correctionGroup: null,
+    incomeKind: null,
+    feeKind: null,
+    relatedInstrumentId: null,
+    reversed: false,
+    isReversal: false,
+    isReplacement: false,
+    legs: [],
+    chain: { originalId: id, reversalId: null, replacementId: null },
+    ...extras,
+  };
+}
+
 export function commandError(
   code: ErrorCode,
   message: string,
@@ -304,6 +399,26 @@ export function resetCommandMocks() {
   vi.mocked(commands.refreshAll).mockResolvedValue({
     status: "ok",
     data: { items: [] },
+  });
+  vi.mocked(commands.getHistoryOrigin).mockResolvedValue({
+    status: "ok",
+    data: confirmedHistoryOrigin(),
+  });
+  vi.mocked(commands.listActivities).mockResolvedValue({
+    status: "ok",
+    data: emptyActivityPage(),
+  });
+  vi.mocked(commands.getAccountTimeline).mockResolvedValue({
+    status: "ok",
+    data: emptyTimelinePage(),
+  });
+  vi.mocked(commands.getHistoryStatus).mockResolvedValue({
+    status: "ok",
+    data: emptyHistoryStatus(),
+  });
+  vi.mocked(commands.getNetWorthTrend).mockResolvedValue({
+    status: "ok",
+    data: emptyNetWorthTrend(),
   });
 }
 

@@ -45,6 +45,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         <NavLink active={pathname === "/investments"} to="/investments">
           {t("nav.investments")}
         </NavLink>
+        <NavLink active={pathname === "/activity"} to="/activity">
+          {t("nav.activity")}
+        </NavLink>
         <div>
           <NavLink active={accountsActive} search={{}} to="/accounts">
             {t("nav.accounts")}
@@ -99,7 +102,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </div>
       </nav>
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">{children}</div>
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
+        {children}
+      </div>
     </div>
   );
 }
@@ -116,6 +121,7 @@ function NavLink({
   to:
     | "/overview"
     | "/investments"
+    | "/activity"
     | "/instruments"
     | "/accounts"
     | "/groups"

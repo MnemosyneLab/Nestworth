@@ -6,6 +6,7 @@ import {
 } from "@tanstack/react-router";
 
 import { validateAccountSearch } from "@/features/accounts/search";
+import { validateActivitySearch } from "@/features/activity/search";
 import { RootRoute } from "@/routes/__root";
 import { AccountsRoute } from "@/routes/accounts";
 import { GroupsRoute } from "@/routes/groups";
@@ -37,6 +38,12 @@ const investmentsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/investments",
   component: InvestmentsRoute,
+});
+const activityRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/activity",
+  component: lazyRouteComponent(() => import("@/routes/activity")),
+  validateSearch: validateActivitySearch,
 });
 const instrumentsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -86,6 +93,7 @@ const routeTree = rootRoute.addChildren([
   onboardingRoute,
   overviewRoute,
   investmentsRoute,
+  activityRoute,
   instrumentsRoute,
   accountsRoute,
   accountDetailRoute,
