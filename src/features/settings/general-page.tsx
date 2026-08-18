@@ -9,7 +9,7 @@ import { i18n } from "@/lib/i18n";
 import { applyAppearance, resolveLanguage } from "@/lib/i18n/preferences";
 import {
   referenceCatalogFromBootstrap,
-  referenceCurrencyLabel,
+  referenceCurrencyCodeLabel,
 } from "@/lib/reference-catalog";
 import { bootstrapQueryKey, useBootstrapQuery } from "@/lib/tauri/bootstrap";
 import {
@@ -75,7 +75,7 @@ export function SettingsGeneralPage() {
                 <p className="text-sm text-muted-foreground">{household.name}</p>
                 <p className="text-sm text-muted-foreground">
                   {t("overview.baseCurrency", {
-                    currency: referenceCurrencyLabel(
+                    currency: referenceCurrencyCodeLabel(
                       t,
                       catalog,
                       household.baseCurrency,

@@ -27,8 +27,8 @@ import {
 import {
   formatReferenceMoney,
   referenceCatalogFromBootstrap,
-  referenceCurrencyLabel,
-  referenceCountryLabel,
+  referenceCountryCodeLabel,
+  referenceCurrencyCodeLabel,
 } from "@/lib/reference-catalog";
 import { useBootstrapQuery } from "@/lib/tauri/bootstrap";
 import {
@@ -87,8 +87,8 @@ function FxPairCard({
   pair: FxPairStatusDto;
 }) {
   const { t } = useTranslation();
-  const baseCurrency = referenceCurrencyLabel(t, catalog, pair.currencyB);
-  const quoteCurrency = referenceCurrencyLabel(t, catalog, pair.currencyA);
+  const baseCurrency = referenceCurrencyCodeLabel(t, catalog, pair.currencyB);
+  const quoteCurrency = referenceCurrencyCodeLabel(t, catalog, pair.currencyA);
   const queryClient = useQueryClient();
   const formId = useId();
   const [serverError, setServerError] = useState<CommandError | null>(null);
@@ -235,13 +235,13 @@ function PortfolioBody({
       <PositionList catalog={catalog} portfolio={portfolio} />
       <AllocationList
         catalog={catalog}
-        labelFor={(row) => referenceCurrencyLabel(t, catalog, row.key)}
+        labelFor={(row) => referenceCurrencyCodeLabel(t, catalog, row.key)}
         rows={portfolio.byCurrency}
         title={t("investments.byCurrency")}
       />
       <AllocationList
         catalog={catalog}
-        labelFor={(row) => referenceCountryLabel(t, catalog, row.key)}
+        labelFor={(row) => referenceCountryCodeLabel(t, catalog, row.key)}
         rows={portfolio.byCountry}
         title={t("investments.byCountry")}
       />

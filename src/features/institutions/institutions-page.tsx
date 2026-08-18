@@ -36,8 +36,11 @@ import {
   hasReferenceValue,
   legacyOptionLabel,
   referenceCatalogFromBootstrap,
+  referenceCountryCodeLabel,
+  referenceCountryNameLabel,
   referenceGroupLabel,
-  referenceOptionLabel,
+  referenceInstitutionTypeLabel,
+  referenceSelectOptionLabel,
   withLegacyOption,
 } from "@/lib/reference-catalog";
 import { bootstrapQueryKey, useBootstrapQuery } from "@/lib/tauri/bootstrap";
@@ -126,21 +129,16 @@ export function InstitutionsPage() {
                 <p className="mt-1 text-sm text-muted-foreground">
                   {[
                     institution.institutionType
-                      ? hasReferenceValue(
-                          catalog.institutionTypes,
+                      ? referenceInstitutionTypeLabel(
+                          t,
+                          catalog,
                           institution.institutionType,
                         )
-                        ? referenceOptionLabel(
-                            t,
-                            "institutionTypes",
-                            institution.institutionType,
-                          )
-                        : legacyOptionLabel(t, institution.institutionType)
                       : null,
                     institution.countryCode
-                      ? hasReferenceValue(catalog.countries, institution.countryCode)
-                        ? referenceOptionLabel(t, "countries", institution.countryCode)
-                        : legacyOptionLabel(t, institution.countryCode)
+                      ? institution.institutionType
+                        ? referenceCountryCodeLabel(t, catalog, institution.countryCode)
+                        : referenceCountryNameLabel(t, catalog, institution.countryCode)
                       : null,
                   ]
                     .filter((value): value is string => Boolean(value))
@@ -318,7 +316,10 @@ function InstitutionEditor({
           >
             <option value="">{t("accounts.none")}</option>
             {groupReferenceOptions(
-              withLegacyOption(catalog.institutionTypes, institution?.institutionType ?? ""),
+              withLegacyOption(
+                catalog.institutionTypes,
+                institution?.institutionType ?? "",
+              ),
             ).map(([group, options]) => (
               <optgroup
                 key={group}
@@ -328,7 +329,7 @@ function InstitutionEditor({
                   <option key={option.value} value={option.value}>
                     {option.group === "legacy"
                       ? legacyOptionLabel(t, option.value)
-                      : referenceOptionLabel(t, "institutionTypes", option.value)}
+                      : referenceInstitutionTypeLabel(t, catalog, option.value)}
                   </option>
                 ))}
               </optgroup>
@@ -363,7 +364,7 @@ function InstitutionEditor({
                   <option key={option.value} value={option.value}>
                     {option.group === "legacy"
                       ? legacyOptionLabel(t, option.value)
-                      : referenceOptionLabel(t, "countries", option.value)}
+                      : referenceSelectOptionLabel(t, "countries", option.value)}
                   </option>
                 ))}
               </optgroup>

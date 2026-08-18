@@ -40,8 +40,9 @@ import {
   groupReferenceOptions,
   hasReferenceValue,
   legacyOptionLabel,
+  referenceCurrencyCodeLabel,
   referenceGroupLabel,
-  referenceOptionLabel,
+  referenceSelectOptionLabel,
 } from "@/lib/reference-catalog";
 import {
   commandErrorFromUnknown,
@@ -241,7 +242,7 @@ export function AccountForm({
             <p className="text-sm font-medium">{t("accounts.currency")}</p>
             <p className="text-sm text-muted-foreground">
               {hasReferenceValue(catalog.currencies, account.defaultCurrency)
-                ? referenceOptionLabel(t, "currencies", account.defaultCurrency)
+                ? referenceCurrencyCodeLabel(t, catalog, account.defaultCurrency)
                 : legacyOptionLabel(t, account.defaultCurrency)}
             </p>
           </div>
@@ -262,7 +263,7 @@ export function AccountForm({
                 >
                   {options.map((option) => (
                     <option key={option.value} value={option.value}>
-                      {referenceOptionLabel(t, "currencies", option.value)}
+                      {referenceSelectOptionLabel(t, "currencies", option.value)}
                     </option>
                   ))}
                 </optgroup>

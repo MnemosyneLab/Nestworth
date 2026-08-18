@@ -44,7 +44,7 @@ export function withLegacyOption(
   return [{ value, group: "legacy" }, ...options];
 }
 
-export function referenceOptionLabel(
+export function referenceSelectOptionLabel(
   t: TFunction,
   namespace: string,
   value: string,
@@ -57,17 +57,27 @@ export function legacyOptionLabel(t: TFunction, value: string): string {
   return `${value} (${t("reference.legacy")})`;
 }
 
-export function referenceCurrencyLabel(
+export function referenceInstitutionTypeLabel(
+  t: TFunction,
+  catalog: ReferenceCatalogDto,
+  value: string,
+): string {
+  return hasReferenceValue(catalog.institutionTypes, value)
+    ? t(`reference.institutionTypes.${value}`, { defaultValue: value })
+    : legacyOptionLabel(t, value);
+}
+
+export function referenceCurrencyCodeLabel(
   t: TFunction,
   catalog: ReferenceCatalogDto,
   value: string,
 ): string {
   return hasReferenceValue(catalog.currencies, value)
-    ? referenceOptionLabel(t, "currencies", value)
+    ? value
     : legacyOptionLabel(t, value);
 }
 
-export function referenceCountryLabel(
+export function referenceCountryNameLabel(
   t: TFunction,
   catalog: ReferenceCatalogDto,
   value: string,
@@ -76,7 +86,20 @@ export function referenceCountryLabel(
     return t("accounts.none");
   }
   return hasReferenceValue(catalog.countries, value)
-    ? referenceOptionLabel(t, "countries", value)
+    ? t(`reference.countries.${value}`, { defaultValue: value })
+    : legacyOptionLabel(t, value);
+}
+
+export function referenceCountryCodeLabel(
+  t: TFunction,
+  catalog: ReferenceCatalogDto,
+  value: string,
+): string {
+  if (value === "unknown") {
+    return t("accounts.none");
+  }
+  return hasReferenceValue(catalog.countries, value)
+    ? value
     : legacyOptionLabel(t, value);
 }
 
@@ -86,7 +109,7 @@ export function formatReferenceMoney(
   amount: string,
   currency: string,
 ): string {
-  return formatMoney(amount, referenceCurrencyLabel(t, catalog, currency));
+  return formatMoney(amount, referenceCurrencyCodeLabel(t, catalog, currency));
 }
 
 export function referenceGroupLabel(t: TFunction, namespace: string, group: string) {

@@ -17,8 +17,9 @@ import { commands, type CommandError } from "@/generated/tauri-bindings";
 import {
   groupReferenceOptions,
   referenceCatalogFromBootstrap,
+  referenceCurrencyCodeLabel,
   referenceGroupLabel,
-  referenceOptionLabel,
+  referenceSelectOptionLabel,
 } from "@/lib/reference-catalog";
 import { bootstrapQueryKey, useBootstrapQuery } from "@/lib/tauri/bootstrap";
 import { commandErrorFromUnknown } from "@/lib/tauri/errors";
@@ -205,7 +206,7 @@ export function OnboardingPage() {
                 >
                   {options.map((option) => (
                     <option key={option.value} value={option.value}>
-                      {referenceOptionLabel(t, "currencies", option.value)}
+                      {referenceSelectOptionLabel(t, "currencies", option.value)}
                     </option>
                   ))}
                 </optgroup>
@@ -287,7 +288,7 @@ export function OnboardingPage() {
               <span className="text-muted-foreground">
                 {t("onboarding.baseCurrency")}:{" "}
               </span>
-              {referenceOptionLabel(t, "currencies", form.getValues("baseCurrency"))}
+              {referenceCurrencyCodeLabel(t, catalog, form.getValues("baseCurrency"))}
             </p>
             <ul className="list-disc pl-5">
               {form.getValues("members").map((member, index) => (

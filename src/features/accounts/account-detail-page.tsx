@@ -33,9 +33,9 @@ import {
   formatReferenceMoney,
   groupReferenceOptions,
   hasReferenceValue,
-  referenceCurrencyLabel,
+  referenceCurrencyCodeLabel,
   referenceGroupLabel,
-  referenceOptionLabel,
+  referenceSelectOptionLabel,
   referenceCatalogFromBootstrap,
 } from "@/lib/reference-catalog";
 import { useBootstrapQuery } from "@/lib/tauri/bootstrap";
@@ -360,7 +360,7 @@ function HoldingsPanel({
             <p className="font-medium">{holding.instrumentName}</p>
             <p className="text-sm text-muted-foreground">
               {holding.quantity} ·{" "}
-              {referenceCurrencyLabel(t, catalog, holding.quoteCurrency)}
+              {referenceCurrencyCodeLabel(t, catalog, holding.quoteCurrency)}
             </p>
           </div>
           <GhostButton
@@ -625,7 +625,7 @@ function CashForm({
               >
                 {options.map((option) => (
                   <option key={option.value} value={option.value}>
-                    {referenceOptionLabel(t, "currencies", option.value)}
+                    {referenceSelectOptionLabel(t, "currencies", option.value)}
                   </option>
                 ))}
               </optgroup>

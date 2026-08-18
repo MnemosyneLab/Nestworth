@@ -12,7 +12,10 @@ import type {
   ReferenceCatalogDto,
 } from "@/generated/tauri-bindings";
 import { commands } from "@/generated/tauri-bindings";
-import { formatReferenceMoney, referenceCurrencyLabel } from "@/lib/reference-catalog";
+import {
+  formatReferenceMoney,
+  referenceCurrencyCodeLabel,
+} from "@/lib/reference-catalog";
 import {
   commandErrorFromUnknown,
   formatCommandError,
@@ -42,7 +45,7 @@ export function OverviewPage({
         <h1 className="text-4xl font-semibold tracking-tight">{household.name}</h1>
         <p className="mt-3 text-lg text-muted-foreground">
           {t("overview.baseCurrency", {
-            currency: referenceCurrencyLabel(t, catalog, household.baseCurrency),
+            currency: referenceCurrencyCodeLabel(t, catalog, household.baseCurrency),
           })}
         </p>
         {overview.isPending ? (

@@ -28,6 +28,10 @@ describe("institutions page", () => {
     ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Add institution" }));
     expect(screen.getByLabelText("Name")).toHaveFocus();
+    expect(screen.getByRole("option", { name: "Bank" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: "Bank (bank)" }),
+    ).not.toBeInTheDocument();
     await user.type(screen.getByLabelText("Name"), "DBS");
     await user.selectOptions(screen.getByLabelText("Country/Region"), "SG");
     await user.click(screen.getByRole("button", { name: "Save" }));

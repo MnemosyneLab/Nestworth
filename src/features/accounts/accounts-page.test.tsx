@@ -43,7 +43,7 @@ describe("accounts page", () => {
     expect(
       await screen.findByRole("heading", { name: "DBS Savings" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Chinese Yuan (CNY) 100,000")).toBeInTheDocument();
+    expect(screen.getByText("CNY 100,000")).toBeInTheDocument();
     expect(screen.getByText("Bank Account")).toBeInTheDocument();
     expect(
       within(
@@ -82,7 +82,7 @@ describe("accounts page", () => {
     ).toBeInTheDocument();
     await user.type(screen.getByLabelText("Amount"), "110000");
     await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(await screen.findByText("Chinese Yuan (CNY) 110,000")).toBeInTheDocument();
+    expect(await screen.findByText("CNY 110,000")).toBeInTheDocument();
     expect(commands.updateAccountValue).toHaveBeenCalledWith({
       id: "a-1",
       amount: "110000",

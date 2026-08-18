@@ -33,10 +33,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   const accountsActive = pathname === "/accounts" || pathname.startsWith("/accounts/");
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex h-screen min-h-0 overflow-hidden">
       <nav
         aria-label={t("nav.label")}
-        className="flex w-56 shrink-0 flex-col gap-1 border-r border-border bg-card px-3 py-6"
+        className="flex h-full min-h-0 w-56 shrink-0 flex-col gap-1 overflow-y-auto overscroll-contain border-r border-border bg-card px-3 py-6"
       >
         <Brand className="mb-5 px-3" size="md" />
         <NavLink active={pathname === "/overview"} to="/overview">
@@ -99,7 +99,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </div>
       </nav>
-      <div className="min-w-0 flex-1">{children}</div>
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">{children}</div>
     </div>
   );
 }

@@ -43,9 +43,10 @@ import {
   hasReferenceValue,
   legacyOptionLabel,
   referenceCatalogFromBootstrap,
-  referenceCurrencyLabel,
+  referenceCountryCodeLabel,
+  referenceCurrencyCodeLabel,
   referenceGroupLabel,
-  referenceOptionLabel,
+  referenceSelectOptionLabel,
   withLegacyOption,
 } from "@/lib/reference-catalog";
 import { useBootstrapQuery } from "@/lib/tauri/bootstrap";
@@ -136,14 +137,14 @@ export function InstrumentsPage() {
                   {[
                     instrument.symbol,
                     hasReferenceValue(catalog.currencies, instrument.quoteCurrency)
-                      ? referenceOptionLabel(t, "currencies", instrument.quoteCurrency)
+                      ? referenceCurrencyCodeLabel(t, catalog, instrument.quoteCurrency)
                       : legacyOptionLabel(t, instrument.quoteCurrency),
                     t(`instruments.types.${instrument.instrumentType}`, {
                       defaultValue: instrument.instrumentType,
                     }),
                     instrument.countryCode
                       ? hasReferenceValue(catalog.countries, instrument.countryCode)
-                        ? referenceOptionLabel(t, "countries", instrument.countryCode)
+                        ? referenceCountryCodeLabel(t, catalog, instrument.countryCode)
                         : legacyOptionLabel(t, instrument.countryCode)
                       : null,
                   ]
@@ -350,7 +351,7 @@ function InstrumentEditor({
                   <option key={option.value} value={option.value}>
                     {option.group === "legacy"
                       ? legacyOptionLabel(t, option.value)
-                      : referenceOptionLabel(t, "currencies", option.value)}
+                      : referenceSelectOptionLabel(t, "currencies", option.value)}
                   </option>
                 ))}
               </optgroup>
@@ -384,7 +385,7 @@ function InstrumentEditor({
                   <option key={option.value} value={option.value}>
                     {option.group === "legacy"
                       ? legacyOptionLabel(t, option.value)
-                      : referenceOptionLabel(t, "countries", option.value)}
+                      : referenceSelectOptionLabel(t, "countries", option.value)}
                   </option>
                 ))}
               </optgroup>
@@ -474,8 +475,9 @@ function ManualPriceForm({
       <h3 className="text-sm font-medium">{t("quotes.addPrice")}</h3>
       {latest ? (
         <p className="text-sm text-muted-foreground">
-          {latest.unitPrice} {referenceCurrencyLabel(t, catalog, latest.quoteCurrency)}{" "}
-          · {freshnessLabel(t, latest.sourceKind)}
+          {latest.unitPrice}{" "}
+          {referenceCurrencyCodeLabel(t, catalog, latest.quoteCurrency)} ·{" "}
+          {freshnessLabel(t, latest.sourceKind)}
         </p>
       ) : (
         <p className="text-sm text-muted-foreground">{t("quotes.noPrice")}</p>
