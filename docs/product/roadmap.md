@@ -18,6 +18,8 @@ Each release must preserve local-first operation and manual fallback. A later ca
 
 **Theme:** Build the household balance sheet.
 
+**Status:** Development complete; release candidate.
+
 Deliver one Household with Members, Institutions, Groups, Accounts, exact Ownership, manually maintained balances or valuations, and a backend-computed Overview. Include local persistence, onboarding, archive and restore, account filtering, English and Simplified Chinese UI, appearance selection, media-backed avatars and logos, and release hardening.
 
 **Exit outcome:** A user can answer what the Household owns, owes, and is worth in one base currency.
@@ -28,13 +30,19 @@ The detailed implementation contract is [v0.1.1](../releases/v0.1.1.md).
 
 **Theme:** Know what everything is worth.
 
+**Status:** Active planned release; implementation not started.
+
 Add account and instrument currencies, FX quotes, instruments, holdings, investment-account cash, market and manual quotes, data freshness, batch refresh, and a centralized valuation service. Provider failures must never prevent startup or manual valuation.
 
 **Exit outcome:** A Household can value cash and investment positions in the base currency while retaining native amounts and quote provenance.
 
+The detailed scope, design, and delivery phases are defined by the [v0.1.2 release contract](../releases/v0.1.2.md), [technical design](../releases/v0.1.2-technical-design.md), and [implementation plan](../releases/v0.1.2-implementation-plan.md). External provider selection is a preparation gate; manual valuation remains the provider-independent foundation.
+
 ### v0.1.3 — Activity and History
 
 **Theme:** Understand how wealth changes.
+
+**Status:** Deferred roadmap direction.
 
 Add an activity ledger for adjustments, deposits, withdrawals, transfers, trades, income, fees, debt changes, and manual valuations. Add historical quotes, daily valuation snapshots, net-worth trends, activity filtering, and account timelines.
 
@@ -44,6 +52,8 @@ Add an activity ledger for adjustments, deposits, withdrawals, transfers, trades
 
 **Theme:** Know why wealth changed.
 
+**Status:** Deferred roadmap direction.
+
 Add cost basis, realized and unrealized gain, investment income, fees, time-weighted return, money-weighted return, benchmarks, cash-flow classification, net-worth attribution, and FX attribution.
 
 **Exit outcome:** Contributions, internal movement, market return, currency effects, income, and fees are separated instead of being inferred from ending value alone.
@@ -51,6 +61,8 @@ Add cost basis, realized and unrealized gain, investment income, fees, time-weig
 ### v0.1.5 — Sustainable Long-Term Use
 
 **Theme:** Make Nestworth easy to maintain for years.
+
+**Status:** Deferred roadmap direction.
 
 Add recurring and pending activities, freshness policies, valuation reminders, local backups, restore, machine-readable export, CSV import and export, importer boundaries, global search, a command palette, and keyboard-focused workflows.
 

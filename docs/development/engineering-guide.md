@@ -6,7 +6,7 @@ Nestworth development requires:
 
 - macOS with Apple Silicon
 - Bun 1.3.14, as locked by `package.json`
-- A stable Rust toolchain with the `aarch64-apple-darwin` target
+- Rust 1.97.1 with the `aarch64-apple-darwin` target, as locked by `rust-toolchain.toml`
 - The platform prerequisites required by Tauri 2
 
 Use Bun for all JavaScript dependency and script operations. Do not introduce npm, pnpm, Yarn, or an additional JavaScript lockfile.
@@ -206,16 +206,28 @@ Phase 10 is not a place to defer correctness or missing tests from an earlier fe
 
 Before publishing a release:
 
-1. Start from a clean worktree and confirm all intended commits are present.
-2. Run `bun install --frozen-lockfile` and `bun run check`.
-3. Audit the generated command list, capabilities, CSP, and log output.
-4. Exercise onboarding, CRUD, archive and restore, Account value updates, filters, and Overview on a fresh database.
-5. Exercise blocked startup with a future database and verify zero writes.
-6. Verify migration behavior from every supported prior schema.
-7. Build with `bun run tauri:build`.
-8. Confirm the arm64 `.app` and `.dmg` exist. Do not launch them against the real user database; an isolated data directory is required for any manual launch.
-9. Complete keyboard-only coverage in automated tests and a device VoiceOver smoke test before a notarized public release.
-10. Record signing and notarization status explicitly; do not equate a local unsigned build with a distributable release.
+1. Start from a clean worktree and confirm the release PR is reviewable, no longer a draft, and approved under the chosen review policy.
+2. Require a green CI check or explicitly record that the repository has no CI and who performed the equivalent clean-machine verification.
+3. Run `bun install --frozen-lockfile` and `bun run check`.
+4. Audit the generated command list, capabilities, CSP, native plugins, and log output.
+5. Exercise onboarding, CRUD, archive and restore, Account value updates, filters, media, Settings, and Overview on a fresh isolated database.
+6. Exercise blocked startup with a future database and verify zero writes.
+7. Verify migration and pre-migration snapshot behavior from every supported prior schema.
+8. Build with `bun run tauri:build`, verify the DMG checksum, and confirm the embedded executable is arm64 with the intended version and minimum macOS value.
+9. Mount the DMG read-only and smoke-test the copied application without using the real user database.
+10. Complete keyboard-only automated coverage and a device VoiceOver smoke test.
+11. Choose the distribution policy. Public distribution requires Developer ID signing, signature verification, notarization, and stapling; an unsigned artifact must be labeled and limited to controlled testing.
+12. Confirm the MIT License and manifest metadata, finalize the changelog date, create an annotated version tag, publish checksums, and retain the exact artifacts that were tested.
+
+Useful local artifact checks include:
+
+```bash
+hdiutil verify src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/Nestworth_0.1.1_aarch64.dmg
+lipo -archs src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Nestworth.app/Contents/MacOS/nestworth
+codesign --verify --deep --strict --verbose=4 src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Nestworth.app
+```
+
+The final `codesign` command must succeed for a signed public artifact. A linker-generated ad-hoc signature is not a Developer ID application signature.
 
 ## Documentation Changes
 
