@@ -83,6 +83,31 @@ describe("groups page", () => {
     expect(screen.queryByText("Archived")).not.toBeInTheDocument();
   });
 
+  it("marks legacy icon and color values and requires replacement before saving", async () => {
+    const user = userEvent.setup();
+    const groups = [
+      groupRecord("g-1", "Legacy group", {
+        iconKey: "custom_icon",
+        color: "#FFFFFF",
+      }),
+    ];
+    mockGroupStore(groups);
+    await renderReadyApp();
+    await user.click(screen.getByRole("link", { name: "Groups" }));
+    await screen.findByRole("heading", { name: "Legacy group" });
+    expect(screen.getByText("Icon: custom_icon (Unlisted)")).toBeInTheDocument();
+    expect(screen.getByText("Color: #FFFFFF (Unlisted)")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.getByText("custom_icon (Unlisted)")).toBeInTheDocument();
+    expect(screen.getByText("#FFFFFF (Unlisted)")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(
+      await screen.findByText("Choose a value from the supported catalog."),
+    ).toBeInTheDocument();
+    expect(commands.updateGroup).not.toHaveBeenCalled();
+  });
+
   it("shows server color errors", async () => {
     const user = userEvent.setup();
     mockGroupStore([]);

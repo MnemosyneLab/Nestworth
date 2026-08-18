@@ -15,8 +15,40 @@ import type {
   MemberRecordDto,
   OverviewDto,
   PortfolioDto,
+  ReferenceCatalogDto,
 } from "@/generated/tauri-bindings";
 import { commands } from "@/generated/tauri-bindings";
+
+export const testReferenceCatalog: ReferenceCatalogDto = {
+  currencies: [
+    ...["CNY", "USD", "HKD", "SGD", "EUR", "JPY", "TWD", "KRW", "GBP"].map((value) => ({
+      value,
+      group: "core",
+    })),
+    ...["AUD", "NZD", "INR", "IDR", "MYR", "THB", "VND", "PHP", "BND"].map((value) => ({
+      value,
+      group: "asiaPacific",
+    })),
+  ],
+  countries: [
+    ...["CN", "HK", "MO", "TW", "JP", "KR", "SG", "US", "GB"].map((value) => ({
+      value,
+      group: value === "US" ? "americas" : value === "GB" ? "europe" : "asiaMiddleEast",
+    })),
+    { value: "AU", group: "oceania" },
+  ],
+  institutionTypes: [
+    { value: "bank", group: "financial" },
+    { value: "digital_bank", group: "financial" },
+    { value: "brokerage", group: "financial" },
+    { value: "internet_platform", group: "platform" },
+    { value: "other", group: "other" },
+  ],
+  groupIcons: ["wallet", "home", "shield", "briefcase", "heart", "star"],
+  groupColors: ["#2563EB", "#16A34A", "#DC2626", "#D97706", "#7C3AED", "#0F766E"],
+  languages: ["system", "en", "zh-CN"],
+  appearances: ["system", "light", "dark"],
+};
 
 export const emptyBootstrap: BootstrapDto = {
   status: "ready",
@@ -24,6 +56,7 @@ export const emptyBootstrap: BootstrapDto = {
   settings: { language: "system", appearance: "system", lastHouseholdId: null },
   household: null,
   members: [],
+  referenceCatalog: testReferenceCatalog,
 };
 
 export const readyBootstrap: BootstrapDto = {
@@ -35,6 +68,7 @@ export const readyBootstrap: BootstrapDto = {
     { id: "m-1", name: "Walt" },
     { id: "m-2", name: "Spouse" },
   ],
+  referenceCatalog: testReferenceCatalog,
 };
 
 export const blockedBootstrap: BootstrapDto = {

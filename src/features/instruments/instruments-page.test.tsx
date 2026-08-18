@@ -50,6 +50,8 @@ describe("instruments page", () => {
     ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Add instrument" }));
     expect(screen.getByLabelText("Name")).toHaveFocus();
+    expect(screen.getByLabelText("Currency").tagName).toBe("SELECT");
+    expect(screen.queryByRole("textbox", { name: "Currency" })).not.toBeInTheDocument();
     await user.type(screen.getByLabelText("Name"), "QQQ");
     await user.type(screen.getByLabelText("Symbol"), "QQQ");
     await user.click(screen.getByRole("button", { name: "Save" }));

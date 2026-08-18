@@ -254,8 +254,8 @@ async fn append_manual_fx_quote_in_tx(
         .unwrap_or_else(|| now.clone());
     let quote = FxQuote::new(
         HouseholdId::parse(&household.id).map_err(|_| AppError::Internal)?,
-        CurrencyCode::parse(&input.base_currency)?,
-        CurrencyCode::parse(&input.quote_currency)?,
+        CurrencyCode::parse_supported(&input.base_currency)?,
+        CurrencyCode::parse_supported(&input.quote_currency)?,
         FxRate::parse(&input.rate)?,
         QuoteSourceKind::Manual,
         "manual",

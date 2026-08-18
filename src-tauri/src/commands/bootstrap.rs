@@ -4,6 +4,9 @@ use sqlx::Row;
 
 use crate::{
     application::settings_service::{self, AppSettingsDto},
+    domain::{
+        APPEARANCES, COUNTRIES, CURRENCIES, GROUP_COLORS, GROUP_ICONS, INSTITUTION_TYPES, LANGUAGES,
+    },
     error::{AppError, CommandError},
     infrastructure::database_bootstrap::DatabaseBootstrapStatus,
     state::AppState,
@@ -25,6 +28,64 @@ pub struct MemberDto {
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ReferenceOptionDto {
+    pub value: String,
+    pub group: String,
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ReferenceCatalogDto {
+    pub currencies: Vec<ReferenceOptionDto>,
+    pub countries: Vec<ReferenceOptionDto>,
+    pub institution_types: Vec<ReferenceOptionDto>,
+    pub group_icons: Vec<String>,
+    pub group_colors: Vec<String>,
+    pub languages: Vec<String>,
+    pub appearances: Vec<String>,
+}
+
+fn reference_catalog() -> ReferenceCatalogDto {
+    ReferenceCatalogDto {
+        currencies: CURRENCIES
+            .iter()
+            .map(|option| ReferenceOptionDto {
+                value: option.value.to_owned(),
+                group: option.group.to_owned(),
+            })
+            .collect(),
+        countries: COUNTRIES
+            .iter()
+            .map(|option| ReferenceOptionDto {
+                value: option.value.to_owned(),
+                group: option.group.to_owned(),
+            })
+            .collect(),
+        institution_types: INSTITUTION_TYPES
+            .iter()
+            .map(|option| ReferenceOptionDto {
+                value: option.value.to_owned(),
+                group: option.group.to_owned(),
+            })
+            .collect(),
+        group_icons: GROUP_ICONS
+            .iter()
+            .map(|value| (*value).to_owned())
+            .collect(),
+        group_colors: GROUP_COLORS
+            .iter()
+            .map(|value| (*value).to_owned())
+            .collect(),
+        languages: LANGUAGES.iter().map(|value| (*value).to_owned()).collect(),
+        appearances: APPEARANCES
+            .iter()
+            .map(|value| (*value).to_owned())
+            .collect(),
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
 #[serde(tag = "status", rename_all = "lowercase")]
 pub enum BootstrapDto {
     Ready {
@@ -33,6 +94,8 @@ pub enum BootstrapDto {
         settings: AppSettingsDto,
         household: Option<HouseholdDto>,
         members: Vec<MemberDto>,
+        #[serde(rename = "referenceCatalog")]
+        reference_catalog: Box<ReferenceCatalogDto>,
     },
     Blocked {
         error: CommandError,
@@ -139,5 +202,6 @@ async fn load_ready_dto(state: &AppState) -> Result<BootstrapDto, AppError> {
         settings,
         household,
         members,
+        reference_catalog: Box::new(reference_catalog()),
     })
 }

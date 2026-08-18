@@ -3,25 +3,29 @@ import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 
 import { AppShell } from "@/components/app-shell";
-import {
-  basisPointsToPercent,
-  clampShareBps,
-  formatMoney,
-} from "@/features/accounts/schema";
+import { basisPointsToPercent, clampShareBps } from "@/features/accounts/schema";
 import { UnvaluedList } from "@/features/valuation/status";
 import type {
   BreakdownRowDto,
   HouseholdDto,
   OverviewDto,
+  ReferenceCatalogDto,
 } from "@/generated/tauri-bindings";
 import { commands } from "@/generated/tauri-bindings";
+import { formatReferenceMoney, referenceCurrencyLabel } from "@/lib/reference-catalog";
 import {
   commandErrorFromUnknown,
   formatCommandError,
   unwrapResult,
 } from "@/lib/tauri/errors";
 
-export function OverviewPage({ household }: { household: HouseholdDto }) {
+export function OverviewPage({
+  catalog,
+  household,
+}: {
+  catalog: ReferenceCatalogDto;
+  household: HouseholdDto;
+}) {
   const { t } = useTranslation();
   const overview = useQuery({
     queryKey: ["overview"],
@@ -37,7 +41,9 @@ export function OverviewPage({ household }: { household: HouseholdDto }) {
         </p>
         <h1 className="text-4xl font-semibold tracking-tight">{household.name}</h1>
         <p className="mt-3 text-lg text-muted-foreground">
-          {t("overview.baseCurrency", { currency: household.baseCurrency })}
+          {t("overview.baseCurrency", {
+            currency: referenceCurrencyLabel(t, catalog, household.baseCurrency),
+          })}
         </p>
         {overview.isPending ? (
           <p className="mt-10" role="status">
@@ -49,13 +55,21 @@ export function OverviewPage({ household }: { household: HouseholdDto }) {
             {formatCommandError(t, error)}
           </p>
         ) : null}
-        {overview.data ? <OverviewBody overview={overview.data} /> : null}
+        {overview.data ? (
+          <OverviewBody catalog={catalog} overview={overview.data} />
+        ) : null}
       </main>
     </AppShell>
   );
 }
 
-function OverviewBody({ overview }: { overview: OverviewDto }) {
+function OverviewBody({
+  catalog,
+  overview,
+}: {
+  catalog: ReferenceCatalogDto;
+  overview: OverviewDto;
+}) {
   const { t } = useTranslation();
   if (overview.accountCount === 0) {
     return (
@@ -85,13 +99,23 @@ function OverviewBody({ overview }: { overview: OverviewDto }) {
           {t("overview.netWorth")}
         </p>
         <p className="mt-2 text-4xl font-semibold tracking-tight">
-          {formatMoney(overview.netWorth.amount, overview.netWorth.currency)}
+          {formatReferenceMoney(
+            t,
+            catalog,
+            overview.netWorth.amount,
+            overview.netWorth.currency,
+          )}
         </p>
         <dl className="mt-6 grid gap-4 sm:grid-cols-2">
           <div>
             <dt className="text-sm text-muted-foreground">{t("overview.assets")}</dt>
             <dd className="mt-1 text-xl font-medium">
-              {formatMoney(overview.assets.amount, overview.assets.currency)}
+              {formatReferenceMoney(
+                t,
+                catalog,
+                overview.assets.amount,
+                overview.assets.currency,
+              )}
             </dd>
           </div>
           <div>
@@ -99,27 +123,36 @@ function OverviewBody({ overview }: { overview: OverviewDto }) {
               {t("overview.liabilities")}
             </dt>
             <dd className="mt-1 text-xl font-medium">
-              {formatMoney(overview.liabilities.amount, overview.liabilities.currency)}
+              {formatReferenceMoney(
+                t,
+                catalog,
+                overview.liabilities.amount,
+                overview.liabilities.currency,
+              )}
             </dd>
           </div>
         </dl>
       </section>
       <BreakdownList
+        catalog={catalog}
         rows={overview.byCategory}
         title={t("overview.byCategory")}
         labelFor={(row) => t(`accounts.primaries.${row.key}`)}
       />
       <BreakdownList
+        catalog={catalog}
         rows={overview.byMember}
         title={t("overview.byMember")}
         labelFor={(row) => row.name ?? t("accounts.none")}
       />
       <BreakdownList
+        catalog={catalog}
         rows={overview.byInstitution}
         title={t("overview.byInstitution")}
         labelFor={(row) => row.name ?? t("accounts.none")}
       />
       <BreakdownList
+        catalog={catalog}
         rows={overview.byGroup}
         title={t("overview.byGroup")}
         labelFor={(row) => row.name ?? t("accounts.none")}
@@ -129,14 +162,17 @@ function OverviewBody({ overview }: { overview: OverviewDto }) {
 }
 
 function BreakdownList({
+  catalog,
   labelFor,
   rows,
   title,
 }: {
+  catalog: ReferenceCatalogDto;
   labelFor: (row: BreakdownRowDto) => string;
   rows: BreakdownRowDto[];
   title: string;
 }) {
+  const { t } = useTranslation();
   if (rows.length === 0) {
     return null;
   }
@@ -153,7 +189,12 @@ function BreakdownList({
               <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
                 <span>{label}</span>
                 <span className="text-muted-foreground">
-                  {formatMoney(row.amount.amount, row.amount.currency)}
+                  {formatReferenceMoney(
+                    t,
+                    catalog,
+                    row.amount.amount,
+                    row.amount.currency,
+                  )}
                   <span className="ml-3">{percent}</span>
                 </span>
               </div>

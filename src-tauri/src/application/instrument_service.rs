@@ -269,7 +269,7 @@ fn new_instrument_from_create(
         name: input.name.clone(),
         symbol: input.symbol.clone(),
         instrument_type: InstrumentType::parse(&input.instrument_type)?,
-        quote_currency: CurrencyCode::parse(&input.quote_currency)?,
+        quote_currency: CurrencyCode::parse_supported(&input.quote_currency)?,
         market_code: input.market_code.clone(),
         country_code: input.country_code.clone(),
         isin: input.isin.clone(),
@@ -550,6 +550,22 @@ mod tests {
             let mut invalid = qqq();
             invalid.instrument_type = "option".to_owned();
             assert!(create_instrument(&state, invalid).await.is_err());
+            let mut invalid_currency = qqq();
+            invalid_currency.quote_currency = "ZZZ".to_owned();
+            assert!(matches!(
+                create_instrument(&state, invalid_currency)
+                    .await
+                    .expect_err("uncatalogued currency"),
+                AppError::Validation { field, .. } if field == "currency"
+            ));
+            let mut invalid_country = qqq();
+            invalid_country.country_code = Some("ZZ".to_owned());
+            assert!(matches!(
+                create_instrument(&state, invalid_country)
+                    .await
+                    .expect_err("uncatalogued country"),
+                AppError::Validation { field, .. } if field == "countryCode"
+            ));
             let error = update_instrument(
                 &state,
                 UpdateInstrumentInput {

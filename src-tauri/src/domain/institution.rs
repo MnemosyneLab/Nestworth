@@ -1,8 +1,8 @@
 use super::{
     ids::{HouseholdId, InstitutionId, MediaAssetId},
     text::{
-        parse_country_code, parse_name, parse_optional_note, parse_optional_text, NAME_MAX_CHARS,
-        NOTE_MAX_CHARS,
+        parse_name, parse_optional_note, parse_optional_text, parse_supported_country_code,
+        NAME_MAX_CHARS, NOTE_MAX_CHARS,
     },
     time::Timestamp,
 };
@@ -72,12 +72,8 @@ impl Institution {
             id: InstitutionId::new(),
             household_id: input.household_id,
             name: parse_name(&input.name)?,
-            institution_type: parse_optional_text(
-                input.institution_type.as_deref(),
-                NAME_MAX_CHARS,
-                "institutionType",
-            )?,
-            country_code: parse_country_code(input.country_code.as_deref())?,
+            institution_type: parse_institution_type(input.institution_type.as_deref())?,
+            country_code: parse_supported_country_code(input.country_code.as_deref())?,
             website: parse_optional_text(input.website.as_deref(), NOTE_MAX_CHARS, "website")?,
             note: parse_optional_note(input.note.as_deref())?,
             logo_asset_id: input.logo_asset_id,
@@ -108,12 +104,8 @@ impl Institution {
 
     pub fn update(&mut self, input: NewInstitution, now: Timestamp) -> Result<(), AppError> {
         self.name = parse_name(&input.name)?;
-        self.institution_type = parse_optional_text(
-            input.institution_type.as_deref(),
-            NAME_MAX_CHARS,
-            "institutionType",
-        )?;
-        self.country_code = parse_country_code(input.country_code.as_deref())?;
+        self.institution_type = parse_institution_type(input.institution_type.as_deref())?;
+        self.country_code = parse_supported_country_code(input.country_code.as_deref())?;
         self.website = parse_optional_text(input.website.as_deref(), NOTE_MAX_CHARS, "website")?;
         self.note = parse_optional_note(input.note.as_deref())?;
         self.updated_at = now;
@@ -203,10 +195,23 @@ impl Institution {
     }
 }
 
+fn parse_institution_type(value: Option<&str>) -> Result<Option<String>, AppError> {
+    let value = parse_optional_text(value, NAME_MAX_CHARS, "institutionType")?;
+    if let Some(value) = value.as_deref() {
+        if !crate::domain::is_supported_institution_type(value) {
+            return Err(AppError::validation(
+                "institutionType",
+                "Institution type is not included in the supported catalog.",
+            ));
+        }
+    }
+    Ok(value)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Institution, NewInstitution};
-    use crate::domain::ids::HouseholdId;
+    use super::{Institution, NewInstitution, PersistedInstitution};
+    use crate::domain::ids::{HouseholdId, InstitutionId};
     use crate::domain::time::Timestamp;
 
     #[test]
@@ -221,5 +226,25 @@ mod tests {
         let mut invalid = NewInstitution::required(HouseholdId::new(), "DBS");
         invalid.country_code = Some("sg".to_owned());
         assert!(Institution::new(invalid, Timestamp::now()).is_err());
+    }
+
+    #[test]
+    fn persisted_values_keep_legacy_type_and_country() {
+        let institution = Institution::from_persisted(PersistedInstitution {
+            id: InstitutionId::new(),
+            household_id: HouseholdId::new(),
+            name: "Legacy institution".to_owned(),
+            institution_type: Some("local_bank".to_owned()),
+            country_code: Some("ZZ".to_owned()),
+            website: None,
+            note: None,
+            logo_asset_id: None,
+            sort_order: 0,
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
+            archived_at: None,
+        });
+        assert_eq!(institution.institution_type(), Some("local_bank"));
+        assert_eq!(institution.country_code(), Some("ZZ"));
     }
 }

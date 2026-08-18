@@ -15,6 +15,7 @@ mod money;
 mod ownership;
 mod quantity;
 mod quote;
+mod reference_catalog;
 mod text;
 mod time;
 mod unit_price;
@@ -42,6 +43,11 @@ pub use money::Money;
 pub use ownership::{percent_to_basis_points, Ownership, OwnershipShare, TOTAL_BPS};
 pub use quantity::Quantity;
 pub use quote::{Freshness, FxQuote, InstrumentQuote, QuoteSourceKind};
+pub use reference_catalog::{
+    is_supported_appearance, is_supported_country, is_supported_currency, is_supported_group_color,
+    is_supported_group_icon, is_supported_institution_type, is_supported_language, APPEARANCES,
+    COUNTRIES, CURRENCIES, GROUP_COLORS, GROUP_ICONS, INSTITUTION_TYPES, LANGUAGES,
+};
 pub use time::{CalendarDate, Timestamp};
 pub use unit_price::UnitPrice;
 pub use valuation::{

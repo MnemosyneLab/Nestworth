@@ -34,7 +34,15 @@ import {
   type GroupRecordDto,
   type InstitutionRecordDto,
   type MemberDto,
+  type ReferenceCatalogDto,
 } from "@/generated/tauri-bindings";
+import {
+  groupReferenceOptions,
+  hasReferenceValue,
+  legacyOptionLabel,
+  referenceGroupLabel,
+  referenceOptionLabel,
+} from "@/lib/reference-catalog";
 import {
   commandErrorFromUnknown,
   formatCommandError,
@@ -85,6 +93,7 @@ const ACCOUNT_FIELDS: Array<Path<AccountFormValues>> = [
 export function AccountForm({
   account,
   defaultCurrency,
+  catalog,
   groups,
   institutions,
   members,
@@ -93,6 +102,7 @@ export function AccountForm({
 }: {
   account?: AccountRecordDto;
   defaultCurrency: string;
+  catalog: ReferenceCatalogDto;
   groups: GroupRecordDto[];
   institutions: InstitutionRecordDto[];
   members: MemberDto[];
@@ -102,10 +112,13 @@ export function AccountForm({
   const { t } = useTranslation();
   const formId = useId();
   const [serverError, setServerError] = useState<CommandError | null>(null);
+  const createDefaultCurrency = hasReferenceValue(catalog.currencies, defaultCurrency)
+    ? defaultCurrency
+    : (catalog.currencies[0]?.value ?? "");
   const form = useForm<AccountFormValues>({
     defaultValues: account
       ? accountToFormValues(account)
-      : emptyAccountValues(members[0]?.id ?? "", defaultCurrency),
+      : emptyAccountValues(members[0]?.id ?? "", createDefaultCurrency),
   });
   const owners = useFieldArray({ control: form.control, name: "owners" });
   const ownerOptions = ownerChoices(members, account);
@@ -123,7 +136,7 @@ export function AccountForm({
         );
       }
       return unwrapResult(
-        commands.createAccount(toCreateAccountInput(values, defaultCurrency)),
+        commands.createAccount(toCreateAccountInput(values, createDefaultCurrency)),
       );
     },
     onSuccess: async () => {
@@ -226,20 +239,35 @@ export function AccountForm({
         {account ? (
           <div className="space-y-2">
             <p className="text-sm font-medium">{t("accounts.currency")}</p>
-            <p className="text-sm text-muted-foreground">{account.defaultCurrency}</p>
+            <p className="text-sm text-muted-foreground">
+              {hasReferenceValue(catalog.currencies, account.defaultCurrency)
+                ? referenceOptionLabel(t, "currencies", account.defaultCurrency)
+                : legacyOptionLabel(t, account.defaultCurrency)}
+            </p>
           </div>
         ) : (
           <div className="space-y-2">
             <label className="text-sm font-medium" htmlFor={`${formId}-currency`}>
               {t("accounts.currency")}
             </label>
-            <Input
+            <NativeSelect
               aria-invalid={form.formState.errors.defaultCurrency ? true : undefined}
-              autoCapitalize="characters"
               id={`${formId}-currency`}
-              maxLength={3}
               {...form.register("defaultCurrency")}
-            />
+            >
+              {groupReferenceOptions(catalog.currencies).map(([group, options]) => (
+                <optgroup
+                  key={group}
+                  label={referenceGroupLabel(t, "currencyGroups", group)}
+                >
+                  {options.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {referenceOptionLabel(t, "currencies", option.value)}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </NativeSelect>
             <FieldError
               message={translateAccountError(
                 t,

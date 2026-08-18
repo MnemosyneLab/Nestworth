@@ -1,4 +1,5 @@
 import { OverviewPage } from "@/features/overview/overview-page";
+import { referenceCatalogFromBootstrap } from "@/lib/reference-catalog";
 import { useBootstrapQuery } from "@/lib/tauri/bootstrap";
 
 export function OverviewRoute() {
@@ -7,7 +8,12 @@ export function OverviewRoute() {
     return null;
   }
 
-  return <OverviewPage household={bootstrap.data.household} />;
+  return (
+    <OverviewPage
+      catalog={referenceCatalogFromBootstrap(bootstrap.data)}
+      household={bootstrap.data.household}
+    />
+  );
 }
 
 export default OverviewRoute;

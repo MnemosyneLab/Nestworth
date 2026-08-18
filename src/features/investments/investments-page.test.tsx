@@ -51,14 +51,14 @@ describe("investments page", () => {
     });
     await renderReadyApp();
     await user.click(await screen.findByRole("link", { name: "Investments" }));
-    expect(await screen.findByText("CNY 62,190")).toBeInTheDocument();
+    expect(await screen.findByText("Chinese Yuan (CNY) 62,190")).toBeInTheDocument();
     expect(screen.getByText("All required quotes are available.")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Refresh quotes" }),
     ).not.toBeInTheDocument();
     expect(screen.getByText("QQQ")).toBeInTheDocument();
-    expect(screen.getAllByText("CNY 14,490").length).toBeGreaterThan(0);
-    expect(screen.getByText("SGD 5,000")).toBeInTheDocument();
+    expect(screen.getAllByText("Chinese Yuan (CNY) 14,490").length).toBeGreaterThan(0);
+    expect(screen.getByText("Singapore Dollar (SGD) 5,000")).toBeInTheDocument();
   });
 
   it("shows incomplete diagnostics instead of treating missing quotes as zero", async () => {
@@ -149,9 +149,18 @@ describe("investments page", () => {
     });
     await renderReadyApp();
     await user.click(await screen.findByRole("link", { name: "Investments" }));
-    expect(await screen.findByText("1 SGD = [rate] CNY")).toBeInTheDocument();
-    expect(screen.getByText(/Selected quote: 1 SGD = 5\.3 CNY/)).toBeInTheDocument();
-    await user.type(screen.getByLabelText("Rate for 1 SGD in CNY"), "5.3");
+    expect(
+      await screen.findByText("1 Singapore Dollar (SGD) = [rate] Chinese Yuan (CNY)"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /Selected quote: 1 Singapore Dollar \(SGD\) = 5\.3 Chinese Yuan \(CNY\)/,
+      ),
+    ).toBeInTheDocument();
+    await user.type(
+      screen.getByLabelText("Rate for 1 Singapore Dollar (SGD) in Chinese Yuan (CNY)"),
+      "5.3",
+    );
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(commands.appendManualFxQuote).toHaveBeenCalledWith({
       baseCurrency: "SGD",

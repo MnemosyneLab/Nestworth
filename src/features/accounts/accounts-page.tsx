@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 
 import { AccountForm } from "@/features/accounts/account-form";
 import { AccountMark } from "@/features/accounts/account-mark";
-import { formatMoney, PRIMARY_CATEGORIES } from "@/features/accounts/schema";
+import { PRIMARY_CATEGORIES } from "@/features/accounts/schema";
 import {
   accountMatchesSearch,
   mergeAccountSearch,
@@ -25,6 +25,10 @@ import {
 } from "@/generated/tauri-bindings";
 import { invalidateValuation } from "@/lib/tauri/invalidate";
 import { useBootstrapQuery } from "@/lib/tauri/bootstrap";
+import {
+  formatReferenceMoney,
+  referenceCatalogFromBootstrap,
+} from "@/lib/reference-catalog";
 import { commandErrorFromUnknown, unwrapResult } from "@/lib/tauri/errors";
 import { cn } from "@/lib/utils";
 
@@ -39,6 +43,7 @@ export function AccountsPage() {
   const household =
     bootstrap.data?.status === "ready" ? bootstrap.data.household : null;
   const members = bootstrap.data?.status === "ready" ? bootstrap.data.members : [];
+  const catalog = referenceCatalogFromBootstrap(bootstrap.data);
   const [showArchived, setShowArchived] = useState(false);
   const [creating, setCreating] = useState(false);
   const [actionError, setActionError] = useState<CommandError | null>(null);
@@ -108,6 +113,7 @@ export function AccountsPage() {
         ) : null}
         {creating && household ? (
           <AccountForm
+            catalog={catalog}
             defaultCurrency={household.baseCurrency}
             groups={groups.data ?? []}
             institutions={institutions.data ?? []}
@@ -125,7 +131,7 @@ export function AccountsPage() {
         {visible.map((account) => (
           <RecordCard
             archived={Boolean(account.archivedAt)}
-            details={<AccountSummary account={account} />}
+            details={<AccountSummary account={account} catalog={catalog} />}
             key={account.id}
             leading={
               <AccountMark account={account} institutions={institutions.data ?? []} />
@@ -232,10 +238,21 @@ function AccountFilters({
   );
 }
 
-function AccountSummary({ account }: { account: AccountRecordDto }) {
+function AccountSummary({
+  account,
+  catalog,
+}: {
+  account: AccountRecordDto;
+  catalog: ReturnType<typeof referenceCatalogFromBootstrap>;
+}) {
   const { t } = useTranslation();
   const value = account.valuation.base
-    ? formatMoney(account.valuation.base.amount, account.valuation.base.currency)
+    ? formatReferenceMoney(
+        t,
+        catalog,
+        account.valuation.base.amount,
+        account.valuation.base.currency,
+      )
     : t("accounts.noValue");
   const owners = account.owners.map((owner) => owner.memberName).join(", ");
   return (

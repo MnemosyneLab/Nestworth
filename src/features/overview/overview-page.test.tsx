@@ -24,7 +24,7 @@ describe("overview page", () => {
       screen.getByText("Add your first account to start tracking your net worth."),
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Add account" })).toBeInTheDocument();
-    expect(screen.queryByText("CNY 0")).not.toBeInTheDocument();
+    expect(screen.queryByText("Chinese Yuan (CNY) 0")).not.toBeInTheDocument();
   });
 
   it("renders golden totals from the overview command", async () => {
@@ -83,19 +83,23 @@ describe("overview page", () => {
       },
     });
     await renderReadyApp();
-    expect(await screen.findByText("CNY 3,110,000")).toBeInTheDocument();
-    expect(screen.getByText("CNY 4,110,000")).toBeInTheDocument();
-    expect(screen.getByText("CNY 1,000,000")).toBeInTheDocument();
+    expect(await screen.findByText("Chinese Yuan (CNY) 3,110,000")).toBeInTheDocument();
+    expect(screen.getByText("Chinese Yuan (CNY) 4,110,000")).toBeInTheDocument();
+    expect(screen.getByText("Chinese Yuan (CNY) 1,000,000")).toBeInTheDocument();
     expect(screen.getByText("Cash equivalent")).toBeInTheDocument();
-    expect(screen.getByText("CNY 110,000")).toBeInTheDocument();
+    expect(screen.getByText("Chinese Yuan (CNY) 110,000")).toBeInTheDocument();
     const byMember = screen
       .getByRole("heading", { name: "By member" })
       .closest("section");
     expect(byMember).not.toBeNull();
     expect(within(byMember!).getByText("Walt")).toBeInTheDocument();
-    expect(within(byMember!).getByText("CNY 1,600,000")).toBeInTheDocument();
+    expect(
+      within(byMember!).getByText("Chinese Yuan (CNY) 1,600,000"),
+    ).toBeInTheDocument();
     expect(within(byMember!).getByText("Spouse")).toBeInTheDocument();
-    expect(within(byMember!).getByText("CNY 1,510,000")).toBeInTheDocument();
+    expect(
+      within(byMember!).getByText("Chinese Yuan (CNY) 1,510,000"),
+    ).toBeInTheDocument();
     expect(
       screen.queryByText("Your household balance sheet is empty."),
     ).not.toBeInTheDocument();

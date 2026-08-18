@@ -36,7 +36,19 @@ import {
   type CommandError,
   type InstrumentQuoteRecordDto,
   type InstrumentRecordDto,
+  type ReferenceCatalogDto,
 } from "@/generated/tauri-bindings";
+import {
+  groupReferenceOptions,
+  hasReferenceValue,
+  legacyOptionLabel,
+  referenceCatalogFromBootstrap,
+  referenceCurrencyLabel,
+  referenceGroupLabel,
+  referenceOptionLabel,
+  withLegacyOption,
+} from "@/lib/reference-catalog";
+import { useBootstrapQuery } from "@/lib/tauri/bootstrap";
 import {
   commandErrorFromUnknown,
   formatCommandError,
@@ -51,6 +63,8 @@ export function InstrumentsPage() {
   const [showArchived, setShowArchived] = useState(false);
   const [editor, setEditor] = useState<"create" | InstrumentRecordDto | null>(null);
   const [actionError, setActionError] = useState<CommandError | null>(null);
+  const bootstrap = useBootstrapQuery();
+  const catalog = referenceCatalogFromBootstrap(bootstrap.data);
 
   const list = useQuery({
     queryKey: ["instruments", showArchived],
@@ -94,6 +108,7 @@ export function InstrumentsPage() {
       <div className="space-y-3">
         {editor === "create" ? (
           <InstrumentEditor
+            catalog={catalog}
             onCancel={() => setEditor(null)}
             onSaved={async () => {
               setEditor(null);
@@ -104,6 +119,7 @@ export function InstrumentsPage() {
         {items.map((instrument) =>
           editor !== "create" && editor?.id === instrument.id ? (
             <InstrumentEditor
+              catalog={catalog}
               instrument={instrument}
               key={instrument.id}
               onCancel={() => setEditor(null)}
@@ -119,9 +135,19 @@ export function InstrumentsPage() {
                 <p className="mt-1 text-sm text-muted-foreground">
                   {[
                     instrument.symbol,
-                    instrument.quoteCurrency,
-                    instrument.instrumentType,
+                    hasReferenceValue(catalog.currencies, instrument.quoteCurrency)
+                      ? referenceOptionLabel(t, "currencies", instrument.quoteCurrency)
+                      : legacyOptionLabel(t, instrument.quoteCurrency),
+                    t(`instruments.types.${instrument.instrumentType}`, {
+                      defaultValue: instrument.instrumentType,
+                    }),
+                    instrument.countryCode
+                      ? hasReferenceValue(catalog.countries, instrument.countryCode)
+                        ? referenceOptionLabel(t, "countries", instrument.countryCode)
+                        : legacyOptionLabel(t, instrument.countryCode)
+                      : null,
                   ]
+                    .filter((value): value is string => Boolean(value))
                     .filter(Boolean)
                     .join(" · ")}
                 </p>
@@ -167,10 +193,12 @@ export function InstrumentsPage() {
 }
 
 function InstrumentEditor({
+  catalog,
   instrument,
   onCancel,
   onSaved,
 }: {
+  catalog: ReferenceCatalogDto;
   instrument?: InstrumentRecordDto;
   onCancel: () => void;
   onSaved: () => Promise<void>;
@@ -241,6 +269,20 @@ function InstrumentEditor({
           ]);
           return;
         }
+        if (
+          !instrument &&
+          !hasReferenceValue(catalog.currencies, parsed.data.quoteCurrency)
+        ) {
+          form.setError("quoteCurrency", { type: "catalog", message: "unsupported" });
+          return;
+        }
+        if (
+          parsed.data.countryCode &&
+          !hasReferenceValue(catalog.countries, parsed.data.countryCode)
+        ) {
+          form.setError("countryCode", { type: "catalog", message: "unsupported" });
+          return;
+        }
         setServerError(null);
         mutation.mutate(parsed.data);
       })}
@@ -289,13 +331,31 @@ function InstrumentEditor({
           <label className="text-sm font-medium" htmlFor={`${formId}-currency`}>
             {t("accounts.currency")}
           </label>
-          <Input
-            autoCapitalize="characters"
+          <select
             disabled={Boolean(instrument)}
             id={`${formId}-currency`}
-            maxLength={3}
+            className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
             {...form.register("quoteCurrency")}
-          />
+          >
+            {groupReferenceOptions(
+              instrument
+                ? withLegacyOption(catalog.currencies, instrument.quoteCurrency)
+                : catalog.currencies,
+            ).map(([group, options]) => (
+              <optgroup
+                key={group}
+                label={referenceGroupLabel(t, "currencyGroups", group)}
+              >
+                {options.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.group === "legacy"
+                      ? legacyOptionLabel(t, option.value)
+                      : referenceOptionLabel(t, "currencies", option.value)}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
           <FieldError
             message={translateAccountError(
               t,
@@ -307,12 +367,29 @@ function InstrumentEditor({
           <label className="text-sm font-medium" htmlFor={`${formId}-country`}>
             {t("institutions.country")}
           </label>
-          <Input
-            autoCapitalize="characters"
+          <select
             id={`${formId}-country`}
-            maxLength={2}
+            className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
             {...form.register("countryCode")}
-          />
+          >
+            <option value="">{t("accounts.none")}</option>
+            {groupReferenceOptions(
+              withLegacyOption(catalog.countries, instrument?.countryCode ?? ""),
+            ).map(([group, options]) => (
+              <optgroup
+                key={group}
+                label={referenceGroupLabel(t, "countryGroups", group)}
+              >
+                {options.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.group === "legacy"
+                      ? legacyOptionLabel(t, option.value)
+                      : referenceOptionLabel(t, "countries", option.value)}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
           <FieldError
             message={translateReferenceError(
               t,
@@ -341,6 +418,7 @@ function InstrumentEditor({
             onSaved={onSaved}
           />
           <ManualPriceForm
+            catalog={catalog}
             instrumentId={instrument.id}
             latest={quotes.data?.[0] ?? null}
           />
@@ -359,9 +437,11 @@ function InstrumentEditor({
 }
 
 function ManualPriceForm({
+  catalog,
   instrumentId,
   latest,
 }: {
+  catalog: ReferenceCatalogDto;
   instrumentId: string;
   latest: InstrumentQuoteRecordDto | null;
 }) {
@@ -394,8 +474,8 @@ function ManualPriceForm({
       <h3 className="text-sm font-medium">{t("quotes.addPrice")}</h3>
       {latest ? (
         <p className="text-sm text-muted-foreground">
-          {latest.unitPrice} {latest.quoteCurrency} ·{" "}
-          {freshnessLabel(t, latest.sourceKind)}
+          {latest.unitPrice} {referenceCurrencyLabel(t, catalog, latest.quoteCurrency)}{" "}
+          · {freshnessLabel(t, latest.sourceKind)}
         </p>
       ) : (
         <p className="text-sm text-muted-foreground">{t("quotes.noPrice")}</p>

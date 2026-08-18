@@ -11,7 +11,6 @@ import { AccountForm, translateAccountError } from "@/features/accounts/account-
 import { AccountMark } from "@/features/accounts/account-mark";
 import {
   cashSchema,
-  formatMoney,
   holdingSchema,
   updateValueSchema,
   type CashFormValues,
@@ -25,7 +24,20 @@ import {
   FieldError,
 } from "@/features/references/form-helpers";
 import { GhostButton } from "@/features/references/reference-page";
-import { commands, type CommandError } from "@/generated/tauri-bindings";
+import {
+  commands,
+  type CommandError,
+  type ReferenceCatalogDto,
+} from "@/generated/tauri-bindings";
+import {
+  formatReferenceMoney,
+  groupReferenceOptions,
+  hasReferenceValue,
+  referenceCurrencyLabel,
+  referenceGroupLabel,
+  referenceOptionLabel,
+  referenceCatalogFromBootstrap,
+} from "@/lib/reference-catalog";
 import { useBootstrapQuery } from "@/lib/tauri/bootstrap";
 import {
   commandErrorFromUnknown,
@@ -42,6 +54,7 @@ export function AccountDetailPage({ accountId }: { accountId: string }) {
   const household =
     bootstrap.data?.status === "ready" ? bootstrap.data.household : null;
   const members = bootstrap.data?.status === "ready" ? bootstrap.data.members : [];
+  const catalog = referenceCatalogFromBootstrap(bootstrap.data);
   const [editing, setEditing] = useState(false);
   const [actionError, setActionError] = useState<CommandError | null>(null);
 
@@ -112,7 +125,9 @@ export function AccountDetailPage({ accountId }: { accountId: string }) {
                   ) : null}
                   <p className="mt-2 text-lg text-muted-foreground">
                     {account.valuation.base
-                      ? formatMoney(
+                      ? formatReferenceMoney(
+                          t,
+                          catalog,
                           account.valuation.base.amount,
                           account.valuation.base.currency,
                         )
@@ -120,6 +135,7 @@ export function AccountDetailPage({ accountId }: { accountId: string }) {
                   </p>
                   <ValuationSummary
                     base={account.valuation.base}
+                    catalog={catalog}
                     complete={account.valuation.complete}
                     freshness={account.valuation.freshness}
                     native={account.valuation.native}
@@ -163,8 +179,17 @@ export function AccountDetailPage({ accountId }: { accountId: string }) {
             <UnvaluedList items={account.valuation.unvaluedItems} />
             {account.trackingMode === "holdings" ? (
               <>
-                <HoldingsPanel accountId={account.id} onError={setActionError} />
-                <CashPanel accountId={account.id} onError={setActionError} />
+                <HoldingsPanel
+                  accountId={account.id}
+                  catalog={catalog}
+                  onError={setActionError}
+                />
+                <CashPanel
+                  accountId={account.id}
+                  catalog={catalog}
+                  defaultCurrency={account.defaultCurrency}
+                  onError={setActionError}
+                />
               </>
             ) : (
               <UpdateValueForm
@@ -176,6 +201,7 @@ export function AccountDetailPage({ accountId }: { accountId: string }) {
             {editing ? (
               <AccountForm
                 account={account}
+                catalog={catalog}
                 defaultCurrency={household.baseCurrency}
                 groups={groups.data ?? []}
                 institutions={institutions.data ?? []}
@@ -269,9 +295,11 @@ function UpdateValueForm({
 
 function HoldingsPanel({
   accountId,
+  catalog,
   onError,
 }: {
   accountId: string;
+  catalog: ReferenceCatalogDto;
   onError: (error: CommandError | null) => void;
 }) {
   const { t } = useTranslation();
@@ -331,7 +359,8 @@ function HoldingsPanel({
           <div>
             <p className="font-medium">{holding.instrumentName}</p>
             <p className="text-sm text-muted-foreground">
-              {holding.quantity} · {holding.quoteCurrency}
+              {holding.quantity} ·{" "}
+              {referenceCurrencyLabel(t, catalog, holding.quoteCurrency)}
             </p>
           </div>
           <GhostButton
@@ -450,9 +479,13 @@ function HoldingForm({
 
 function CashPanel({
   accountId,
+  catalog,
+  defaultCurrency,
   onError,
 }: {
   accountId: string;
+  catalog: ReferenceCatalogDto;
+  defaultCurrency: string;
   onError: (error: CommandError | null) => void;
 }) {
   const { t } = useTranslation();
@@ -478,6 +511,8 @@ function CashPanel({
       {adding ? (
         <CashForm
           accountId={accountId}
+          catalog={catalog}
+          defaultCurrency={defaultCurrency}
           onError={onError}
           onSaved={async () => {
             setAdding(false);
@@ -490,7 +525,7 @@ function CashPanel({
       ) : null}
       {(cash.data ?? []).map((item) => (
         <p className="text-sm" key={item.id}>
-          {formatMoney(item.amount, item.currency)}
+          {formatReferenceMoney(t, catalog, item.amount, item.currency)}
         </p>
       ))}
     </section>
@@ -499,17 +534,26 @@ function CashPanel({
 
 function CashForm({
   accountId,
+  catalog,
+  defaultCurrency,
   onError,
   onSaved,
 }: {
   accountId: string;
+  catalog: ReferenceCatalogDto;
+  defaultCurrency: string;
   onError: (error: CommandError | null) => void;
   onSaved: () => Promise<void>;
 }) {
   const { t } = useTranslation();
   const formId = useId();
+  const initialCurrency = hasReferenceValue(catalog.currencies, defaultCurrency)
+    ? defaultCurrency
+    : (catalog.currencies[0]?.value ?? "");
   const [serverError, setServerError] = useState<CommandError | null>(null);
-  const form = useForm<CashFormValues>({ defaultValues: { amount: "", currency: "" } });
+  const form = useForm<CashFormValues>({
+    defaultValues: { amount: "", currency: initialCurrency },
+  });
   const mutation = useMutation({
     mutationFn: async (values: CashFormValues) =>
       unwrapResult(
@@ -569,12 +613,24 @@ function CashForm({
           <label className="text-sm font-medium" htmlFor={`${formId}-currency`}>
             {t("accounts.currency")}
           </label>
-          <Input
-            autoCapitalize="characters"
+          <select
             id={`${formId}-currency`}
-            maxLength={3}
+            className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
             {...form.register("currency")}
-          />
+          >
+            {groupReferenceOptions(catalog.currencies).map(([group, options]) => (
+              <optgroup
+                key={group}
+                label={referenceGroupLabel(t, "currencyGroups", group)}
+              >
+                {options.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {referenceOptionLabel(t, "currencies", option.value)}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
           <FieldError
             message={translateAccountError(t, form.formState.errors.currency?.message)}
           />

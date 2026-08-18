@@ -281,7 +281,7 @@ async fn create_account_in_tx(
 ) -> Result<AccountRecordDto, AppError> {
     let household = require_household_tx(tx).await?;
     let sort_order = next_sort_order(tx, SortTable::Accounts, &household.id).await?;
-    let new_account = new_account_from_input(
+    let mut new_account = new_account_from_input(
         &household.id,
         &input.name,
         &input.primary_category,
@@ -298,6 +298,7 @@ async fn create_account_in_tx(
         input.closed_on.as_deref(),
         sort_order,
     )?;
+    new_account.default_currency = CurrencyCode::parse_supported(&input.default_currency)?;
     validate_references(
         tx,
         &household.id,
@@ -1159,7 +1160,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unknown_institution_and_allows_foreign_currency() {
+    fn rejects_unknown_institution_and_currency() {
         tauri::async_runtime::block_on(async {
             let (state, path) = onboarded_state("accounts-validate").await;
             let (walt, _, institution) = seed_bank(&state).await;
@@ -1171,6 +1172,21 @@ mod tests {
                 .expect("foreign currency is allowed");
             assert_eq!(created.default_currency, "SGD");
             assert!(!created.valuation.complete);
+
+            let mut unsupported_currency = bank_input(
+                "Unsupported Currency",
+                &walt,
+                Some(institution.id.clone()),
+                "100000",
+            );
+            unsupported_currency.default_currency = "ZZZ".to_owned();
+            let error = create_account(&state, unsupported_currency)
+                .await
+                .expect_err("uncatalogued currency");
+            assert!(matches!(
+                error,
+                AppError::Validation { field, .. } if field == "currency"
+            ));
 
             let input = bank_input(
                 "DBS Savings",

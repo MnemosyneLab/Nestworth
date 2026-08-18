@@ -47,7 +47,7 @@ fn prepare_onboarding(input: CompleteOnboardingInput) -> Result<PreparedOnboardi
     }
 
     let now = Timestamp::now();
-    let base_currency = CurrencyCode::parse(&input.base_currency)
+    let base_currency = CurrencyCode::parse_supported(&input.base_currency)
         .map_err(|error| remap_validation_field(error, "currency", "baseCurrency"))?;
     let household = Household::new(&input.household_name, base_currency, now.clone())
         .map_err(|error| remap_validation_field(error, "name", "householdName"))?;

@@ -28,9 +28,19 @@ import {
   commands,
   type CommandError,
   type InstitutionRecordDto,
+  type ReferenceCatalogDto,
 } from "@/generated/tauri-bindings";
 import { emptyToNull } from "@/lib/empty-to-null";
-import { bootstrapQueryKey } from "@/lib/tauri/bootstrap";
+import {
+  groupReferenceOptions,
+  hasReferenceValue,
+  legacyOptionLabel,
+  referenceCatalogFromBootstrap,
+  referenceGroupLabel,
+  referenceOptionLabel,
+  withLegacyOption,
+} from "@/lib/reference-catalog";
+import { bootstrapQueryKey, useBootstrapQuery } from "@/lib/tauri/bootstrap";
 import {
   commandErrorFromUnknown,
   formatCommandError,
@@ -43,6 +53,8 @@ export function InstitutionsPage() {
   const [showArchived, setShowArchived] = useState(false);
   const [editor, setEditor] = useState<"create" | InstitutionRecordDto | null>(null);
   const [actionError, setActionError] = useState<CommandError | null>(null);
+  const bootstrap = useBootstrapQuery();
+  const catalog = referenceCatalogFromBootstrap(bootstrap.data);
 
   const list = useQuery({
     queryKey: ["institutions", showArchived],
@@ -87,6 +99,7 @@ export function InstitutionsPage() {
       <div className="space-y-3">
         {editor === "create" ? (
           <InstitutionEditor
+            catalog={catalog}
             onCancel={() => setEditor(null)}
             onSaved={async () => {
               setEditor(null);
@@ -97,6 +110,7 @@ export function InstitutionsPage() {
         {items.map((institution) =>
           editor !== "create" && editor?.id === institution.id ? (
             <InstitutionEditor
+              catalog={catalog}
               institution={institution}
               key={institution.id}
               onCancel={() => setEditor(null)}
@@ -110,8 +124,26 @@ export function InstitutionsPage() {
               archived={Boolean(institution.archivedAt)}
               details={
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {[institution.institutionType, institution.countryCode]
-                    .filter(Boolean)
+                  {[
+                    institution.institutionType
+                      ? hasReferenceValue(
+                          catalog.institutionTypes,
+                          institution.institutionType,
+                        )
+                        ? referenceOptionLabel(
+                            t,
+                            "institutionTypes",
+                            institution.institutionType,
+                          )
+                        : legacyOptionLabel(t, institution.institutionType)
+                      : null,
+                    institution.countryCode
+                      ? hasReferenceValue(catalog.countries, institution.countryCode)
+                        ? referenceOptionLabel(t, "countries", institution.countryCode)
+                        : legacyOptionLabel(t, institution.countryCode)
+                      : null,
+                  ]
+                    .filter((value): value is string => Boolean(value))
                     .join(" · ")}
                 </p>
               }
@@ -160,10 +192,12 @@ export function InstitutionsPage() {
 }
 
 function InstitutionEditor({
+  catalog,
   institution,
   onCancel,
   onSaved,
 }: {
+  catalog: ReferenceCatalogDto;
   institution?: InstitutionRecordDto;
   onCancel: () => void;
   onSaved: () => Promise<void>;
@@ -220,10 +254,11 @@ function InstitutionEditor({
       className="space-y-4 rounded-xl border border-border bg-card px-4 py-4 shadow-sm"
       noValidate
       onSubmit={form.handleSubmit((values) => {
-        const parsed = institutionSchema.safeParse({
+        const normalized = {
           ...values,
           countryCode: values.countryCode.trim().toUpperCase(),
-        });
+        };
+        const parsed = institutionSchema.safeParse(normalized);
         if (!parsed.success) {
           applyZodIssues(form, parsed.error.issues, [
             "name",
@@ -232,6 +267,20 @@ function InstitutionEditor({
             "website",
             "note",
           ]);
+          return;
+        }
+        if (
+          parsed.data.institutionType &&
+          !hasReferenceValue(catalog.institutionTypes, parsed.data.institutionType)
+        ) {
+          form.setError("institutionType", { type: "catalog", message: "unsupported" });
+          return;
+        }
+        if (
+          parsed.data.countryCode &&
+          !hasReferenceValue(catalog.countries, parsed.data.countryCode)
+        ) {
+          form.setError("countryCode", { type: "catalog", message: "unsupported" });
           return;
         }
         setServerError(null);
@@ -262,19 +311,64 @@ function InstitutionEditor({
           <label className="text-sm font-medium" htmlFor={`${formId}-type`}>
             {t("institutions.type")}
           </label>
-          <Input id={`${formId}-type`} {...form.register("institutionType")} />
+          <select
+            id={`${formId}-type`}
+            className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
+            {...form.register("institutionType")}
+          >
+            <option value="">{t("accounts.none")}</option>
+            {groupReferenceOptions(
+              withLegacyOption(catalog.institutionTypes, institution?.institutionType ?? ""),
+            ).map(([group, options]) => (
+              <optgroup
+                key={group}
+                label={referenceGroupLabel(t, "institutionTypeGroups", group)}
+              >
+                {options.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.group === "legacy"
+                      ? legacyOptionLabel(t, option.value)
+                      : referenceOptionLabel(t, "institutionTypes", option.value)}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+          <FieldError
+            message={translateReferenceError(
+              t,
+              form.formState.errors.institutionType?.message,
+            )}
+          />
         </div>
         <div className="space-y-2">
           <label className="text-sm font-medium" htmlFor={`${formId}-country`}>
             {t("institutions.country")}
           </label>
-          <Input
+          <select
             aria-invalid={form.formState.errors.countryCode ? true : undefined}
-            autoCapitalize="characters"
             id={`${formId}-country`}
-            maxLength={2}
+            className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
             {...form.register("countryCode")}
-          />
+          >
+            <option value="">{t("accounts.none")}</option>
+            {groupReferenceOptions(
+              withLegacyOption(catalog.countries, institution?.countryCode ?? ""),
+            ).map(([group, options]) => (
+              <optgroup
+                key={group}
+                label={referenceGroupLabel(t, "countryGroups", group)}
+              >
+                {options.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.group === "legacy"
+                      ? legacyOptionLabel(t, option.value)
+                      : referenceOptionLabel(t, "countries", option.value)}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
           <FieldError
             message={translateReferenceError(
               t,

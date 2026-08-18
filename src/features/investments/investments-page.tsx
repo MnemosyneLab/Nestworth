@@ -11,7 +11,6 @@ import { translateAccountError } from "@/features/accounts/account-form";
 import {
   basisPointsToPercent,
   clampShareBps,
-  formatMoney,
   fxRateSchema,
   type FxRateFormValues,
 } from "@/features/accounts/schema";
@@ -23,7 +22,15 @@ import {
   type CommandError,
   type FxPairStatusDto,
   type PortfolioDto,
+  type ReferenceCatalogDto,
 } from "@/generated/tauri-bindings";
+import {
+  formatReferenceMoney,
+  referenceCatalogFromBootstrap,
+  referenceCurrencyLabel,
+  referenceCountryLabel,
+} from "@/lib/reference-catalog";
+import { useBootstrapQuery } from "@/lib/tauri/bootstrap";
 import {
   commandErrorFromUnknown,
   formatCommandError,
@@ -33,6 +40,8 @@ import { invalidateValuation } from "@/lib/tauri/invalidate";
 
 export function InvestmentsPage() {
   const { t } = useTranslation();
+  const bootstrap = useBootstrapQuery();
+  const catalog = referenceCatalogFromBootstrap(bootstrap.data);
   const portfolio = useQuery({
     queryKey: ["portfolio"],
     queryFn: () => unwrapResult(commands.getPortfolio()),
@@ -63,13 +72,23 @@ export function InvestmentsPage() {
             {formatCommandError(t, error)}
           </p>
         ) : null}
-        {portfolio.data ? <PortfolioBody portfolio={portfolio.data} /> : null}
+        {portfolio.data ? (
+          <PortfolioBody catalog={catalog} portfolio={portfolio.data} />
+        ) : null}
       </main>
     </AppShell>
   );
 }
-function FxPairCard({ pair }: { pair: FxPairStatusDto }) {
+function FxPairCard({
+  catalog,
+  pair,
+}: {
+  catalog: ReferenceCatalogDto;
+  pair: FxPairStatusDto;
+}) {
   const { t } = useTranslation();
+  const baseCurrency = referenceCurrencyLabel(t, catalog, pair.currencyB);
+  const quoteCurrency = referenceCurrencyLabel(t, catalog, pair.currencyA);
   const queryClient = useQueryClient();
   const formId = useId();
   const [serverError, setServerError] = useState<CommandError | null>(null);
@@ -96,15 +115,15 @@ function FxPairCard({ pair }: { pair: FxPairStatusDto }) {
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h3 className="font-medium">
           {t("fx.equation", {
-            baseCurrency: pair.currencyB,
-            quoteCurrency: pair.currencyA,
+            baseCurrency,
+            quoteCurrency,
           })}
         </h3>
         <p className="text-sm text-muted-foreground">
           {pair.selectedQuote
             ? t("fx.selectedQuote", {
-                baseCurrency: pair.currencyB,
-                quoteCurrency: pair.currencyA,
+                baseCurrency,
+                quoteCurrency,
                 rate: pair.selectedRate ?? pair.selectedQuote.rate,
               })
             : t("quotes.unavailable")}
@@ -117,8 +136,8 @@ function FxPairCard({ pair }: { pair: FxPairStatusDto }) {
       </div>
       <p className="text-sm text-muted-foreground">
         {t("fx.rateHelp", {
-          baseCurrency: pair.currencyB,
-          quoteCurrency: pair.currencyA,
+          baseCurrency,
+          quoteCurrency,
         })}
       </p>
       {serverError ? (
@@ -142,8 +161,8 @@ function FxPairCard({ pair }: { pair: FxPairStatusDto }) {
         <div className="space-y-1">
           <label className="text-sm" htmlFor={`${formId}-rate`}>
             {t("fx.rateLabel", {
-              baseCurrency: pair.currencyB,
-              quoteCurrency: pair.currencyA,
+              baseCurrency,
+              quoteCurrency,
             })}
           </label>
           <Input
@@ -164,7 +183,13 @@ function FxPairCard({ pair }: { pair: FxPairStatusDto }) {
   );
 }
 
-function PortfolioBody({ portfolio }: { portfolio: PortfolioDto }) {
+function PortfolioBody({
+  catalog,
+  portfolio,
+}: {
+  catalog: ReferenceCatalogDto;
+  portfolio: PortfolioDto;
+}) {
   const { t } = useTranslation();
   const empty =
     portfolio.positions.length === 0 &&
@@ -193,7 +218,12 @@ function PortfolioBody({ portfolio }: { portfolio: PortfolioDto }) {
           {t("investments.total")}
         </p>
         <p className="mt-2 text-4xl font-semibold tracking-tight">
-          {formatMoney(portfolio.total.amount, portfolio.total.currency)}
+          {formatReferenceMoney(
+            t,
+            catalog,
+            portfolio.total.amount,
+            portfolio.total.currency,
+          )}
         </p>
         <p className="mt-2 text-sm text-muted-foreground">
           {portfolio.isComplete
@@ -202,20 +232,21 @@ function PortfolioBody({ portfolio }: { portfolio: PortfolioDto }) {
         </p>
       </section>
       <UnvaluedList items={portfolio.unvaluedItems} />
-      <PositionList portfolio={portfolio} />
+      <PositionList catalog={catalog} portfolio={portfolio} />
       <AllocationList
-        labelFor={(row) => row.name ?? row.key}
+        catalog={catalog}
+        labelFor={(row) => referenceCurrencyLabel(t, catalog, row.key)}
         rows={portfolio.byCurrency}
         title={t("investments.byCurrency")}
       />
       <AllocationList
-        labelFor={(row) =>
-          row.key === "unknown" ? t("accounts.none") : (row.name ?? row.key)
-        }
+        catalog={catalog}
+        labelFor={(row) => referenceCountryLabel(t, catalog, row.key)}
         rows={portfolio.byCountry}
         title={t("investments.byCountry")}
       />
       <AllocationList
+        catalog={catalog}
         labelFor={(row) =>
           row.key === "cash"
             ? t("accounts.cash")
@@ -224,12 +255,18 @@ function PortfolioBody({ portfolio }: { portfolio: PortfolioDto }) {
         rows={portfolio.byInstrumentType}
         title={t("investments.byType")}
       />
-      <FxPanel pairs={portfolio.requiredFx} />
+      <FxPanel catalog={catalog} pairs={portfolio.requiredFx} />
     </div>
   );
 }
 
-function PositionList({ portfolio }: { portfolio: PortfolioDto }) {
+function PositionList({
+  catalog,
+  portfolio,
+}: {
+  catalog: ReferenceCatalogDto;
+  portfolio: PortfolioDto;
+}) {
   const { t } = useTranslation();
   if (portfolio.positions.length === 0 && portfolio.cash.length === 0) {
     return null;
@@ -247,14 +284,19 @@ function PositionList({ portfolio }: { portfolio: PortfolioDto }) {
               <span className="font-medium">{position.instrumentName}</span>
               <span className="text-sm text-muted-foreground">
                 {position.base
-                  ? formatMoney(position.base.amount, position.base.currency)
+                  ? formatReferenceMoney(
+                      t,
+                      catalog,
+                      position.base.amount,
+                      position.base.currency,
+                    )
                   : t("quotes.unavailable")}
               </span>
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
               {position.quantity}
               {position.native
-                ? ` · ${formatMoney(position.native.amount, position.native.currency)}`
+                ? ` · ${formatReferenceMoney(t, catalog, position.native.amount, position.native.currency)}`
                 : ""}
               {` · ${freshnessLabel(t, position.freshness)}`}
             </p>
@@ -268,7 +310,7 @@ function PositionList({ portfolio }: { portfolio: PortfolioDto }) {
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <span className="font-medium">{t("accounts.cash")}</span>
               <span className="text-sm text-muted-foreground">
-                {formatMoney(cash.amount, cash.currency)}
+                {formatReferenceMoney(t, catalog, cash.amount, cash.currency)}
               </span>
             </div>
           </li>
@@ -279,14 +321,17 @@ function PositionList({ portfolio }: { portfolio: PortfolioDto }) {
 }
 
 function AllocationList({
+  catalog,
   labelFor,
   rows,
   title,
 }: {
+  catalog: ReferenceCatalogDto;
   labelFor: (row: AllocationRowDto) => string;
   rows: AllocationRowDto[];
   title: string;
 }) {
+  const { t } = useTranslation();
   if (rows.length === 0) {
     return null;
   }
@@ -303,7 +348,12 @@ function AllocationList({
               <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
                 <span>{label}</span>
                 <span className="text-muted-foreground">
-                  {formatMoney(row.amount.amount, row.amount.currency)}
+                  {formatReferenceMoney(
+                    t,
+                    catalog,
+                    row.amount.amount,
+                    row.amount.currency,
+                  )}
                   <span className="ml-3">{percent}</span>
                 </span>
               </div>
@@ -328,7 +378,13 @@ function AllocationList({
   );
 }
 
-function FxPanel({ pairs }: { pairs: FxPairStatusDto[] }) {
+function FxPanel({
+  catalog,
+  pairs,
+}: {
+  catalog: ReferenceCatalogDto;
+  pairs: FxPairStatusDto[];
+}) {
   const { t } = useTranslation();
   if (pairs.length === 0) {
     return null;
@@ -337,7 +393,11 @@ function FxPanel({ pairs }: { pairs: FxPairStatusDto[] }) {
     <section className="space-y-3">
       <h2 className="text-lg font-medium">{t("fx.title")}</h2>
       {pairs.map((pair) => (
-        <FxPairCard key={`${pair.currencyA}:${pair.currencyB}`} pair={pair} />
+        <FxPairCard
+          catalog={catalog}
+          key={`${pair.currencyA}:${pair.currencyB}`}
+          pair={pair}
+        />
       ))}
     </section>
   );

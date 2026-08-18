@@ -7,6 +7,10 @@ import { Button } from "@/components/ui/button";
 import { commands, type CommandError } from "@/generated/tauri-bindings";
 import { i18n } from "@/lib/i18n";
 import { applyAppearance, resolveLanguage } from "@/lib/i18n/preferences";
+import {
+  referenceCatalogFromBootstrap,
+  referenceCurrencyLabel,
+} from "@/lib/reference-catalog";
 import { bootstrapQueryKey, useBootstrapQuery } from "@/lib/tauri/bootstrap";
 import {
   commandErrorFromUnknown,
@@ -15,15 +19,13 @@ import {
 } from "@/lib/tauri/errors";
 import { cn } from "@/lib/utils";
 
-const LANGUAGES = ["system", "en", "zh-CN"] as const;
-const APPEARANCES = ["system", "light", "dark"] as const;
-
 export function SettingsGeneralPage() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const bootstrap = useBootstrapQuery();
   const household =
     bootstrap.data?.status === "ready" ? bootstrap.data.household : null;
+  const catalog = referenceCatalogFromBootstrap(bootstrap.data);
   const [actionError, setActionError] = useState<CommandError | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
@@ -72,7 +74,13 @@ export function SettingsGeneralPage() {
                 <h2 className="text-lg font-medium">{t("settings.household")}</h2>
                 <p className="text-sm text-muted-foreground">{household.name}</p>
                 <p className="text-sm text-muted-foreground">
-                  {t("overview.baseCurrency", { currency: household.baseCurrency })}
+                  {t("overview.baseCurrency", {
+                    currency: referenceCurrencyLabel(
+                      t,
+                      catalog,
+                      household.baseCurrency,
+                    ),
+                  })}
                 </p>
               </section>
             ) : null}
@@ -89,7 +97,7 @@ export function SettingsGeneralPage() {
                 }}
                 value={settings.data.language}
               >
-                {LANGUAGES.map((value) => (
+                {catalog.languages.map((value) => (
                   <option key={value} value={value}>
                     {t(`settings.languages.${value}`)}
                   </option>
@@ -109,7 +117,7 @@ export function SettingsGeneralPage() {
                 }}
                 value={settings.data.appearance}
               >
-                {APPEARANCES.map((value) => (
+                {catalog.appearances.map((value) => (
                   <option key={value} value={value}>
                     {t(`settings.appearances.${value}`)}
                   </option>

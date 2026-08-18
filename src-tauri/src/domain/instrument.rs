@@ -3,7 +3,8 @@ use super::{
     ids::{HouseholdId, InstrumentId, MediaAssetId},
     quote::QuoteSourceKind,
     text::{
-        parse_country_code, parse_name, parse_optional_note, parse_optional_text, NAME_MAX_CHARS,
+        parse_name, parse_optional_note, parse_optional_text, parse_supported_country_code,
+        NAME_MAX_CHARS,
     },
     time::Timestamp,
 };
@@ -129,7 +130,7 @@ impl Instrument {
             instrument_type: input.instrument_type,
             quote_currency: input.quote_currency,
             market_code: parse_optional_text(input.market_code.as_deref(), 32, "marketCode")?,
-            country_code: parse_country_code(input.country_code.as_deref())?,
+            country_code: parse_supported_country_code(input.country_code.as_deref())?,
             isin: parse_isin(input.isin.as_deref())?,
             provider_key,
             provider_symbol,
@@ -182,7 +183,7 @@ impl Instrument {
         self.symbol = parse_symbol(input.symbol.as_deref())?;
         self.instrument_type = input.instrument_type;
         self.market_code = parse_optional_text(input.market_code.as_deref(), 32, "marketCode")?;
-        self.country_code = parse_country_code(input.country_code.as_deref())?;
+        self.country_code = parse_supported_country_code(input.country_code.as_deref())?;
         self.isin = parse_isin(input.isin.as_deref())?;
         self.provider_key = provider_key;
         self.provider_symbol = provider_symbol;
@@ -349,9 +350,9 @@ fn parse_provider_identity(
 
 #[cfg(test)]
 mod tests {
-    use super::{Instrument, InstrumentType, NewInstrument};
+    use super::{Instrument, InstrumentType, NewInstrument, PersistedInstrument};
     use crate::domain::currency::CurrencyCode;
-    use crate::domain::ids::HouseholdId;
+    use crate::domain::ids::{HouseholdId, InstrumentId};
     use crate::domain::quote::QuoteSourceKind;
     use crate::domain::time::Timestamp;
 
@@ -390,5 +391,31 @@ mod tests {
         let mut input = manual_etf();
         input.provider_key = Some("fake".to_owned());
         assert!(Instrument::new(input, Timestamp::now()).is_err());
+    }
+
+    #[test]
+    fn persisted_values_keep_legacy_currency_and_country() {
+        let instrument = Instrument::from_persisted(PersistedInstrument {
+            id: InstrumentId::new(),
+            household_id: HouseholdId::new(),
+            name: "Legacy asset".to_owned(),
+            symbol: None,
+            instrument_type: InstrumentType::Other,
+            quote_currency: CurrencyCode::parse("ZZZ").expect("legacy currency"),
+            market_code: None,
+            country_code: Some("ZZ".to_owned()),
+            isin: None,
+            provider_key: None,
+            provider_symbol: None,
+            quote_preference: QuoteSourceKind::Manual,
+            note: None,
+            logo_asset_id: None,
+            sort_order: 0,
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
+            archived_at: None,
+        });
+        assert_eq!(instrument.quote_currency().as_str(), "ZZZ");
+        assert_eq!(instrument.country_code(), Some("ZZ"));
     }
 }

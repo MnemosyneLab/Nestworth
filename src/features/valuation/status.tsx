@@ -1,11 +1,12 @@
 import { useTranslation } from "react-i18next";
 
-import { formatMoney } from "@/features/accounts/schema";
 import type {
   AccountValuationDto,
   MoneyDto,
+  ReferenceCatalogDto,
   UnvaluedItemDto,
 } from "@/generated/tauri-bindings";
+import { formatReferenceMoney } from "@/lib/reference-catalog";
 
 export function freshnessLabel(
   t: ReturnType<typeof useTranslation>["t"],
@@ -17,11 +18,13 @@ export function freshnessLabel(
 export function ValuationSummary({
   native,
   base,
+  catalog,
   freshness,
   complete,
 }: {
   native?: MoneyDto | null;
   base?: MoneyDto | null;
+  catalog: ReferenceCatalogDto;
   freshness: string;
   complete: boolean;
 }) {
@@ -30,12 +33,14 @@ export function ValuationSummary({
     <div className="space-y-1 text-sm text-muted-foreground">
       {native ? (
         <p>
-          {t("accounts.nativeValue")}: {formatMoney(native.amount, native.currency)}
+          {t("accounts.nativeValue")}:{" "}
+          {formatReferenceMoney(t, catalog, native.amount, native.currency)}
         </p>
       ) : null}
       {base ? (
         <p>
-          {t("accounts.baseValue")}: {formatMoney(base.amount, base.currency)}
+          {t("accounts.baseValue")}:{" "}
+          {formatReferenceMoney(t, catalog, base.amount, base.currency)}
         </p>
       ) : null}
       <p>

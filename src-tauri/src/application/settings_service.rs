@@ -5,7 +5,11 @@ use specta::Type;
 use sqlx::Row;
 
 use super::reference::{begin_write_tx, finish_write_tx, map_read_error, map_write_error};
-use crate::{domain::Timestamp, error::AppError, state::AppState};
+use crate::{
+    domain::{is_supported_appearance, is_supported_language, Timestamp},
+    error::AppError,
+    state::AppState,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -160,22 +164,24 @@ fn settings_from_row(row: sqlx::sqlite::SqliteRow) -> Result<AppSettingsDto, App
 }
 
 fn parse_language(value: &str) -> Result<&str, AppError> {
-    match value {
-        "system" | "en" | "zh-CN" => Ok(value),
-        _ => Err(AppError::validation(
+    if is_supported_language(value) {
+        Ok(value)
+    } else {
+        Err(AppError::validation(
             "language",
-            "Language must be system, en, or zh-CN.",
-        )),
+            "Language is not included in the supported catalog.",
+        ))
     }
 }
 
 fn parse_appearance(value: &str) -> Result<&str, AppError> {
-    match value {
-        "system" | "light" | "dark" => Ok(value),
-        _ => Err(AppError::validation(
+    if is_supported_appearance(value) {
+        Ok(value)
+    } else {
+        Err(AppError::validation(
             "appearance",
-            "Appearance must be system, light, or dark.",
-        )),
+            "Appearance is not included in the supported catalog.",
+        ))
     }
 }
 

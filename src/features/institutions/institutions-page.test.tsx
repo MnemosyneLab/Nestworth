@@ -29,7 +29,7 @@ describe("institutions page", () => {
     await user.click(screen.getByRole("button", { name: "Add institution" }));
     expect(screen.getByLabelText("Name")).toHaveFocus();
     await user.type(screen.getByLabelText("Name"), "DBS");
-    await user.type(screen.getByLabelText("Country"), "SG");
+    await user.selectOptions(screen.getByLabelText("Country/Region"), "SG");
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByRole("heading", { name: "DBS" })).toBeInTheDocument();
     expect(commands.createInstitution).toHaveBeenCalledWith({
@@ -86,6 +86,34 @@ describe("institutions page", () => {
     expect(screen.queryByText("Archived")).not.toBeInTheDocument();
   });
 
+  it("marks legacy type and country values and requires replacement before saving", async () => {
+    const user = userEvent.setup();
+    const institutions = [
+      institutionRecord("i-1", "Legacy bank", {
+        institutionType: "local_bank",
+        countryCode: "ZZ",
+      }),
+    ];
+    mockInstitutionStore(institutions);
+    await renderReadyApp();
+    await user.click(screen.getByRole("link", { name: "Institutions" }));
+    await screen.findByRole("heading", { name: "Legacy bank" });
+    expect(
+      screen.getByText("local_bank (Unlisted) · ZZ (Unlisted)"),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    expect(
+      screen.getByRole("option", { name: "local_bank (Unlisted)" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "ZZ (Unlisted)" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(
+      await screen.findByText("Choose a value from the supported catalog."),
+    ).toBeInTheDocument();
+    expect(commands.updateInstitution).not.toHaveBeenCalled();
+  });
+
   it("shows list errors with role=alert", async () => {
     const user = userEvent.setup();
     vi.mocked(commands.listInstitutions).mockResolvedValue({
@@ -120,8 +148,11 @@ describe("institutions page", () => {
     expect(
       await screen.findByText("Please check the highlighted fields."),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText("Country")).toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByLabelText("Country")).toHaveFocus();
+    expect(screen.getByLabelText("Country/Region")).toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
+    expect(screen.getByLabelText("Country/Region")).toHaveFocus();
     expect(
       screen.getByText("Country code must be two uppercase letters."),
     ).toBeInTheDocument();

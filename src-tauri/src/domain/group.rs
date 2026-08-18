@@ -65,7 +65,7 @@ impl AccountGroup {
             id: AccountGroupId::new(),
             household_id: input.household_id,
             name: parse_name(&input.name)?,
-            icon_key: parse_optional_text(input.icon_key.as_deref(), NAME_MAX_CHARS, "iconKey")?,
+            icon_key: parse_icon_key(input.icon_key.as_deref())?,
             color: parse_color(input.color.as_deref())?,
             logo_asset_id: input.logo_asset_id,
             description: parse_optional_text(
@@ -99,7 +99,7 @@ impl AccountGroup {
 
     pub fn update(&mut self, input: NewAccountGroup, now: Timestamp) -> Result<(), AppError> {
         self.name = parse_name(&input.name)?;
-        self.icon_key = parse_optional_text(input.icon_key.as_deref(), NAME_MAX_CHARS, "iconKey")?;
+        self.icon_key = parse_icon_key(input.icon_key.as_deref())?;
         self.color = parse_color(input.color.as_deref())?;
         self.description =
             parse_optional_text(input.description.as_deref(), NOTE_MAX_CHARS, "description")?;
@@ -191,13 +191,27 @@ fn parse_color(value: Option<&str>) -> Result<Option<String>, AppError> {
     };
     let bytes = value.as_bytes();
     if bytes.len() == 7 && bytes[0] == b'#' && bytes[1..].iter().all(u8::is_ascii_hexdigit) {
-        Ok(Some(format!("#{}", value[1..].to_ascii_uppercase())))
+        let color = format!("#{}", value[1..].to_ascii_uppercase());
+        if crate::domain::is_supported_group_color(&color) {
+            return Ok(Some(color));
+        }
     } else {
-        Err(AppError::validation(
-            "color",
-            "Color must be a #RRGGBB value.",
-        ))
+        return Err(AppError::validation("color", "Color is not supported."));
     }
+    Err(AppError::validation("color", "Color is not supported."))
+}
+
+fn parse_icon_key(value: Option<&str>) -> Result<Option<String>, AppError> {
+    let value = parse_optional_text(value, NAME_MAX_CHARS, "iconKey")?;
+    if let Some(value) = value.as_deref() {
+        if !crate::domain::is_supported_group_icon(value) {
+            return Err(AppError::validation(
+                "iconKey",
+                "Icon is not included in the supported catalog.",
+            ));
+        }
+    }
+    Ok(value)
 }
 
 #[cfg(test)]
@@ -229,5 +243,16 @@ mod tests {
         let mut invalid = NewAccountGroup::required(HouseholdId::new(), "Emergency");
         invalid.color = Some("blue".to_owned());
         assert!(AccountGroup::new(invalid, Timestamp::now()).is_err());
+    }
+
+    #[test]
+    fn rejects_uncatalogued_icon_and_color() {
+        let mut invalid_icon = NewAccountGroup::required(HouseholdId::new(), "Emergency");
+        invalid_icon.icon_key = Some("custom".to_owned());
+        assert!(AccountGroup::new(invalid_icon, Timestamp::now()).is_err());
+
+        let mut invalid_color = NewAccountGroup::required(HouseholdId::new(), "Emergency");
+        invalid_color.color = Some("#FFFFFF".to_owned());
+        assert!(AccountGroup::new(invalid_color, Timestamp::now()).is_err());
     }
 }

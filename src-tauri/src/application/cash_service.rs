@@ -120,7 +120,10 @@ async fn append_account_cash_in_tx(
 ) -> Result<AccountCashRecordDto, AppError> {
     let household_id = require_household_id_tx(tx).await?;
     require_holdings_account(tx, &household_id, &input.account_id).await?;
-    let money = Money::parse(&input.amount, CurrencyCode::parse(&input.currency)?)?;
+    let money = Money::parse(
+        &input.amount,
+        CurrencyCode::parse_supported(&input.currency)?,
+    )?;
     let value = AccountCashValue::new(
         AccountId::parse(&input.account_id)?,
         money,
