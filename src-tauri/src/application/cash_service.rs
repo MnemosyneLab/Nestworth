@@ -4,13 +4,14 @@ use sqlx::{Row, Sqlite, Transaction};
 
 use super::{
     account_service::MoneyDto,
-    reference::{
-        begin_write_tx, finish_write_tx, map_read_error, map_write_error, require_household_id_tx,
-    },
+    activity_service::{self, latest_cash_money, PostCommand},
+    history_origin::ensure_activity_writes_allowed,
+    reference::{begin_write_tx, finish_write_tx, map_read_error, require_household_id_tx},
 };
 use crate::{
     domain::{
-        AccountCashValue, AccountId, CurrencyCode, Money, PrimaryCategory, Timestamp, TrackingMode,
+        checked_sub, AccountId, CurrencyCode, MonetaryComponent, MonetaryEndpoint, Money,
+        PrimaryCategory, TrackingMode,
     },
     error::AppError,
     state::AppState,
@@ -118,39 +119,61 @@ async fn append_account_cash_in_tx(
     tx: &mut Transaction<'_, Sqlite>,
     input: AppendAccountCashInput,
 ) -> Result<AccountCashRecordDto, AppError> {
-    let household_id = require_household_id_tx(tx).await?;
-    require_holdings_account(tx, &household_id, &input.account_id).await?;
-    let money = Money::parse(
-        &input.amount,
-        CurrencyCode::parse_supported(&input.currency)?,
-    )?;
-    let value = AccountCashValue::new(
-        AccountId::parse(&input.account_id)?,
-        money,
-        Timestamp::now(),
+    let origin = ensure_activity_writes_allowed(tx).await?;
+    require_holdings_account(tx, &origin.household_id, &input.account_id).await?;
+    let currency = CurrencyCode::parse_supported(&input.currency)?;
+    let target = Money::parse(&input.amount, currency)?;
+    let current = latest_cash_money(tx, &input.account_id, currency).await?;
+    // Compatibility: append_account_cash amount is the absolute resulting cash
+    // (v0.1.2 semantics). After History Origin, the delta against the latest
+    // cash for that currency (missing = 0) is posted as Deposit (increase) or
+    // Withdrawal (decrease). Equal amounts are rejected as no-change. Phase 7
+    // will post tagged Deposit/Withdrawal amounts explicitly.
+    let endpoint = MonetaryEndpoint {
+        account_id: AccountId::parse(&input.account_id)?,
+        component: MonetaryComponent::HoldingsCash,
+    };
+    let command = if target.amount() > current.amount() {
+        let delta = checked_sub(target.amount(), current.amount())?;
+        PostCommand::Deposit {
+            endpoint,
+            amount: Money::from_canonical(delta, currency)?,
+        }
+    } else if target.amount() < current.amount() {
+        let delta = checked_sub(current.amount(), target.amount())?;
+        PostCommand::Withdrawal {
+            endpoint,
+            amount: Money::from_canonical(delta, currency)?,
+        }
+    } else {
+        return Err(AppError::invalid_activity("The target is unchanged."));
+    };
+    let posted = activity_service::post_in_tx(tx, command, None).await?;
+    tracing::info!(
+        event = "account_cash.append",
+        activity_id = %posted.id(),
+        "cash observation appended"
     );
-    sqlx::query(
-        "INSERT INTO account_cash_values (id, account_id, amount, currency, effective_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)",
+    load_cash_by_activity(tx, &posted.id().to_string()).await
+}
+
+async fn load_cash_by_activity(
+    tx: &mut Transaction<'_, Sqlite>,
+    activity_id: &str,
+) -> Result<AccountCashRecordDto, AppError> {
+    let row = sqlx::query(
+        "SELECT id, account_id, amount, currency, effective_at, created_at
+         FROM account_cash_values
+         WHERE activity_id = ?
+         ORDER BY created_at DESC, id DESC
+         LIMIT 1",
     )
-    .bind(value.id().to_string())
-    .bind(value.account_id().to_string())
-    .bind(value.money().canonical_amount())
-    .bind(value.currency().as_str())
-    .bind(value.effective_at().to_rfc3339())
-    .bind(value.created_at().to_rfc3339())
-    .execute(&mut **tx)
+    .bind(activity_id)
+    .fetch_optional(&mut **tx)
     .await
-    .map_err(|error| map_write_error("cash.append_failed", error))?;
-    tracing::info!(event = "account_cash.append", cash_id = %value.id(), "cash observation appended");
-    Ok(AccountCashRecordDto {
-        id: value.id().to_string(),
-        account_id: value.account_id().to_string(),
-        amount: value.money().canonical_amount(),
-        currency: value.currency().as_str().to_owned(),
-        effective_at: value.effective_at().to_rfc3339(),
-        created_at: value.created_at().to_rfc3339(),
-    })
+    .map_err(|error| map_read_error("cash.activity_load_failed", error))?
+    .ok_or(AppError::Internal)?;
+    cash_from_row(row)
 }
 
 async fn require_holdings_account(
