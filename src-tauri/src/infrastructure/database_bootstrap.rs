@@ -207,7 +207,10 @@ mod tests {
 
     use super::{initialize_database, pre_migration_snapshot_path, DatabaseBootstrapStatus};
     use crate::{
-        application::overview_service::get_overview,
+        application::{
+            account_service::get_account, overview_service::get_overview,
+            portfolio_service::get_portfolio,
+        },
         infrastructure::database::{connect_writable, read_migration_version},
         state::AppState,
     };
@@ -588,6 +591,192 @@ mod tests {
             remove_database(&path);
             remove_database(&snapshot);
         });
+    }
+
+    #[test]
+    fn released_v012_fixture_loads_on_schema_002_without_changing_golden_totals() {
+        tauri::async_runtime::block_on(async {
+            let fixture = include_str!("../../test-fixtures/v0.1.2.sql");
+            let goldens = include_str!("../../test-fixtures/v0.1.3-activity-goldens.md");
+            for (label, source) in [
+                ("v0.1.2.sql", fixture),
+                ("v0.1.3-activity-goldens.md", goldens),
+            ] {
+                for forbidden in ["/Users/", "/home/", "password", "api_key", "secret"] {
+                    assert!(
+                        !source.contains(forbidden),
+                        "{label} must not contain {forbidden}"
+                    );
+                }
+            }
+
+            let path = test_path("v012-released-fixture");
+            remove_database(&path);
+            let pool = connect_writable(&path, true)
+                .await
+                .expect("v0.1.2 fixture should open");
+            for version in [1_i64, 2] {
+                let migration = super::MIGRATOR
+                    .iter()
+                    .find(|item| item.version == version)
+                    .expect("migration 001 and 002 should exist")
+                    .clone();
+                let mut conn = pool.acquire().await.expect("connection");
+                sqlx::migrate::Migrate::ensure_migrations_table(&mut *conn)
+                    .await
+                    .expect("migration metadata table should be created");
+                sqlx::migrate::Migrate::apply(&mut *conn, &migration)
+                    .await
+                    .expect("released schema should apply");
+            }
+            sqlx::raw_sql(fixture)
+                .execute(&pool)
+                .await
+                .expect("released fixture should load");
+
+            let version: i64 = sqlx::query_scalar("SELECT MAX(version) FROM _sqlx_migrations")
+                .fetch_one(&pool)
+                .await
+                .expect("version");
+            assert_eq!(version, 2);
+            let activity_id_columns: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM pragma_table_info('account_values') WHERE name = 'activity_id'",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("activity_id column probe");
+            assert_eq!(activity_id_columns, 0);
+
+            let expected_counts = [
+                ("households", 1),
+                ("app_settings", 1),
+                ("media_assets", 1),
+                ("members", 3),
+                ("institutions", 2),
+                ("account_groups", 2),
+                ("accounts", 5),
+                ("account_ownership", 6),
+                ("account_values", 7),
+                ("instruments", 4),
+                ("holdings", 3),
+                ("account_cash_values", 2),
+                ("instrument_quotes", 5),
+                ("fx_quote_preferences", 3),
+                ("fx_quotes", 5),
+            ];
+            assert_table_counts(&pool, &expected_counts).await;
+            let retained: (String, String) = sqlx::query_as(
+                "SELECT institution_id, group_id FROM accounts WHERE id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("retained archived references");
+            assert_eq!(retained.0, "55555555-5555-4555-8555-555555555555");
+            assert_eq!(retained.1, "77777777-7777-4777-8777-777777777777");
+            let archived_holding: (String, Option<String>) = sqlx::query_as(
+                "SELECT instrument_id, archived_at FROM holdings WHERE id = '32323232-3232-4323-8323-323232323232'",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("archived holding should remain");
+            assert_eq!(archived_holding.0, "23232323-2323-4323-8323-232323232323");
+            assert!(archived_holding.1.is_some());
+            let value_history: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM account_values WHERE account_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("account value history");
+            assert_eq!(value_history, 2);
+            let cash_history: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM account_cash_values WHERE account_id = '99999999-9999-4999-8999-999999999999'",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("account cash history");
+            assert_eq!(cash_history, 2);
+            let ownership_mismatch: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM (
+                   SELECT account_id FROM account_ownership GROUP BY account_id HAVING SUM(share_bps) != 10000
+                 )",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("ownership totals");
+            assert_eq!(ownership_mismatch, 0);
+            let foreign_keys = sqlx::query("PRAGMA foreign_key_check")
+                .fetch_all(&pool)
+                .await
+                .expect("foreign key check");
+            assert!(foreign_keys.is_empty());
+            let integrity: String = sqlx::query_scalar("PRAGMA integrity_check")
+                .fetch_one(&pool)
+                .await
+                .expect("integrity check");
+            assert_eq!(integrity, "ok");
+            pool.close().await;
+
+            let initialized = initialize_database(path.clone()).await;
+            assert_eq!(initialized.status, DatabaseBootstrapStatus::Ready);
+            let pool = initialized.pool.expect("loaded fixture should be writable");
+            assert_table_counts(&pool, &expected_counts).await;
+            pool.close().await;
+
+            let (overview, holdings_detail, portfolio) = {
+                let state = AppState::initialize(path.clone()).await;
+                let overview = get_overview(&state).await.expect("fixture overview");
+                let holdings_detail = get_account(&state, "99999999-9999-4999-8999-999999999999")
+                    .await
+                    .expect("holdings account");
+                let portfolio = get_portfolio(&state).await.expect("fixture portfolio");
+                (overview, holdings_detail, portfolio)
+            };
+            assert!(overview.is_complete);
+            assert_eq!(overview.account_count, 3);
+            assert_eq!(overview.assets.amount, "63190");
+            assert_eq!(overview.assets.currency, "CNY");
+            assert_eq!(overview.liabilities.amount, "0");
+            assert_eq!(overview.net_worth.amount, "63190");
+            assert_eq!(
+                holdings_detail
+                    .valuation
+                    .base
+                    .as_ref()
+                    .map(|value| value.amount.as_str()),
+                Some("62190")
+            );
+            assert!(holdings_detail.valuation.complete);
+            assert_eq!(portfolio.total.amount, "63190");
+            assert_eq!(portfolio.total.currency, "CNY");
+            assert!(portfolio.is_complete);
+            assert_eq!(portfolio.coverage_bps, 10_000);
+            assert_eq!(portfolio.accounts.len(), 2);
+            assert!(portfolio.accounts.iter().any(|item| {
+                item.account_id == "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+                    && item.base_value.as_ref().map(|value| value.amount.as_str()) == Some("1000")
+            }));
+            assert_eq!(portfolio.positions.len(), 2);
+
+            let reopened = initialize_database(path.clone()).await;
+            assert_eq!(reopened.status, DatabaseBootstrapStatus::Ready);
+            let pool = reopened.pool.expect("reopened pool");
+            assert_table_counts(&pool, &expected_counts).await;
+            pool.close().await;
+            remove_database(&path);
+        });
+    }
+
+    async fn assert_table_counts(
+        pool: &crate::infrastructure::database::SqlitePool,
+        expected: &[(&str, i64)],
+    ) {
+        for (table, expected) in expected {
+            let count: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table}"))
+                .fetch_one(pool)
+                .await
+                .expect("representative row count");
+            assert_eq!(count, *expected, "row count for {table}");
+        }
     }
 
     fn remove_database(path: &Path) {
