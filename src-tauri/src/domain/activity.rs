@@ -946,6 +946,19 @@ impl Activity {
             },
         )
     }
+
+    #[must_use]
+    pub fn with_correction_group(mut self, group: uuid::Uuid) -> Self {
+        self.correction_group = Some(group);
+        self
+    }
+
+    #[must_use]
+    pub fn with_corrects(mut self, original_id: ActivityId, group: uuid::Uuid) -> Self {
+        self.corrects = Some(original_id);
+        self.correction_group = Some(group);
+        self
+    }
 }
 
 /// Exact inverse facts: swapped direction, same magnitudes, accounts, instruments, and FX.

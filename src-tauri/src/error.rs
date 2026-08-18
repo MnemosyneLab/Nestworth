@@ -40,6 +40,10 @@ pub enum AppError {
     TransferMismatch { message: String },
     #[error("trade totals do not match")]
     TradeTotalMismatch { message: String },
+    #[error("the activity has already been reversed")]
+    ActivityAlreadyReversed,
+    #[error("the activity cannot be reversed or corrected")]
+    ActivityNotCorrectable { message: String },
     #[error("the selected image is invalid")]
     MediaInvalid { message: String },
     #[error("household is already onboarded")]
@@ -163,6 +167,12 @@ impl AppError {
 
     pub fn trade_total_mismatch(message: &str) -> Self {
         Self::TradeTotalMismatch {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn activity_not_correctable(message: &str) -> Self {
+        Self::ActivityNotCorrectable {
             message: message.to_owned(),
         }
     }
@@ -291,6 +301,15 @@ impl AppError {
             },
             Self::TradeTotalMismatch { message } => CommandError {
                 code: ErrorCode::TradeTotalMismatch,
+                message,
+                fields: None,
+            },
+            Self::ActivityAlreadyReversed => CommandError::new(
+                ErrorCode::ActivityAlreadyReversed,
+                "This activity has already been reversed.",
+            ),
+            Self::ActivityNotCorrectable { message } => CommandError {
+                code: ErrorCode::ActivityNotCorrectable,
                 message,
                 fields: None,
             },
@@ -430,6 +449,8 @@ pub enum ErrorCode {
     InsufficientQuantity,
     TransferMismatch,
     TradeTotalMismatch,
+    ActivityAlreadyReversed,
+    ActivityNotCorrectable,
     QuoteUnavailable,
     IncompleteValuation,
     DuplicateHolding,

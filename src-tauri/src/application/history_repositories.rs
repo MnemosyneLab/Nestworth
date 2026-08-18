@@ -522,7 +522,7 @@ pub async fn insert_activity(
     .bind(activity.related_instrument_id().map(|id| id.to_string()))
     .execute(&mut **tx)
     .await
-    .map_err(|error| map_write_error("history.activity_insert_failed", error))?;
+    .map_err(map_activity_insert_error)?;
 
     for leg in activity.legs() {
         let (amount, currency, holding_id, instrument_id, quantity) = match leg.component() {
@@ -589,6 +589,75 @@ pub async fn get_activity(
     };
     let legs = load_legs_for_activity(tx, id).await?;
     Ok(Some(activity_from_row(header, legs)?))
+}
+
+pub async fn get_activity_by_reverses(
+    tx: &mut Transaction<'_, Sqlite>,
+    original_id: &str,
+) -> Result<Option<Activity>, AppError> {
+    let Some(header) = sqlx::query(
+        "SELECT id, household_id, kind, effective_at, effective_local_date, created_at, note,
+                reverses, corrects, correction_group, income_kind, fee_kind, related_instrument_id
+         FROM activities WHERE reverses = ?",
+    )
+    .bind(original_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("history.activity_reversal_load_failed", error))?
+    else {
+        return Ok(None);
+    };
+    let id = required_text(&header, "id")?;
+    let legs = load_legs_for_activity(tx, &id).await?;
+    Ok(Some(activity_from_row(header, legs)?))
+}
+
+pub async fn get_activity_by_corrects(
+    tx: &mut Transaction<'_, Sqlite>,
+    original_id: &str,
+) -> Result<Option<Activity>, AppError> {
+    let Some(header) = sqlx::query(
+        "SELECT id, household_id, kind, effective_at, effective_local_date, created_at, note,
+                reverses, corrects, correction_group, income_kind, fee_kind, related_instrument_id
+         FROM activities WHERE corrects = ?
+         ORDER BY created_at DESC, id DESC
+         LIMIT 1",
+    )
+    .bind(original_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("history.activity_replacement_load_failed", error))?
+    else {
+        return Ok(None);
+    };
+    let id = required_text(&header, "id")?;
+    let legs = load_legs_for_activity(tx, &id).await?;
+    Ok(Some(activity_from_row(header, legs)?))
+}
+
+pub async fn list_all_activities_asc(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+) -> Result<Vec<Activity>, AppError> {
+    let rows = sqlx::query(
+        "SELECT id, household_id, kind, effective_at, effective_local_date, created_at, note,
+                reverses, corrects, correction_group, income_kind, fee_kind, related_instrument_id
+         FROM activities
+         WHERE household_id = ?
+         ORDER BY effective_at ASC, created_at ASC, id ASC",
+    )
+    .bind(household_id)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("history.activity_replay_list_failed", error))?;
+
+    let mut activities = Vec::with_capacity(rows.len());
+    for header in rows {
+        let id = required_text(&header, "id")?;
+        let legs = load_legs_for_activity(tx, &id).await?;
+        activities.push(activity_from_row(header, legs)?);
+    }
+    Ok(activities)
 }
 
 pub async fn list_activities_desc(
@@ -1339,6 +1408,18 @@ fn leg_from_row(row: sqlx::sqlite::SqliteRow) -> Result<ActivityLeg, AppError> {
         fx_rate,
         required_i64(&row, "sort_order")?,
     )
+}
+
+fn map_activity_insert_error(error: sqlx::Error) -> AppError {
+    if let sqlx::Error::Database(database) = &error {
+        if database.is_unique_violation() {
+            let message = database.message();
+            if message.contains("idx_activities_reverses") || message.contains("reverses") {
+                return AppError::ActivityAlreadyReversed;
+            }
+        }
+    }
+    map_write_error("history.activity_insert_failed", error)
 }
 
 fn required_text(row: &sqlx::sqlite::SqliteRow, column: &str) -> Result<String, AppError> {

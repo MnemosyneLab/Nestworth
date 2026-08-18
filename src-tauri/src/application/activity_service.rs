@@ -2,7 +2,7 @@
 //!
 //! Public v0.1.2 mutations route through this service after History Origin exists.
 //! Transfer, Buy/Sell, Debt Draw/Payment, reverse_activity, and correct_activity
-//! are Phase 4 and are not posted here.
+//! post through the same BEGIN IMMEDIATE apply-and-persist path.
 
 use std::collections::HashMap;
 
@@ -11,22 +11,26 @@ use sqlx::{Row, Sqlite, Transaction};
 use super::{
     history_origin::ensure_activity_writes_allowed,
     history_repositories::{
-        insert_activity, insert_holding_quantity, mark_snapshots_dirty_from, HistoryOriginRecord,
-        HoldingQuantityRecord,
+        get_activity, get_activity_by_corrects, get_activity_by_reverses, insert_activity,
+        insert_holding_quantity, list_all_activities_asc, list_origin_account_values,
+        list_origin_cash_values, list_origin_holdings, mark_snapshots_dirty_from,
+        HistoryOriginRecord, HoldingQuantityRecord,
     },
     instrument_service,
-    reference::{map_read_error, map_write_error},
+    reference::{begin_write_tx, finish_write_tx, map_read_error, map_write_error},
 };
 use crate::{
     domain::{
         resolve_activity_time, validate_activity_time, AccountCashValue, AccountCashValueId,
-        AccountId, AccountValue, AccountValueId, Activity, ActivityRecordParams, AmbiguousOffset,
-        ComponentOpening, ConstructActivity, CurrencyCode, FeeKind, HistoryTimezone, HoldingId,
+        AccountId, AccountValue, AccountValueId, Activity, ActivityId, ActivityKind, ActivityLeg,
+        ActivityRecordParams, AmbiguousOffset, ComponentOpening, ConstructActivity, CurrencyCode,
+        DebtDrawSpec, DebtPaymentSpec, FeeKind, FxRate, HistoryTimezone, HoldingId,
         HoldingQuantityValueId, HouseholdId, IncomeKind, InstrumentId, LegComponent,
         MonetaryComponent, MonetaryEndpoint, Money, PersistedAccountValue, PrimaryCategory,
-        Quantity, QuantityEndpoint, Timestamp, TrackingMode, ValueKind,
+        Quantity, QuantityEndpoint, Timestamp, TrackingMode, TradeSpec, ValueKind,
     },
     error::AppError,
+    state::AppState,
 };
 
 pub struct ActivityTimeSpec<'a> {
@@ -73,6 +77,74 @@ pub enum PostCommand {
         account_id: AccountId,
         target: Money,
     },
+    CashTransfer {
+        source: MonetaryEndpoint,
+        destination: MonetaryEndpoint,
+        source_amount: Money,
+        destination_amount: Money,
+        fx_rate: Option<FxRate>,
+    },
+    PositionTransfer {
+        source: QuantityEndpoint,
+        destination: QuantityEndpoint,
+        quantity: Quantity,
+    },
+    Buy(TradeSpec),
+    Sell(TradeSpec),
+    DebtDraw(DebtDrawSpec),
+    DebtPayment(DebtPaymentSpec),
+}
+
+impl PostCommand {
+    pub fn cash_transfer(
+        source: MonetaryEndpoint,
+        destination: MonetaryEndpoint,
+        source_amount: Money,
+        destination_amount: Money,
+        fx_rate: Option<FxRate>,
+    ) -> Self {
+        Self::CashTransfer {
+            source,
+            destination,
+            source_amount,
+            destination_amount,
+            fx_rate,
+        }
+    }
+
+    pub fn position_transfer(
+        source: QuantityEndpoint,
+        destination: QuantityEndpoint,
+        quantity: Quantity,
+    ) -> Self {
+        Self::PositionTransfer {
+            source,
+            destination,
+            quantity,
+        }
+    }
+
+    pub fn buy(spec: TradeSpec) -> Self {
+        Self::Buy(spec)
+    }
+
+    pub fn sell(spec: TradeSpec) -> Self {
+        Self::Sell(spec)
+    }
+
+    pub fn debt_draw(spec: DebtDrawSpec) -> Self {
+        Self::DebtDraw(spec)
+    }
+
+    pub fn debt_payment(spec: DebtPaymentSpec) -> Self {
+        Self::DebtPayment(spec)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PostedCorrection {
+    pub reversal: Activity,
+    pub replacement: Activity,
 }
 
 struct AccountRow {
@@ -103,6 +175,7 @@ enum EndpointKey {
     },
 }
 
+#[derive(Clone)]
 enum EndpointState {
     Money {
         account_id: AccountId,
@@ -125,12 +198,123 @@ pub async fn mark_dirty_at(
     mark_snapshots_dirty_from(tx, &origin.household_id, &local_date, &at.to_rfc3339()).await
 }
 
+pub async fn post(
+    state: &AppState,
+    command: PostCommand,
+    time: Option<ActivityTimeSpec<'_>>,
+) -> Result<Activity, AppError> {
+    let database = state.writable_db()?;
+    let mut tx = begin_write_tx(database).await?;
+    let result = post_in_tx(&mut tx, command, time).await;
+    finish_write_tx(tx, result).await
+}
+
+pub async fn reverse_activity(
+    state: &AppState,
+    original_id: &str,
+    time: Option<ActivityTimeSpec<'_>>,
+) -> Result<Activity, AppError> {
+    let database = state.writable_db()?;
+    let mut tx = begin_write_tx(database).await?;
+    let result = reverse_activity_in_tx(&mut tx, original_id, time).await;
+    finish_write_tx(tx, result).await
+}
+
+pub async fn correct_activity(
+    state: &AppState,
+    original_id: &str,
+    replacement: PostCommand,
+    replacement_time: Option<ActivityTimeSpec<'_>>,
+) -> Result<PostedCorrection, AppError> {
+    let database = state.writable_db()?;
+    let mut tx = begin_write_tx(database).await?;
+    let result = correct_activity_in_tx(&mut tx, original_id, replacement, replacement_time).await;
+    finish_write_tx(tx, result).await
+}
+
 pub async fn post_in_tx(
     tx: &mut Transaction<'_, Sqlite>,
     command: PostCommand,
     time: Option<ActivityTimeSpec<'_>>,
 ) -> Result<Activity, AppError> {
     let origin = ensure_activity_writes_allowed(tx).await?;
+    let (params, _) = resolve_record_params(&origin, time)?;
+    let activity = construct_posted_activity(tx, &origin, &params, command).await?;
+    apply_and_persist(tx, &origin, &activity).await?;
+    tracing::info!(
+        event = "activity.post",
+        kind = activity.kind().as_str(),
+        "activity posted"
+    );
+    Ok(activity)
+}
+
+pub async fn reverse_activity_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    original_id: &str,
+    time: Option<ActivityTimeSpec<'_>>,
+) -> Result<Activity, AppError> {
+    let origin = ensure_activity_writes_allowed(tx).await?;
+    let original = load_current_chain_activity(tx, original_id, ChainMutation::Reverse).await?;
+    if original.household_id().to_string() != origin.household_id {
+        return Err(AppError::not_found("activity", original_id));
+    }
+    let (params, _) = resolve_record_params(&origin, time)?;
+    if params.effective_at < *original.effective_at() {
+        return Err(AppError::invalid_activity_time(
+            "A reversal cannot be dated before the original activity.",
+        ));
+    }
+    let reversal = Activity::reversal(&params, &original)?;
+    persist_ledger_activities(tx, &origin, std::slice::from_ref(&reversal)).await?;
+    tracing::info!(
+        event = "activity.reverse",
+        kind = "reversal",
+        "activity reversed"
+    );
+    Ok(reversal)
+}
+
+pub async fn correct_activity_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    original_id: &str,
+    replacement: PostCommand,
+    replacement_time: Option<ActivityTimeSpec<'_>>,
+) -> Result<PostedCorrection, AppError> {
+    let origin = ensure_activity_writes_allowed(tx).await?;
+    let original = load_current_chain_activity(tx, original_id, ChainMutation::Correct).await?;
+    if original.household_id().to_string() != origin.household_id {
+        return Err(AppError::not_found("activity", original_id));
+    }
+    let group = uuid::Uuid::now_v7();
+    let reversal_params = ActivityRecordParams {
+        household_id: original.household_id(),
+        effective_at: original.effective_at().clone(),
+        effective_local_date: original.effective_local_date(),
+        created_at: Timestamp::now(),
+        note: None,
+    };
+    let reversal = Activity::reversal(&reversal_params, &original)?.with_correction_group(group);
+    let (replacement_params, _) = resolve_record_params(&origin, replacement_time)?;
+    let replacement = construct_posted_activity(tx, &origin, &replacement_params, replacement)
+        .await?
+        .with_corrects(original.id(), group);
+    persist_ledger_activities(tx, &origin, &[reversal.clone(), replacement.clone()]).await?;
+    tracing::info!(
+        event = "activity.correct",
+        kind = replacement.kind().as_str(),
+        "activity corrected"
+    );
+    Ok(PostedCorrection {
+        reversal,
+        replacement,
+    })
+}
+
+fn resolve_record_params(
+    origin: &HistoryOriginRecord,
+    time: Option<ActivityTimeSpec<'_>>,
+) -> Result<(ActivityRecordParams<'static>, HistoryTimezone), AppError> {
     let household_id = HouseholdId::parse(&origin.household_id)?;
     let timezone = HistoryTimezone::parse(&origin.timezone)?;
     let origin_at = Timestamp::parse(&origin.origin_at)?;
@@ -149,21 +333,16 @@ pub async fn post_in_tx(
             (now.clone(), timezone.local_date(&now))
         }
     };
-    let params = ActivityRecordParams {
-        household_id,
-        effective_at,
-        effective_local_date,
-        created_at: now,
-        note: None,
-    };
-    let activity = construct_posted_activity(tx, &origin, &params, command).await?;
-    apply_and_persist(tx, &origin, &activity).await?;
-    tracing::info!(
-        event = "activity.post",
-        kind = activity.kind().as_str(),
-        "activity posted"
-    );
-    Ok(activity)
+    Ok((
+        ActivityRecordParams {
+            household_id,
+            effective_at,
+            effective_local_date,
+            created_at: now,
+            note: None,
+        },
+        timezone,
+    ))
 }
 
 async fn construct_posted_activity(
@@ -270,6 +449,49 @@ async fn construct_posted_activity(
             validate_external_money_endpoint(tx, origin, endpoint, MoneyFlowKind::Fee).await?;
             validate_related_instrument(tx, origin, instrument_id).await?;
             Activity::fee(params, endpoint, amount, kind, instrument_id)
+        }
+        PostCommand::CashTransfer {
+            source,
+            destination,
+            source_amount,
+            destination_amount,
+            fx_rate,
+        } => {
+            validate_transfer_money_endpoint(tx, origin, source).await?;
+            validate_transfer_money_endpoint(tx, origin, destination).await?;
+            Activity::cash_transfer(
+                params,
+                source,
+                destination,
+                source_amount,
+                destination_amount,
+                fx_rate,
+            )
+        }
+        PostCommand::PositionTransfer {
+            source,
+            destination,
+            quantity,
+        } => {
+            validate_quantity_endpoint(tx, origin, source).await?;
+            validate_quantity_endpoint(tx, origin, destination).await?;
+            Activity::position_transfer(params, source, destination, quantity)
+        }
+        PostCommand::Buy(spec) => {
+            validate_trade(tx, origin, &spec).await?;
+            Activity::buy(params, spec)
+        }
+        PostCommand::Sell(spec) => {
+            validate_trade(tx, origin, &spec).await?;
+            Activity::sell(params, spec)
+        }
+        PostCommand::DebtDraw(spec) => {
+            validate_debt_draw(tx, origin, &spec).await?;
+            Activity::debt_draw(params, spec)
+        }
+        PostCommand::DebtPayment(spec) => {
+            validate_debt_payment(tx, origin, &spec).await?;
+            Activity::debt_payment(params, spec)
         }
     }
 }
@@ -404,6 +626,405 @@ async fn validate_related_instrument(
     Ok(())
 }
 
+#[derive(Clone, Copy)]
+enum ChainMutation {
+    Reverse,
+    Correct,
+}
+
+async fn load_current_chain_activity(
+    tx: &mut Transaction<'_, Sqlite>,
+    original_id: &str,
+    mutation: ChainMutation,
+) -> Result<Activity, AppError> {
+    let original = get_activity(tx, original_id)
+        .await?
+        .ok_or_else(|| AppError::not_found("activity", original_id))?;
+    if original.kind() == ActivityKind::Reversal || original.reverses().is_some() {
+        return Err(AppError::activity_not_correctable(
+            "A reversal cannot be reversed or corrected. Target the current replacement instead.",
+        ));
+    }
+    if get_activity_by_reverses(tx, original_id).await?.is_some() {
+        return Err(match mutation {
+            ChainMutation::Reverse => AppError::ActivityAlreadyReversed,
+            ChainMutation::Correct => AppError::activity_not_correctable(
+                "This activity has already been reversed. Target the latest unreversed replacement.",
+            ),
+        });
+    }
+    if get_activity_by_corrects(tx, original_id).await?.is_some() {
+        return Err(AppError::activity_not_correctable(
+            "This activity is not the current correction-chain node.",
+        ));
+    }
+    Ok(original)
+}
+
+async fn validate_transfer_money_endpoint(
+    tx: &mut Transaction<'_, Sqlite>,
+    origin: &HistoryOriginRecord,
+    endpoint: MonetaryEndpoint,
+) -> Result<(), AppError> {
+    let account = load_required_account(tx, origin, &endpoint.account_id).await?;
+    require_active(&account)?;
+    match endpoint.component {
+        MonetaryComponent::AccountValue => {
+            if account.tracking_mode == TrackingMode::ManualValue {
+                return Err(AppError::invalid_activity(
+                    "Manual value accounts accept manual valuation, not transfers.",
+                ));
+            }
+            if account.primary_category == PrimaryCategory::Liability {
+                return Err(AppError::invalid_activity(
+                    "Liability accounts use debt commands, not transfers.",
+                ));
+            }
+            if account.tracking_mode != TrackingMode::Balance {
+                return Err(AppError::invalid_activity(
+                    "Cash transfers require a balance account or holdings cash.",
+                ));
+            }
+            Ok(())
+        }
+        MonetaryComponent::HoldingsCash => {
+            require_holdings_account(&account)?;
+            Ok(())
+        }
+    }
+}
+
+async fn validate_quantity_endpoint(
+    tx: &mut Transaction<'_, Sqlite>,
+    origin: &HistoryOriginRecord,
+    endpoint: QuantityEndpoint,
+) -> Result<(), AppError> {
+    let (holding, account) = load_required_holding(tx, origin, &endpoint.holding_id).await?;
+    require_active(&account)?;
+    require_holdings_account(&account)?;
+    if holding.archived {
+        return Err(AppError::validation(
+            "holdingId",
+            "Quantity cannot be updated on an archived holding.",
+        ));
+    }
+    if holding.account_id != endpoint.account_id || holding.instrument_id != endpoint.instrument_id
+    {
+        return Err(AppError::invalid_activity(
+            "The holding does not match the transfer endpoint.",
+        ));
+    }
+    Ok(())
+}
+
+async fn validate_trade(
+    tx: &mut Transaction<'_, Sqlite>,
+    origin: &HistoryOriginRecord,
+    spec: &TradeSpec,
+) -> Result<(), AppError> {
+    let (holding, account) = load_required_holding(tx, origin, &spec.holding_id).await?;
+    require_active(&account)?;
+    require_holdings_account(&account)?;
+    if holding.archived {
+        return Err(AppError::validation(
+            "holdingId",
+            "Quantity cannot be updated on an archived holding.",
+        ));
+    }
+    if holding.account_id != spec.account_id || holding.instrument_id != spec.instrument_id {
+        return Err(AppError::invalid_activity(
+            "The holding does not match the trade endpoint.",
+        ));
+    }
+    let instrument = instrument_service::load_instrument_domain(
+        tx,
+        &origin.household_id,
+        &spec.instrument_id.to_string(),
+    )
+    .await?;
+    if instrument.quote_currency() != spec.quote_currency {
+        return Err(AppError::invalid_activity(
+            "Settlement currency must equal the instrument quote currency.",
+        ));
+    }
+    Ok(())
+}
+
+async fn validate_liability_account(
+    tx: &mut Transaction<'_, Sqlite>,
+    origin: &HistoryOriginRecord,
+    account_id: &AccountId,
+) -> Result<(), AppError> {
+    let account = load_required_account(tx, origin, account_id).await?;
+    require_active(&account)?;
+    if account.primary_category != PrimaryCategory::Liability {
+        return Err(AppError::invalid_activity(
+            "Debt commands require a liability account.",
+        ));
+    }
+    Ok(())
+}
+
+async fn validate_debt_draw(
+    tx: &mut Transaction<'_, Sqlite>,
+    origin: &HistoryOriginRecord,
+    spec: &DebtDrawSpec,
+) -> Result<(), AppError> {
+    validate_liability_account(tx, origin, &spec.liability_account_id).await?;
+    if let Some(cash) = &spec.cash {
+        validate_transfer_money_endpoint(tx, origin, cash.endpoint).await?;
+    }
+    Ok(())
+}
+
+async fn validate_debt_payment(
+    tx: &mut Transaction<'_, Sqlite>,
+    origin: &HistoryOriginRecord,
+    spec: &DebtPaymentSpec,
+) -> Result<(), AppError> {
+    validate_liability_account(tx, origin, &spec.liability_account_id).await?;
+    validate_transfer_money_endpoint(tx, origin, spec.cash.endpoint).await?;
+    Ok(())
+}
+
+async fn persist_ledger_activities(
+    tx: &mut Transaction<'_, Sqlite>,
+    origin: &HistoryOriginRecord,
+    activities: &[Activity],
+) -> Result<(), AppError> {
+    if activities.is_empty() {
+        return Err(AppError::Internal);
+    }
+    let finals = replay_affected_endpoints(tx, origin, activities).await?;
+    for activity in activities {
+        insert_activity(tx, activity).await?;
+    }
+    persist_replayed_projections(tx, activities, &finals).await?;
+    let mut earliest = activities[0].effective_local_date();
+    let mut dirty_at = activities[0].created_at().clone();
+    for activity in activities.iter().skip(1) {
+        if activity.effective_local_date() < earliest {
+            earliest = activity.effective_local_date();
+        }
+        if activity.created_at() < &dirty_at {
+            dirty_at = activity.created_at().clone();
+        }
+    }
+    mark_snapshots_dirty_from(
+        tx,
+        &origin.household_id,
+        &earliest.to_ymd(),
+        &dirty_at.to_rfc3339(),
+    )
+    .await?;
+    Ok(())
+}
+
+fn activity_order_key(activity: &Activity) -> (&Timestamp, &Timestamp, ActivityId) {
+    (
+        activity.effective_at(),
+        activity.created_at(),
+        activity.id(),
+    )
+}
+
+async fn replay_affected_endpoints(
+    tx: &mut Transaction<'_, Sqlite>,
+    origin: &HistoryOriginRecord,
+    extras: &[Activity],
+) -> Result<HashMap<EndpointKey, EndpointState>, AppError> {
+    let mut affected = Vec::new();
+    for activity in extras {
+        for leg in activity.legs() {
+            let key = endpoint_key(leg)?;
+            if !affected.iter().any(|existing| existing == &key) {
+                affected.push(key);
+            }
+        }
+    }
+    let mut states = load_origin_endpoint_states(tx, origin, &affected).await?;
+    let mut sequence = list_all_activities_asc(tx, &origin.household_id).await?;
+    sequence.extend(extras.iter().cloned());
+    sequence.sort_by(|left, right| activity_order_key(left).cmp(&activity_order_key(right)));
+    for activity in &sequence {
+        for leg in activity.legs() {
+            let key = endpoint_key(leg)?;
+            if !affected.contains(&key) {
+                continue;
+            }
+            apply_leg_to_state(states.get_mut(&key).ok_or(AppError::Internal)?, leg)?;
+        }
+    }
+    Ok(states)
+}
+
+fn apply_leg_to_state(state: &mut EndpointState, leg: &ActivityLeg) -> Result<(), AppError> {
+    match (state, leg.component()) {
+        (
+            EndpointState::Money { resulting, .. },
+            LegComponent::AccountValue { amount: _ } | LegComponent::HoldingsCash { amount: _ },
+        ) => {
+            *resulting = leg.apply_to_money(*resulting)?;
+            Ok(())
+        }
+        (EndpointState::Quantity { resulting, .. }, LegComponent::HoldingQuantity { .. }) => {
+            *resulting = leg.apply_to_quantity(*resulting)?;
+            Ok(())
+        }
+        _ => Err(AppError::Internal),
+    }
+}
+
+fn endpoint_key(leg: &ActivityLeg) -> Result<EndpointKey, AppError> {
+    match leg.component() {
+        LegComponent::AccountValue { amount } => money_key(
+            leg.account_id(),
+            amount.currency(),
+            &LegComponent::AccountValue { amount: *amount },
+        ),
+        LegComponent::HoldingsCash { amount } => money_key(
+            leg.account_id(),
+            amount.currency(),
+            &LegComponent::HoldingsCash { amount: *amount },
+        ),
+        LegComponent::HoldingQuantity { holding_id, .. } => Ok(EndpointKey::HoldingQuantity {
+            holding_id: holding_id.to_string(),
+        }),
+    }
+}
+
+async fn load_origin_endpoint_states(
+    tx: &mut Transaction<'_, Sqlite>,
+    origin: &HistoryOriginRecord,
+    keys: &[EndpointKey],
+) -> Result<HashMap<EndpointKey, EndpointState>, AppError> {
+    let account_values = list_origin_account_values(tx, &origin.id).await?;
+    let cash_values = list_origin_cash_values(tx, &origin.id).await?;
+    let holdings = list_origin_holdings(tx, &origin.id).await?;
+    let mut states = HashMap::new();
+    for key in keys {
+        let state = match key {
+            EndpointKey::AccountValue {
+                account_id,
+                currency,
+            } => {
+                let currency = CurrencyCode::parse(currency)?;
+                let amount = account_values
+                    .iter()
+                    .find(|row| row.account_id == *account_id && row.currency == currency.as_str())
+                    .map(|row| Money::parse(&row.amount, currency))
+                    .transpose()?
+                    .unwrap_or(Money::parse("0", currency)?);
+                EndpointState::Money {
+                    account_id: AccountId::parse(account_id)?,
+                    component: MonetaryComponent::AccountValue,
+                    resulting: amount,
+                }
+            }
+            EndpointKey::HoldingsCash {
+                account_id,
+                currency,
+            } => {
+                let currency = CurrencyCode::parse(currency)?;
+                let amount = cash_values
+                    .iter()
+                    .find(|row| row.account_id == *account_id && row.currency == currency.as_str())
+                    .map(|row| Money::parse(&row.amount, currency))
+                    .transpose()?
+                    .unwrap_or(Money::parse("0", currency)?);
+                EndpointState::Money {
+                    account_id: AccountId::parse(account_id)?,
+                    component: MonetaryComponent::HoldingsCash,
+                    resulting: amount,
+                }
+            }
+            EndpointKey::HoldingQuantity { holding_id } => {
+                let quantity = holdings
+                    .iter()
+                    .find(|row| row.holding_id == *holding_id)
+                    .map(|row| Quantity::parse(&row.quantity))
+                    .transpose()?
+                    .unwrap_or(Quantity::parse("0")?);
+                EndpointState::Quantity {
+                    holding_id: HoldingId::parse(holding_id)?,
+                    resulting: quantity,
+                }
+            }
+        };
+        states.insert(key.clone(), state);
+    }
+    Ok(states)
+}
+
+async fn persist_replayed_projections(
+    tx: &mut Transaction<'_, Sqlite>,
+    activities: &[Activity],
+    finals: &HashMap<EndpointKey, EndpointState>,
+) -> Result<(), AppError> {
+    let mut current_latest = HashMap::new();
+    for key in finals.keys() {
+        if let Some(existing) = latest_projection_effective_at(tx, key).await? {
+            current_latest.insert(key.clone(), existing);
+        }
+    }
+    let last_index = activities.len().saturating_sub(1);
+    for (index, activity) in activities.iter().enumerate() {
+        let mut effective_at = activity.effective_at().clone();
+        if index == last_index {
+            for existing in current_latest.values() {
+                if existing > &effective_at {
+                    effective_at = existing.clone();
+                }
+            }
+        }
+        persist_projections_at(tx, activity, finals, &effective_at).await?;
+    }
+    Ok(())
+}
+
+async fn latest_projection_effective_at(
+    tx: &mut Transaction<'_, Sqlite>,
+    key: &EndpointKey,
+) -> Result<Option<Timestamp>, AppError> {
+    let value: Option<String> = match key {
+        EndpointKey::AccountValue { account_id, .. } => sqlx::query_scalar(
+            "SELECT effective_at FROM account_values
+             WHERE account_id = ?
+             ORDER BY effective_at DESC, created_at DESC, id DESC
+             LIMIT 1",
+        )
+        .bind(account_id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(|error| map_read_error("activity.account_value_effective_failed", error))?,
+        EndpointKey::HoldingsCash {
+            account_id,
+            currency,
+        } => sqlx::query_scalar(
+            "SELECT effective_at FROM account_cash_values
+             WHERE account_id = ? AND currency = ?
+             ORDER BY effective_at DESC, created_at DESC, id DESC
+             LIMIT 1",
+        )
+        .bind(account_id)
+        .bind(currency)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(|error| map_read_error("activity.cash_effective_failed", error))?,
+        EndpointKey::HoldingQuantity { holding_id } => sqlx::query_scalar(
+            "SELECT effective_at FROM holding_quantity_values
+             WHERE holding_id = ?
+             ORDER BY effective_at DESC, created_at DESC, id DESC
+             LIMIT 1",
+        )
+        .bind(holding_id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(|error| map_read_error("activity.quantity_effective_failed", error))?,
+    };
+    value.map(|value| Timestamp::parse(&value)).transpose()
+}
+
 async fn apply_and_persist(
     tx: &mut Transaction<'_, Sqlite>,
     origin: &HistoryOriginRecord,
@@ -435,7 +1056,7 @@ async fn apply_and_persist(
         }
     }
     insert_activity(tx, activity).await?;
-    persist_projections(tx, activity, &states).await?;
+    persist_projections_at(tx, activity, &states, activity.effective_at()).await?;
     mark_snapshots_dirty_from(
         tx,
         &origin.household_id,
@@ -538,10 +1159,11 @@ fn money_key(
     })
 }
 
-async fn persist_projections(
+async fn persist_projections_at(
     tx: &mut Transaction<'_, Sqlite>,
     activity: &Activity,
     states: &HashMap<EndpointKey, EndpointState>,
+    effective_at: &Timestamp,
 ) -> Result<(), AppError> {
     let activity_id = activity.id().to_string();
     for state in states.values() {
@@ -553,11 +1175,19 @@ async fn persist_projections(
                 ..
             } => match component {
                 MonetaryComponent::AccountValue => {
-                    insert_account_value_projection(tx, *account_id, *resulting, activity).await?;
+                    insert_account_value_projection(
+                        tx,
+                        *account_id,
+                        *resulting,
+                        activity,
+                        effective_at,
+                    )
+                    .await?;
                     touch_account(tx, &account_id.to_string(), activity.created_at()).await?;
                 }
                 MonetaryComponent::HoldingsCash => {
-                    insert_cash_projection(tx, *account_id, *resulting, activity).await?;
+                    insert_cash_projection(tx, *account_id, *resulting, activity, effective_at)
+                        .await?;
                 }
             },
             EndpointState::Quantity {
@@ -571,7 +1201,7 @@ async fn persist_projections(
                         id: HoldingQuantityValueId::new().to_string(),
                         holding_id: holding_id.to_string(),
                         quantity: resulting.canonical(),
-                        effective_at: activity.effective_at().to_rfc3339(),
+                        effective_at: effective_at.to_rfc3339(),
                         created_at: activity.created_at().to_rfc3339(),
                         activity_id: Some(activity_id.clone()),
                     },
@@ -597,6 +1227,7 @@ async fn insert_account_value_projection(
     account_id: AccountId,
     money: Money,
     activity: &Activity,
+    effective_at: &Timestamp,
 ) -> Result<(), AppError> {
     let tracking = load_required_account_tracking(tx, &account_id).await?;
     let value = AccountValue::from_persisted(PersistedAccountValue {
@@ -604,7 +1235,7 @@ async fn insert_account_value_projection(
         account_id,
         value_kind: ValueKind::from_tracking_mode(tracking)?,
         money,
-        effective_at: activity.effective_at().clone(),
+        effective_at: effective_at.clone(),
         created_at: activity.created_at().clone(),
     });
     sqlx::query(
@@ -631,12 +1262,13 @@ async fn insert_cash_projection(
     account_id: AccountId,
     money: Money,
     activity: &Activity,
+    effective_at: &Timestamp,
 ) -> Result<(), AppError> {
     let value = AccountCashValue::from_persisted(
         AccountCashValueId::new(),
         account_id,
         money,
-        activity.effective_at().clone(),
+        effective_at.clone(),
         activity.created_at().clone(),
     );
     sqlx::query(
@@ -931,8 +1563,8 @@ async fn latest_holding_quantity_for_id(
     }
 }
 
-// Phase 4 will post Transfer, Buy/Sell, Debt Draw/Payment, reverse_activity,
-// and correct_activity through this service. Those kinds are rejected until then.
+// Phase 4 posts Transfer, Buy/Sell, Debt Draw/Payment, reverse_activity,
+// and correct_activity through this service.
 
 #[cfg(test)]
 mod tests {
@@ -1902,3 +2534,7 @@ mod tests {
         });
     }
 }
+
+#[cfg(test)]
+#[path = "activity_service_phase4.rs"]
+mod phase4_tests;
