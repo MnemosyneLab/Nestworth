@@ -205,7 +205,7 @@ Foreign keys protect structural references, while application transactions enfor
 
 These concepts are intentionally deferred and are not current behavior:
 
-- v0.1.3: Activities, balanced activity entries, transfers, trades, historical quotes, and valuation snapshots
+- v0.1.3: Activities, typed legs, transfers, trades, History Origin, historical quotes, and valuation snapshot revisions are [planned](../releases/v0.1.3.md) but not current behavior
 - v0.1.4: Cost basis, realized and unrealized gain, investment income, TWR, XIRR, and attribution
 - v0.1.5: Automation rules, pending activities, imports, exports, backups, and reminders
 

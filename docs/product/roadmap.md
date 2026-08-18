@@ -42,11 +42,13 @@ The detailed scope, design, and delivery phases are defined by the [v0.1.2 relea
 
 **Theme:** Understand how wealth changes.
 
-**Status:** Deferred roadmap direction.
+**Status:** Planned; design complete, implementation not started.
 
 Add an activity ledger for adjustments, deposits, withdrawals, transfers, trades, income, fees, debt changes, and manual valuations. Add historical quotes, daily valuation snapshots, net-worth trends, activity filtering, and account timelines.
 
 **Exit outcome:** Internal transfers do not create false wealth changes, and the user can inspect what changed over time.
+
+The detailed scope, design, and delivery phases are defined by the [v0.1.3 release contract](../releases/v0.1.3.md), [technical design](../releases/v0.1.3-technical-design.md), and [implementation plan](../releases/v0.1.3-implementation-plan.md). The design preserves v0.1.2 current state as an explicit History Origin and does not fabricate earlier Activities.
 
 ### v0.1.4 — Analytics and Performance
 
@@ -96,4 +98,4 @@ Add recurring and pending activities, freshness policies, valuation reminders, l
 
 Possible v0.2 directions include planning and target allocation, richer portfolio analysis, optional sync, and carefully scoped external integrations. Bank sync, broker APIs, crypto-wallet sync, statement parsing, AI-assisted import, household collaboration, plugin systems, tax reporting, and advanced risk modeling remain deferred until the local data and recovery model is mature.
 
-Detailed behavior, schemas, providers, and UI for deferred releases are intentionally undecided. Create a new release contract when a release becomes active, using the implemented previous release as its baseline.
+Detailed behavior, schemas, providers, and UI for v0.1.4, v0.1.5, and later deferred releases are intentionally undecided. Create a new release contract when each release becomes active, using the implemented previous release as its baseline.
