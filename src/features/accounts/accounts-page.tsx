@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 
 import { AccountForm } from "@/features/accounts/account-form";
 import { AccountMark } from "@/features/accounts/account-mark";
-import { formatMoney, PRIMARY_CATEGORIES } from "@/features/accounts/schema";
+import { PRIMARY_CATEGORIES } from "@/features/accounts/schema";
 import {
   accountMatchesSearch,
   mergeAccountSearch,
@@ -23,7 +23,12 @@ import {
   type GroupRecordDto,
   type InstitutionRecordDto,
 } from "@/generated/tauri-bindings";
-import { bootstrapQueryKey, useBootstrapQuery } from "@/lib/tauri/bootstrap";
+import { invalidateValuation } from "@/lib/tauri/invalidate";
+import { useBootstrapQuery } from "@/lib/tauri/bootstrap";
+import {
+  formatReferenceMoney,
+  referenceCatalogFromBootstrap,
+} from "@/lib/reference-catalog";
 import { commandErrorFromUnknown, unwrapResult } from "@/lib/tauri/errors";
 import { cn } from "@/lib/utils";
 
@@ -38,6 +43,7 @@ export function AccountsPage() {
   const household =
     bootstrap.data?.status === "ready" ? bootstrap.data.household : null;
   const members = bootstrap.data?.status === "ready" ? bootstrap.data.members : [];
+  const catalog = referenceCatalogFromBootstrap(bootstrap.data);
   const [showArchived, setShowArchived] = useState(false);
   const [creating, setCreating] = useState(false);
   const [actionError, setActionError] = useState<CommandError | null>(null);
@@ -57,8 +63,7 @@ export function AccountsPage() {
   });
 
   async function invalidate() {
-    await queryClient.invalidateQueries({ queryKey: ["accounts"] });
-    await queryClient.invalidateQueries({ queryKey: bootstrapQueryKey });
+    await invalidateValuation(queryClient);
   }
 
   const archive = useMutation({
@@ -108,6 +113,7 @@ export function AccountsPage() {
         ) : null}
         {creating && household ? (
           <AccountForm
+            catalog={catalog}
             defaultCurrency={household.baseCurrency}
             groups={groups.data ?? []}
             institutions={institutions.data ?? []}
@@ -125,18 +131,15 @@ export function AccountsPage() {
         {visible.map((account) => (
           <RecordCard
             archived={Boolean(account.archivedAt)}
-            details={<AccountSummary account={account} />}
+            details={<AccountSummary account={account} catalog={catalog} />}
             key={account.id}
             leading={
-              <AccountMark
-                account={account}
-                institutions={institutions.data ?? []}
-              />
+              <AccountMark account={account} institutions={institutions.data ?? []} />
             }
             name={account.name}
           >
             <Link
-              className="inline-flex h-9 items-center rounded-lg px-3 text-sm hover:bg-muted"
+              className="inline-flex h-9 items-center rounded-lg px-3 text-sm hover:bg-surface-soft"
               params={{ accountId: account.id }}
               search={(prev) => prev}
               to="/accounts/$accountId"
@@ -235,15 +238,27 @@ function AccountFilters({
   );
 }
 
-function AccountSummary({ account }: { account: AccountRecordDto }) {
+function AccountSummary({
+  account,
+  catalog,
+}: {
+  account: AccountRecordDto;
+  catalog: ReturnType<typeof referenceCatalogFromBootstrap>;
+}) {
   const { t } = useTranslation();
-  const value = account.latestValue
-    ? formatMoney(account.latestValue.amount, account.latestValue.currency)
+  const value = account.valuation.base
+    ? formatReferenceMoney(
+        t,
+        catalog,
+        account.valuation.base.amount,
+        account.valuation.base.currency,
+      )
     : t("accounts.noValue");
   const owners = account.owners.map((owner) => owner.memberName).join(", ");
   return (
     <div className="mt-1 space-y-1 text-sm text-muted-foreground">
       <p>{value}</p>
+      {account.valuation.complete ? null : <p>{t("quotes.incomplete")}</p>}
       <p>{t(`accounts.categories.${account.secondaryCategory}`)}</p>
       {owners ? <p>{owners}</p> : null}
     </div>
@@ -255,7 +270,7 @@ function NativeSelect({ className, ...props }: ComponentPropsWithoutRef<"select"
     <select
       {...props}
       className={cn(
-        "h-10 w-full rounded-lg border border-muted bg-card px-3 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
+        "h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
         className,
       )}
     />
@@ -270,3 +285,5 @@ function filterChoices<T extends { id: string; archivedAt: string | null }>(
     (record) => record.archivedAt === null || record.id === selectedId,
   );
 }
+
+export default AccountsPage;

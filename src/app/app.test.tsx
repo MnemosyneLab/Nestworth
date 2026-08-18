@@ -24,6 +24,10 @@ describe("startup routing", () => {
     expect(
       await screen.findByRole("heading", { name: "Set up your household" }),
     ).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Nestworth" })).toHaveAttribute(
+      "src",
+      "/brand/wordmark.png",
+    );
   });
 
   it("sends an existing household into overview", async () => {
@@ -32,6 +36,10 @@ describe("startup routing", () => {
     expect(
       await screen.findByRole("heading", { name: "Wang Family" }),
     ).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Nestworth" })).toHaveAttribute(
+      "src",
+      "/brand/wordmark.png",
+    );
     expect(
       await screen.findByText("Your household balance sheet is empty."),
     ).toBeInTheDocument();
@@ -45,6 +53,10 @@ describe("startup routing", () => {
         name: "Nestworth cannot open this database",
       }),
     ).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Nestworth" })).toHaveAttribute(
+      "src",
+      "/brand/wordmark.png",
+    );
     expect(
       screen.getByText("This database is at migration 999, but this app supports 1."),
     ).toBeInTheDocument();
@@ -76,6 +88,20 @@ describe("onboarding flow", () => {
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByLabelText("Household name")).toHaveFocus();
     expect(screen.getByText("This field is required.")).toBeInTheDocument();
+  });
+
+  it("uses the bootstrap currency catalog without a custom other input", async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await screen.findByRole("heading", { name: "Set up your household" });
+    await user.type(screen.getByLabelText("Household name"), "Wang Family");
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    const currency = screen.getByRole("combobox");
+    expect(currency.tagName).toBe("SELECT");
+    expect(
+      screen.getByRole("option", { name: "Chinese Yuan (CNY)" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /other/i })).not.toBeInTheDocument();
   });
 
   it("completes onboarding, refetches bootstrap, and opens overview", async () => {
@@ -147,7 +173,7 @@ describe("onboarding flow", () => {
     expect(screen.getByLabelText("Household name")).toHaveFocus();
     await user.keyboard("Wang Family{Enter}");
     await screen.findByText("Base currency");
-    await user.keyboard("{Enter}");
+    await user.keyboard("{Tab}{Tab}{Enter}");
     const member = await screen.findByLabelText("Member 1");
     await user.type(member, "Walt");
     await user.keyboard("{Enter}");

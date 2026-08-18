@@ -506,6 +506,18 @@ mod tests {
             Account::new(input, Timestamp::now()),
             Err(AppError::InvalidCategory { .. })
         ));
+
+        let mut input = NewAccount::required(
+            HouseholdId::new(),
+            "Brokerage",
+            PrimaryCategory::Investment,
+            SecondaryCategory::BrokerageAccount,
+            CurrencyCode::USD,
+        );
+        input.tracking_mode = Some(TrackingMode::Holdings);
+        let holdings = Account::new(input, Timestamp::now()).expect("holdings account");
+        assert_eq!(holdings.tracking_mode(), TrackingMode::Holdings);
+        assert_eq!(holdings.default_currency(), CurrencyCode::USD);
     }
 
     #[test]

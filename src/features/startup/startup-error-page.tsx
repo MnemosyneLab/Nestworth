@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 
+import { Brand } from "@/components/brand";
 import type { BootstrapDto, CommandError } from "@/generated/tauri-bindings";
 import { commandErrorFromUnknown } from "@/lib/tauri/errors";
 
@@ -19,6 +20,7 @@ export function StartupErrorPage({
 
   return (
     <main className="mx-auto flex min-h-screen max-w-xl flex-col justify-center px-8 py-16">
+      <Brand className="mb-8" size="lg" />
       <p className="mb-3 text-sm font-medium uppercase tracking-[0.2em] text-muted-foreground">
         {t("startup.eyebrow")}
       </p>

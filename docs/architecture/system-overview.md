@@ -2,7 +2,7 @@
 
 ## Platform Contract
 
-Nestworth v0.1.1 is a desktop-only Tauri 2 application with these locked constraints:
+Nestworth is a desktop-only Tauri 2 application with these locked constraints:
 
 - Minimum operating system: macOS 26.0
 - Distribution architecture: Apple Silicon `arm64` only
@@ -20,6 +20,8 @@ flowchart LR
     IPC --> Commands["Rust command adapters"]
     Commands --> Application["Application services"]
     Application --> Domain["Domain model"]
+    Application --> Valuation["ValuationService"]
+    Application --> Providers["Quote and FX adapters"]
     Application --> Infrastructure["SQLite and platform infrastructure"]
     Infrastructure --> DB[("Local SQLite database")]
 ```
@@ -34,11 +36,13 @@ Tauri commands expose the public desktop boundary. They accept generated DTO inp
 
 ### Application Services
 
-Application services coordinate use cases, authorization to the current Household, transactions, persistence queries, domain construction, and DTO assembly. Overview is an application-level calculation because it combines several repositories under a consistent read snapshot.
+Application services coordinate use cases, authorization to the current Household, transactions, persistence queries, domain construction, and DTO assembly. Overview and portfolio are application-level calculations because they combine several repositories under a consistent read snapshot. ValuationService is the only financial authority for native-to-base conversion, quote selection, freshness, and completeness.
+
+Quote and FX provider adapters live in application code. Production uses unconfigured adapters. Tests inject deterministic fakes. Provider calls do not run during bootstrap, migration, onboarding, or ordinary reads.
 
 ### Domain
 
-The Rust domain owns values and invariants that must hold regardless of UI behavior: identifiers, money, currency, category pairs, tracking modes, ownership, timestamps, account lifecycle, and financial sign rules. It has no dependency on React, Tauri commands, or SQL rows.
+The Rust domain owns values and invariants that must hold regardless of UI behavior: identifiers, money, quantity, unit price, FX rate, currency, category pairs, tracking modes, ownership, timestamps, account lifecycle, instruments, holdings, quotes, and financial sign rules. It has no dependency on React, Tauri commands, or SQL rows.
 
 ### Infrastructure
 
@@ -83,7 +87,7 @@ Onboarding validates the complete request before opening its write transaction, 
 
 ## Frontend Structure and State
 
-TanStack Router defines explicit routes for startup, onboarding, overview, account list and detail, institutions, groups, general settings, and member settings. Account owner, category, institution, and group filters live in URL search parameters so refresh and detail navigation preserve context.
+TanStack Router defines explicit routes for startup, onboarding, overview, investments, instruments, account list and detail, institutions, groups, general settings, and member settings. Primary feature pages load through route-level code splitting. Account owner, category, institution, and group filters live in URL search parameters so refresh and detail navigation preserve context.
 
 State ownership is divided by lifetime:
 
@@ -128,10 +132,11 @@ Dependency versions are owned by the manifests and lockfiles, not this document.
 
 ## Evolution Rules
 
-Later releases may add providers, holdings, activities, analytics, imports, or sync, but must preserve these boundaries:
+Later releases may add live providers, activities, analytics, imports, or sync, but must preserve these boundaries:
 
 - The local store remains usable when integrations fail.
 - Provider implementations remain behind application interfaces.
 - A centralized valuation path supplies summaries.
 - Historical facts are appended or explicitly corrected, not silently reinterpreted.
 - Compatibility checks occur before any migration or business write.
+- Holding quantity edits remain current state until an Activity model exists.

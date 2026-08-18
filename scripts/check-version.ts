@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 
-const expectedVersion = "0.1.1";
+const expectedVersion = "0.1.2";
 const expectedBun = "1.3.14";
 
 const packageJson = JSON.parse(await readFile("package.json", "utf8")) as {

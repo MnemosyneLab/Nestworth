@@ -30,13 +30,13 @@ The detailed implementation contract is [v0.1.1](../releases/v0.1.1.md).
 
 **Theme:** Know what everything is worth.
 
-**Status:** Active planned release; implementation not started.
+**Status:** Development complete; release candidate.
 
-Add account and instrument currencies, FX quotes, instruments, holdings, investment-account cash, market and manual quotes, data freshness, batch refresh, and a centralized valuation service. Provider failures must never prevent startup or manual valuation.
+Add account and instrument currencies, FX quotes, instruments, holdings, investment-account cash, market and manual quotes, data freshness, batch refresh, and a centralized valuation service. Provider failures must never prevent startup or manual valuation. v0.1.2 ships without a live market-data vendor; manual quotes are the complete offline path.
 
 **Exit outcome:** A Household can value cash and investment positions in the base currency while retaining native amounts and quote provenance.
 
-The detailed scope, design, and delivery phases are defined by the [v0.1.2 release contract](../releases/v0.1.2.md), [technical design](../releases/v0.1.2-technical-design.md), and [implementation plan](../releases/v0.1.2-implementation-plan.md). External provider selection is a preparation gate; manual valuation remains the provider-independent foundation.
+The detailed scope, design, and delivery phases are defined by the [v0.1.2 release contract](../releases/v0.1.2.md), [technical design](../releases/v0.1.2-technical-design.md), and [implementation plan](../releases/v0.1.2-implementation-plan.md). The live-provider preparation gate is closed for this release with no vendor selected.
 
 ### v0.1.3 — Activity and History
 

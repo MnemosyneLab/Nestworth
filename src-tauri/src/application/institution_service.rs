@@ -496,6 +496,34 @@ mod tests {
     }
 
     #[test]
+    fn rejects_uncatalogued_type_and_country() {
+        tauri::async_runtime::block_on(async {
+            let (state, path) = onboarded_state("institutions-catalog").await;
+            let mut invalid_type = create_input("Unsupported");
+            invalid_type.institution_type = Some("local_bank".to_owned());
+            let error = create_institution(&state, invalid_type)
+                .await
+                .expect_err("uncatalogued institution type");
+            assert!(matches!(
+                error,
+                AppError::Validation { field, .. } if field == "institutionType"
+            ));
+
+            let mut invalid_country = create_input("Unsupported Country");
+            invalid_country.country_code = Some("ZZ".to_owned());
+            let error = create_institution(&state, invalid_country)
+                .await
+                .expect_err("uncatalogued country");
+            assert!(matches!(
+                error,
+                AppError::Validation { field, .. } if field == "countryCode"
+            ));
+            assert!(all_institutions(&state).await.is_empty());
+            cleanup(&path);
+        });
+    }
+
+    #[test]
     fn unknown_institution_mutations_are_not_found_and_write_nothing() {
         tauri::async_runtime::block_on(async {
             let (state, path) = onboarded_state("institutions-missing").await;
@@ -597,7 +625,7 @@ mod tests {
                 error,
                 AppError::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 1
+                    supported: 2
                 }
             ));
             let error = update_institution(

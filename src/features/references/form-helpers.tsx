@@ -14,7 +14,8 @@ export function translateReferenceError(
     message === "tooLong" ||
     message === "noteTooLong" ||
     message === "country" ||
-    message === "color"
+    message === "color" ||
+    message === "unsupported"
   ) {
     return t(`references.errors.${message}`);
   }

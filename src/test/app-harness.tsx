@@ -6,6 +6,7 @@ import App from "@/App";
 import { router } from "@/app/router";
 import type {
   AccountRecordDto,
+  AccountValuationDto,
   BootstrapDto,
   CommandError,
   ErrorCode,
@@ -13,8 +14,41 @@ import type {
   InstitutionRecordDto,
   MemberRecordDto,
   OverviewDto,
+  PortfolioDto,
+  ReferenceCatalogDto,
 } from "@/generated/tauri-bindings";
 import { commands } from "@/generated/tauri-bindings";
+
+export const testReferenceCatalog: ReferenceCatalogDto = {
+  currencies: [
+    ...["CNY", "USD", "HKD", "SGD", "EUR", "JPY", "TWD", "KRW", "GBP"].map((value) => ({
+      value,
+      group: "core",
+    })),
+    ...["AUD", "NZD", "INR", "IDR", "MYR", "THB", "VND", "PHP", "BND"].map((value) => ({
+      value,
+      group: "asiaPacific",
+    })),
+  ],
+  countries: [
+    ...["CN", "HK", "MO", "TW", "JP", "KR", "SG", "US", "GB"].map((value) => ({
+      value,
+      group: value === "US" ? "americas" : value === "GB" ? "europe" : "asiaMiddleEast",
+    })),
+    { value: "AU", group: "oceania" },
+  ],
+  institutionTypes: [
+    { value: "bank", group: "financial" },
+    { value: "digital_bank", group: "financial" },
+    { value: "brokerage", group: "financial" },
+    { value: "internet_platform", group: "platform" },
+    { value: "other", group: "other" },
+  ],
+  groupIcons: ["wallet", "home", "shield", "briefcase", "heart", "star"],
+  groupColors: ["#2563EB", "#16A34A", "#DC2626", "#D97706", "#7C3AED", "#0F766E"],
+  languages: ["system", "en", "zh-CN"],
+  appearances: ["system", "light", "dark"],
+};
 
 export const emptyBootstrap: BootstrapDto = {
   status: "ready",
@@ -22,6 +56,7 @@ export const emptyBootstrap: BootstrapDto = {
   settings: { language: "system", appearance: "system", lastHouseholdId: null },
   household: null,
   members: [],
+  referenceCatalog: testReferenceCatalog,
 };
 
 export const readyBootstrap: BootstrapDto = {
@@ -33,6 +68,7 @@ export const readyBootstrap: BootstrapDto = {
     { id: "m-1", name: "Walt" },
     { id: "m-2", name: "Spouse" },
   ],
+  referenceCatalog: testReferenceCatalog,
 };
 
 export const blockedBootstrap: BootstrapDto = {
@@ -108,11 +144,26 @@ export function groupRecord(
   };
 }
 
+export function emptyValuation(currency = "CNY", amount = "0"): AccountValuationDto {
+  const money = { amount, currency };
+  return {
+    native: money,
+    base: money,
+    complete: true,
+    freshness: "manual",
+    unvaluedItems: [],
+  };
+}
+
 export function accountRecord(
   id: string,
   name: string,
   extras: Partial<AccountRecordDto> = {},
 ): AccountRecordDto {
+  const latestValue =
+    extras.latestValue === undefined
+      ? { amount: "100000", currency: "CNY" }
+      : extras.latestValue;
   return {
     id,
     name,
@@ -133,9 +184,10 @@ export function accountRecord(
     createdAt: TIMESTAMP,
     updatedAt: TIMESTAMP,
     archivedAt: null,
-    latestValue: { amount: "100000", currency: "CNY" },
     owners: [{ memberId: "m-1", memberName: "Walt", shareBps: 10_000 }],
     ...extras,
+    latestValue,
+    valuation: extras.valuation ?? emptyValuation("CNY", latestValue?.amount ?? "0"),
   };
 }
 
@@ -151,6 +203,25 @@ export function emptyOverview(currency = "CNY"): OverviewDto {
     byMember: [],
     byInstitution: [],
     byGroup: [],
+    isComplete: true,
+    unvaluedItems: [],
+  };
+}
+
+export function emptyPortfolio(currency = "CNY"): PortfolioDto {
+  return {
+    baseCurrency: currency,
+    total: { amount: "0", currency },
+    isComplete: true,
+    coverageBps: 10_000,
+    unvaluedItems: [],
+    positions: [],
+    accounts: [],
+    cash: [],
+    byCurrency: [],
+    byCountry: [],
+    byInstrumentType: [],
+    requiredFx: [],
   };
 }
 
@@ -217,6 +288,22 @@ export function resetCommandMocks() {
   vi.mocked(commands.setAccountLogo).mockResolvedValue({
     status: "error",
     error: commandError("NOT_FOUND", "missing"),
+  });
+  vi.mocked(commands.listInstruments).mockResolvedValue({ status: "ok", data: [] });
+  vi.mocked(commands.listHoldings).mockResolvedValue({ status: "ok", data: [] });
+  vi.mocked(commands.listAccountCash).mockResolvedValue({ status: "ok", data: [] });
+  vi.mocked(commands.listInstrumentQuotes).mockResolvedValue({
+    status: "ok",
+    data: [],
+  });
+  vi.mocked(commands.listRequiredFx).mockResolvedValue({ status: "ok", data: [] });
+  vi.mocked(commands.getPortfolio).mockResolvedValue({
+    status: "ok",
+    data: emptyPortfolio(),
+  });
+  vi.mocked(commands.refreshAll).mockResolvedValue({
+    status: "ok",
+    data: { items: [] },
   });
 }
 

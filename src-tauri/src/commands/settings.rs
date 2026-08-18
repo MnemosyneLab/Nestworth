@@ -1,5 +1,7 @@
 use crate::{
-    application::settings_service::{self, AppSettingsDto, UpdateSettingsInput},
+    application::settings_service::{
+        self, AppSettingsDto, DeleteAllDataInput, UpdateSettingsInput,
+    },
     error::CommandError,
     state::AppState,
 };
@@ -15,6 +17,15 @@ pub async fn update_settings_impl(
     input: UpdateSettingsInput,
 ) -> Result<AppSettingsDto, CommandError> {
     settings_service::update_settings(state, input)
+        .await
+        .map_err(CommandError::from)
+}
+
+pub async fn delete_all_data_impl(
+    state: &AppState,
+    input: DeleteAllDataInput,
+) -> Result<(), CommandError> {
+    settings_service::delete_all_data(state, input)
         .await
         .map_err(CommandError::from)
 }

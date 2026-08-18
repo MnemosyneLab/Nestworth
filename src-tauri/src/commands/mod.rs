@@ -1,9 +1,15 @@
 pub mod accounts;
 pub mod bootstrap;
+pub mod cash;
 pub mod groups;
+pub mod holdings;
 pub mod institutions;
+pub mod instruments;
 pub mod media;
 pub mod members;
 pub mod onboarding;
 pub mod overview;
+pub mod portfolio;
+pub mod quotes;
+pub mod refresh;
 pub mod settings;

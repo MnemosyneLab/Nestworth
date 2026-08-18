@@ -238,6 +238,214 @@ async setAccountLogo(input: SetMediaInput) : Promise<Result<AccountRecordDto, Co
     else return { status: "error", error: e  as any };
 }
 },
+async setInstrumentLogo(input: SetMediaInput) : Promise<Result<InstrumentRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_instrument_logo", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async listInstruments(input: ListFilterInput) : Promise<Result<InstrumentRecordDto[], CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_instruments", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getInstrument(input: IdInput) : Promise<Result<InstrumentRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_instrument", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async createInstrument(input: CreateInstrumentInput) : Promise<Result<InstrumentRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_instrument", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async updateInstrument(input: UpdateInstrumentInput) : Promise<Result<InstrumentRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_instrument", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async archiveInstrument(input: IdInput) : Promise<Result<InstrumentRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("archive_instrument", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async restoreInstrument(input: IdInput) : Promise<Result<InstrumentRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("restore_instrument", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async listHoldings(input: ListHoldingsInput) : Promise<Result<HoldingRecordDto[], CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_holdings", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async createHolding(input: CreateHoldingInput) : Promise<Result<HoldingRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_holding", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async updateHolding(input: UpdateHoldingInput) : Promise<Result<HoldingRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_holding", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async archiveHolding(input: IdInput) : Promise<Result<HoldingRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("archive_holding", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async restoreHolding(input: IdInput) : Promise<Result<HoldingRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("restore_holding", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async listAccountCash(input: ListAccountCashInput) : Promise<Result<AccountCashRecordDto[], CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_account_cash", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async appendAccountCash(input: AppendAccountCashInput) : Promise<Result<AccountCashRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("append_account_cash", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async listInstrumentQuotes(input: ListInstrumentQuotesInput) : Promise<Result<InstrumentQuoteRecordDto[], CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_instrument_quotes", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async appendManualInstrumentQuote(input: AppendManualInstrumentQuoteInput) : Promise<Result<InstrumentQuoteRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("append_manual_instrument_quote", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async setInstrumentQuotePreference(input: SetInstrumentQuotePreferenceInput) : Promise<Result<InstrumentRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_instrument_quote_preference", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async listRequiredFx() : Promise<Result<FxPairStatusDto[], CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_required_fx") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async listFxQuotes(input: ListFxQuotesInput) : Promise<Result<FxQuoteRecordDto[], CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_fx_quotes", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async appendManualFxQuote(input: AppendManualFxQuoteInput) : Promise<Result<FxQuoteRecordDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("append_manual_fx_quote", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async setFxQuotePreference(input: SetFxQuotePreferenceInput) : Promise<Result<FxPairStatusDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_fx_quote_preference", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getPortfolio() : Promise<Result<PortfolioDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_portfolio") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async searchProviderInstruments(input: SearchProviderInstrumentsInput) : Promise<Result<ProviderInstrumentDto[], CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("search_provider_instruments", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async refreshInstrument(input: RefreshInstrumentInput) : Promise<Result<RefreshResultDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("refresh_instrument", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async refreshRequiredFx() : Promise<Result<RefreshResultDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("refresh_required_fx") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async refreshAll() : Promise<Result<RefreshResultDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("refresh_all") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async getMedia(input: GetMediaInput) : Promise<Result<MediaAssetDto, CommandError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_media", { input }) };
@@ -261,6 +469,14 @@ async updateSettings(input: UpdateSettingsInput) : Promise<Result<AppSettingsDto
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+async deleteAllData(input: DeleteAllDataInput) : Promise<Result<null, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_all_data", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -274,36 +490,69 @@ async updateSettings(input: UpdateSettingsInput) : Promise<Result<AppSettingsDto
 
 /** user-defined types **/
 
+export type AccountCashRecordDto = { id: string; accountId: string; amount: string; currency: string; effectiveAt: string; createdAt: string }
 export type AccountOwnerDto = { memberId: string; memberName: string; shareBps: number }
-export type AccountRecordDto = { id: string; name: string; primaryCategory: string; secondaryCategory: string; trackingMode: string; defaultCurrency: string; institutionId: string | null; groupId: string | null; note: string | null; logoAssetId: string | null; includeInNetWorth: boolean; includeInInvestment: boolean; includeInLiquidAssets: boolean; openedOn: string | null; closedOn: string | null; sortOrder: number; createdAt: string; updatedAt: string; archivedAt: string | null; latestValue: MoneyDto | null; owners: AccountOwnerDto[] }
+export type AccountRecordDto = { id: string; name: string; primaryCategory: string; secondaryCategory: string; trackingMode: string; defaultCurrency: string; institutionId: string | null; groupId: string | null; note: string | null; logoAssetId: string | null; includeInNetWorth: boolean; includeInInvestment: boolean; includeInLiquidAssets: boolean; openedOn: string | null; closedOn: string | null; sortOrder: number; createdAt: string; updatedAt: string; archivedAt: string | null; latestValue: MoneyDto | null; valuation: AccountValuationDto; owners: AccountOwnerDto[] }
+export type AccountValuationDto = { native: MoneyDto | null; base: MoneyDto | null; complete: boolean; freshness: string; unvaluedItems: UnvaluedItemDto[] }
+export type AllocationRowDto = { key: string; name: string | null; amount: MoneyDto; shareBps: number }
 export type AppSettingsDto = { language: string; appearance: string; lastHouseholdId: string | null }
-export type BootstrapDto = { status: "ready"; onboardingRequired: boolean; settings: AppSettingsDto; household: HouseholdDto | null; members: MemberDto[] } | { status: "blocked"; error: CommandError; databasePath: string; foundMigration: number | null; supportedMigration: number | null }
+export type AppendAccountCashInput = { accountId: string; amount: string; currency: string }
+export type AppendManualFxQuoteInput = { baseCurrency: string; quoteCurrency: string; rate: string; quotedAt: string | null }
+export type AppendManualInstrumentQuoteInput = { instrumentId: string; unitPrice: string; quotedAt: string | null }
+export type BootstrapDto = { status: "ready"; onboardingRequired: boolean; settings: AppSettingsDto; household: HouseholdDto | null; members: MemberDto[]; referenceCatalog: ReferenceCatalogDto } | { status: "blocked"; error: CommandError; databasePath: string; foundMigration: number | null; supportedMigration: number | null }
 export type BreakdownRowDto = { key: string; id: string | null; name: string | null; amount: MoneyDto; shareBps: number }
 export type CommandError = { code: ErrorCode; message: string; fields: Partial<{ [key in string]: string }> | null }
 export type CompleteOnboardingInput = { householdName: string; baseCurrency: string; members: OnboardingMemberInput[] }
-export type CreateAccountInput = { name: string; primaryCategory: string; secondaryCategory: string; defaultCurrency: string; institutionId: string | null; groupId: string | null; trackingMode: string | null; note: string | null; includeInNetWorth: boolean; includeInInvestment: boolean; includeInLiquidAssets: boolean; openedOn: string | null; closedOn: string | null; owners: OwnershipShareInput[]; initialAmount: string }
+export type CreateAccountInput = { name: string; primaryCategory: string; secondaryCategory: string; defaultCurrency: string; institutionId: string | null; groupId: string | null; trackingMode: string | null; note: string | null; includeInNetWorth: boolean; includeInInvestment: boolean; includeInLiquidAssets: boolean; openedOn: string | null; closedOn: string | null; owners: OwnershipShareInput[]; initialAmount: string | null }
 export type CreateGroupInput = { name: string; iconKey: string | null; color: string | null; description: string | null }
+export type CreateHoldingInput = { accountId: string; instrumentId: string; quantity: string; note: string | null }
 export type CreateInstitutionInput = { name: string; institutionType: string | null; countryCode: string | null; website: string | null; note: string | null }
+export type CreateInstrumentInput = { name: string; symbol: string | null; instrumentType: string; quoteCurrency: string; marketCode: string | null; countryCode: string | null; isin: string | null; providerKey: string | null; providerSymbol: string | null; quotePreference: string | null; note: string | null }
 export type CreateMemberInput = { name: string; note: string | null }
-export type ErrorCode = "VALIDATION_ERROR" | "NOT_FOUND" | "CONFLICT" | "ALREADY_ONBOARDED" | "OWNERSHIP_TOTAL_INVALID" | "BASE_CURRENCY_CHANGE_NOT_ALLOWED" | "INVALID_CATEGORY" | "INVALID_MONEY" | "MEDIA_INVALID" | "DATABASE_ERROR" | "DATABASE_UNAVAILABLE" | "UNSUPPORTED_NEWER_DATABASE" | "MIGRATION_FAILED" | "INTERNAL_ERROR"
+export type DeleteAllDataInput = { confirmed: boolean }
+export type ErrorCode = "VALIDATION_ERROR" | "NOT_FOUND" | "CONFLICT" | "ALREADY_ONBOARDED" | "OWNERSHIP_TOTAL_INVALID" | "BASE_CURRENCY_CHANGE_NOT_ALLOWED" | "INVALID_CATEGORY" | "INVALID_MONEY" | "INVALID_QUANTITY" | "INVALID_UNIT_PRICE" | "INVALID_FX_RATE" | "DECIMAL_OVERFLOW" | "QUOTE_UNAVAILABLE" | "INCOMPLETE_VALUATION" | "DUPLICATE_HOLDING" | "UNSUPPORTED_PROVIDER_SYMBOL" | "PROVIDER_AUTHENTICATION" | "PROVIDER_RATE_LIMIT" | "PROVIDER_UNAVAILABLE" | "MALFORMED_PROVIDER_RESPONSE" | "MEDIA_INVALID" | "DATABASE_ERROR" | "DATABASE_UNAVAILABLE" | "UNSUPPORTED_NEWER_DATABASE" | "MIGRATION_FAILED" | "DATA_RESET_FAILED" | "INTERNAL_ERROR"
+export type FxPairStatusDto = { currencyA: string; currencyB: string; quotePreference: string; selectedQuote: FxQuoteRecordDto | null; selectedRate: string | null }
+export type FxQuoteRecordDto = { id: string; baseCurrency: string; quoteCurrency: string; rate: string; sourceKind: string; sourceKey: string; delayed: boolean; quotedAt: string; createdAt: string }
 export type GetMediaInput = { assetId: string }
 export type GroupRecordDto = { id: string; name: string; iconKey: string | null; color: string | null; description: string | null; logoAssetId: string | null; sortOrder: number; createdAt: string; updatedAt: string; archivedAt: string | null }
+export type HoldingRecordDto = { id: string; accountId: string; instrumentId: string; instrumentName: string; instrumentSymbol: string | null; quoteCurrency: string; quantity: string; note: string | null; sortOrder: number; createdAt: string; updatedAt: string; archivedAt: string | null }
+export type HoldingValuationDto = { holdingId: string; accountId: string; instrumentId: string; instrumentName: string; instrumentSymbol: string | null; instrumentType: string; countryCode: string | null; quantity: string; native: MoneyDto | null; base: MoneyDto | null; complete: boolean; freshness: string; quotedAt: string | null; sourceKind: string | null; missingReason: string | null }
 export type HouseholdDto = { id: string; name: string; baseCurrency: string }
 export type IdInput = { id: string }
 export type InstitutionRecordDto = { id: string; name: string; institutionType: string | null; countryCode: string | null; website: string | null; note: string | null; logoAssetId: string | null; sortOrder: number; createdAt: string; updatedAt: string; archivedAt: string | null }
+export type InstrumentQuoteRecordDto = { id: string; instrumentId: string; unitPrice: string; quoteCurrency: string; sourceKind: string; sourceKey: string; delayed: boolean; quotedAt: string; createdAt: string }
+export type InstrumentRecordDto = { id: string; name: string; symbol: string | null; instrumentType: string; quoteCurrency: string; marketCode: string | null; countryCode: string | null; isin: string | null; providerKey: string | null; providerSymbol: string | null; quotePreference: string; note: string | null; logoAssetId: string | null; sortOrder: number; createdAt: string; updatedAt: string; archivedAt: string | null }
+export type ListAccountCashInput = { accountId: string }
 export type ListFilterInput = { includeArchived: boolean }
+export type ListFxQuotesInput = { baseCurrency: string; quoteCurrency: string }
+export type ListHoldingsInput = { accountId: string; includeArchived: boolean }
+export type ListInstrumentQuotesInput = { instrumentId: string }
 export type MediaAssetDto = { mimeType: string; data: string }
 export type MemberDto = { id: string; name: string }
 export type MemberRecordDto = { id: string; name: string; note: string | null; avatarAssetId: string | null; sortOrder: number; createdAt: string; updatedAt: string; archivedAt: string | null }
 export type MoneyDto = { amount: string; currency: string }
 export type OnboardingMemberInput = { name: string }
-export type OverviewDto = { baseCurrency: string; accountCount: number; assets: MoneyDto; liabilities: MoneyDto; netWorth: MoneyDto; byCategory: BreakdownRowDto[]; byMember: BreakdownRowDto[]; byInstitution: BreakdownRowDto[]; byGroup: BreakdownRowDto[] }
+export type OverviewDto = { baseCurrency: string; accountCount: number; assets: MoneyDto; liabilities: MoneyDto; netWorth: MoneyDto; byCategory: BreakdownRowDto[]; byMember: BreakdownRowDto[]; byInstitution: BreakdownRowDto[]; byGroup: BreakdownRowDto[]; isComplete: boolean; unvaluedItems: UnvaluedItemDto[] }
 export type OwnershipShareInput = { memberId: string; percent: string | null; shareBps: number | null }
+export type PortfolioAccountDto = { accountId: string; name: string; baseValue: MoneyDto | null; complete: boolean; freshness: string }
+export type PortfolioDto = { baseCurrency: string; total: MoneyDto; isComplete: boolean; coverageBps: number; unvaluedItems: UnvaluedItemDto[]; positions: HoldingValuationDto[]; accounts: PortfolioAccountDto[]; cash: MoneyDto[]; byCurrency: AllocationRowDto[]; byCountry: AllocationRowDto[]; byInstrumentType: AllocationRowDto[]; requiredFx: FxPairStatusDto[] }
+export type ProviderInstrumentDto = { providerKey: string; providerSymbol: string; name: string; symbol: string | null; instrumentType: string; quoteCurrency: string; marketCode: string | null; countryCode: string | null }
+export type ReferenceCatalogDto = { currencies: ReferenceOptionDto[]; countries: ReferenceOptionDto[]; institutionTypes: ReferenceOptionDto[]; groupIcons: string[]; groupColors: string[]; languages: string[]; appearances: string[] }
+export type ReferenceOptionDto = { value: string; group: string }
+export type RefreshInstrumentInput = { instrumentId: string }
+export type RefreshItemResultDto = { key: string; ok: boolean; errorCode: string | null; message: string | null }
+export type RefreshResultDto = { items: RefreshItemResultDto[] }
+export type SearchProviderInstrumentsInput = { query: string }
+export type SetFxQuotePreferenceInput = { currencyA: string; currencyB: string; quotePreference: string }
+export type SetInstrumentQuotePreferenceInput = { instrumentId: string; quotePreference: string }
 export type SetMediaInput = { id: string; path: string }
+export type UnvaluedItemDto = { kind: string; id: string; name: string; reason: string }
 export type UpdateAccountInput = { id: string; name: string; primaryCategory: string; secondaryCategory: string; institutionId: string | null; groupId: string | null; trackingMode: string | null; note: string | null; includeInNetWorth: boolean; includeInInvestment: boolean; includeInLiquidAssets: boolean; openedOn: string | null; closedOn: string | null; owners: OwnershipShareInput[] }
 export type UpdateAccountValueInput = { id: string; amount: string }
 export type UpdateGroupInput = { id: string; name: string; iconKey: string | null; color: string | null; description: string | null }
+export type UpdateHoldingInput = { id: string; quantity: string; note: string | null }
 export type UpdateInstitutionInput = { id: string; name: string; institutionType: string | null; countryCode: string | null; website: string | null; note: string | null }
+export type UpdateInstrumentInput = { id: string; name: string; symbol: string | null; instrumentType: string; marketCode: string | null; countryCode: string | null; isin: string | null; providerKey: string | null; providerSymbol: string | null; quotePreference: string | null; note: string | null }
 export type UpdateMemberInput = { id: string; name: string; note: string | null }
 export type UpdateSettingsInput = { language: string; appearance: string }
 

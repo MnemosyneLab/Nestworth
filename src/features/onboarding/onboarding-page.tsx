@@ -4,19 +4,25 @@ import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { useFieldArray, useForm, type Path } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 
+import { Brand } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  CURRENCY_PRESETS,
   defaultOnboardingValues,
   onboardingSchema,
   parseOnboardingStep,
   type OnboardingFormValues,
 } from "@/features/onboarding/schema";
 import { commands, type CommandError } from "@/generated/tauri-bindings";
-import { bootstrapQueryKey } from "@/lib/tauri/bootstrap";
+import {
+  groupReferenceOptions,
+  referenceCatalogFromBootstrap,
+  referenceCurrencyCodeLabel,
+  referenceGroupLabel,
+  referenceSelectOptionLabel,
+} from "@/lib/reference-catalog";
+import { bootstrapQueryKey, useBootstrapQuery } from "@/lib/tauri/bootstrap";
 import { commandErrorFromUnknown } from "@/lib/tauri/errors";
-import { cn } from "@/lib/utils";
 
 const LAST_STEP = 3;
 
@@ -24,6 +30,8 @@ export function OnboardingPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const bootstrap = useBootstrapQuery();
+  const catalog = referenceCatalogFromBootstrap(bootstrap.data);
   const formId = useId();
   const errorSummaryRef = useRef<HTMLDivElement>(null);
   const submitRef = useRef<HTMLButtonElement>(null);
@@ -75,9 +83,7 @@ export function OnboardingPage() {
       form.setFocus("householdName");
     }
     if (step === 1) {
-      document
-        .querySelector<HTMLInputElement>('input[name="baseCurrencyPreset"]:checked')
-        ?.focus();
+      form.setFocus("baseCurrency");
     }
     if (step === 2) {
       form.setFocus("members.0.name");
@@ -88,10 +94,6 @@ export function OnboardingPage() {
   }, [form, step]);
 
   const busy = mutation.isPending || submittingLock.current;
-  const selectedCurrency = form.watch("baseCurrency");
-  const isCustomCurrency = !CURRENCY_PRESETS.includes(
-    selectedCurrency as (typeof CURRENCY_PRESETS)[number],
-  );
 
   async function goNext() {
     const parsed = parseOnboardingStep(step, form.getValues());
@@ -140,6 +142,7 @@ export function OnboardingPage() {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-xl flex-col justify-center px-8 py-16">
+      <Brand className="mb-8" size="lg" />
       <p className="mb-3 text-sm font-medium uppercase tracking-[0.2em] text-muted-foreground">
         {t("onboarding.eyebrow")}
       </p>
@@ -190,61 +193,25 @@ export function OnboardingPage() {
             <legend className="text-sm font-medium">
               {t("onboarding.baseCurrency")}
             </legend>
-            <div className="grid gap-2">
-              {CURRENCY_PRESETS.map((code) => (
-                <label
-                  className={cn(
-                    "flex h-10 items-center gap-3 rounded-lg border px-3 text-sm",
-                    selectedCurrency === code
-                      ? "border-ring bg-muted/60"
-                      : "border-muted bg-card",
-                  )}
-                  key={code}
+            <select
+              aria-invalid={form.formState.errors.baseCurrency ? true : undefined}
+              className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
+              id={`${formId}-currency`}
+              {...form.register("baseCurrency")}
+            >
+              {groupReferenceOptions(catalog.currencies).map(([group, options]) => (
+                <optgroup
+                  key={group}
+                  label={referenceGroupLabel(t, "currencyGroups", group)}
                 >
-                  <input
-                    checked={selectedCurrency === code}
-                    name="baseCurrencyPreset"
-                    onChange={() =>
-                      form.setValue("baseCurrency", code, { shouldValidate: true })
-                    }
-                    type="radio"
-                    value={code}
-                  />
-                  {t(`onboarding.currencies.${code}`)}
-                </label>
+                  {options.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {referenceSelectOptionLabel(t, "currencies", option.value)}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
-              <label
-                className={cn(
-                  "flex h-10 items-center gap-3 rounded-lg border px-3 text-sm",
-                  isCustomCurrency ? "border-ring bg-muted/60" : "border-muted bg-card",
-                )}
-              >
-                <input
-                  checked={isCustomCurrency}
-                  name="baseCurrencyPreset"
-                  onChange={() => form.setValue("baseCurrency", "")}
-                  type="radio"
-                  value="OTHER"
-                />
-                {t("onboarding.currencies.other")}
-              </label>
-            </div>
-            {isCustomCurrency ? (
-              <div className="space-y-2">
-                <label className="text-sm font-medium" htmlFor={`${formId}-currency`}>
-                  {t("onboarding.customCurrency")}
-                </label>
-                <Input
-                  aria-invalid={form.formState.errors.baseCurrency ? true : undefined}
-                  autoCapitalize="characters"
-                  id={`${formId}-currency`}
-                  maxLength={3}
-                  {...form.register("baseCurrency", {
-                    setValueAs: (value: string) => value.trim().toUpperCase(),
-                  })}
-                />
-              </div>
-            ) : null}
+            </select>
             <FieldError
               message={translateFieldError(
                 t,
@@ -321,7 +288,7 @@ export function OnboardingPage() {
               <span className="text-muted-foreground">
                 {t("onboarding.baseCurrency")}:{" "}
               </span>
-              {form.getValues("baseCurrency")}
+              {referenceCurrencyCodeLabel(t, catalog, form.getValues("baseCurrency"))}
             </p>
             <ul className="list-disc pl-5">
               {form.getValues("members").map((member, index) => (
@@ -412,3 +379,5 @@ function applyServerFieldErrors(
     });
   }
 }
+
+export default OnboardingPage;

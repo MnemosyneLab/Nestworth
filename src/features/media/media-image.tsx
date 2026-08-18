@@ -26,7 +26,7 @@ export function MediaImage({
       <span
         aria-hidden={alt ? undefined : true}
         className={cn(
-          "inline-flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-muted-foreground",
+          "inline-flex h-10 w-10 items-center justify-center rounded-lg bg-surface-soft text-muted-foreground",
           className,
         )}
       />

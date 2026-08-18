@@ -39,6 +39,8 @@ bun run check
 
 The complete gate checks version synchronization, generated IPC drift, ESLint, TypeScript, frontend tests, production frontend build, all Rust targets, Rust formatting, and Clippy with warnings denied.
 
+The repository default Cargo target is `aarch64-apple-darwin`. On a Linux host, run Rust tests, formatting, Clippy, and IPC generation with `--target x86_64-unknown-linux-gnu` instead of the default Apple target.
+
 Useful focused commands:
 
 ```bash
@@ -118,13 +120,14 @@ Feature code should remain close to its page and tests. Shared components should
 Rust is authoritative for:
 
 - Domain parsing and validation
-- Money, Ownership, Category, and lifecycle rules
+- Money, Quantity, UnitPrice, FxRate, Ownership, Category, and lifecycle rules
 - Household scoping and reference validation
 - Transactions and persistence
-- Financial calculations and breakdowns
+- Financial calculations, quote selection, FX conversion, and breakdowns through ValuationService
 - Database compatibility and integrity checks
 - Media validation and normalization
 - Stable command errors
+- Quote and FX provider adapters; the frontend never calls a market-data endpoint
 
 Application services return complete DTOs needed by the frontend. A command wrapper should not contain SQL or business branching.
 
@@ -145,9 +148,9 @@ Use generated commands for business operations. Do not duplicate financial formu
 ## Query and Mutation Conventions
 
 - Query keys identify the entity and any list options such as archived visibility.
-- Successful mutations invalidate every affected list, detail, bootstrap, or Overview query.
+- Successful mutations invalidate every affected list, detail, bootstrap, Overview, portfolio, or quote query.
 - Failed mutations preserve the current UI data and display the mapped CommandError.
-- Do not use optimistic updates for balances, Ownership, or Overview totals.
+- Do not use optimistic updates for balances, Ownership, quotes, or Overview totals.
 - Prevent duplicate submission while a mutation is pending.
 - Keep account filters in URL state and preserve them through list-detail navigation.
 
@@ -182,7 +185,7 @@ Use React Hook Form with a feature-owned Zod schema for immediate user feedback.
 | Transaction | Invalid or conflicting requests produce zero partial writes; concurrency-sensitive invariants remain valid |
 | Command and binding | Command errors are safe and the generated TypeScript surface matches Rust |
 | Frontend | User flows, forms, pending state, errors, empty states, URL restoration, navigation context, and accessibility semantics |
-| Golden | Complete Household fixtures produce exact Overview totals and breakdowns |
+| Golden | Complete Household fixtures produce exact Overview and portfolio totals, including the CNY/SGD/USD `62190` holdings case |
 | Compatibility | Unsupported future databases remain byte-for-byte unchanged by application startup and commands |
 
 Prefer behavior assertions over implementation snapshots. Tests that claim atomicity must inspect all affected rows before and after failure.
@@ -197,6 +200,7 @@ A phase is `Implemented` only when:
 - Generated bindings and locale keys are current.
 - Keyboard focus and basic accessibility behavior are verified.
 - Permissions, CSP, logs, and new data paths have been reviewed.
+- Destructive reset changes require an explicit UI confirmation, backend confirmation validation, complete database and sidecar deletion tests, and continued zero-write protection for unsupported future databases.
 - The active release contract and any changed canonical architecture document are updated.
 - `bun run check` and `git diff --check` pass.
 
@@ -222,7 +226,7 @@ Before publishing a release:
 Useful local artifact checks include:
 
 ```bash
-hdiutil verify src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/Nestworth_0.1.1_aarch64.dmg
+hdiutil verify src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/Nestworth_0.1.2_aarch64.dmg
 lipo -archs src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Nestworth.app/Contents/MacOS/nestworth
 codesign --verify --deep --strict --verbose=4 src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Nestworth.app
 ```

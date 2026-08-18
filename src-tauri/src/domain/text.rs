@@ -1,4 +1,4 @@
-use crate::error::AppError;
+use crate::{domain::is_supported_country, error::AppError};
 
 pub const NAME_MAX_CHARS: usize = 80;
 pub const NOTE_MAX_CHARS: usize = 2000;
@@ -40,9 +40,36 @@ pub fn parse_optional_note(value: Option<&str>) -> Result<Option<String>, AppErr
     parse_optional_text(value, NOTE_MAX_CHARS, "note")
 }
 
+pub fn parse_country_code(value: Option<&str>) -> Result<Option<String>, AppError> {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    if value.len() == 2 && value.bytes().all(|byte| byte.is_ascii_uppercase()) {
+        Ok(Some(value.to_owned()))
+    } else {
+        Err(AppError::validation(
+            "countryCode",
+            "Country code must be two uppercase letters.",
+        ))
+    }
+}
+
+pub fn parse_supported_country_code(value: Option<&str>) -> Result<Option<String>, AppError> {
+    let parsed = parse_country_code(value)?;
+    if let Some(country) = parsed.as_deref() {
+        if !is_supported_country(country) {
+            return Err(AppError::validation(
+                "countryCode",
+                "Country or region is not included in the supported catalog.",
+            ));
+        }
+    }
+    Ok(parsed)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{parse_name, parse_optional_note};
+    use super::{parse_country_code, parse_name, parse_optional_note};
 
     #[test]
     fn name_trims_and_accepts_unicode() {
@@ -64,5 +91,13 @@ mod tests {
         let too_long: String = "n".repeat(2001);
         assert!(parse_optional_note(Some(&too_long)).is_err());
         assert_eq!(parse_optional_note(Some("  ")).expect("blank note"), None);
+    }
+
+    #[test]
+    fn generic_country_parser_keeps_legacy_codes_readable() {
+        assert_eq!(
+            parse_country_code(Some("ZZ")).expect("legacy country"),
+            Some("ZZ".to_owned())
+        );
     }
 }

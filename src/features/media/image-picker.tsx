@@ -4,10 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { MediaImage } from "@/features/media/media-image";
 import { GhostButton } from "@/features/references/reference-page";
-import {
-  commands,
-  type CommandError,
-} from "@/generated/tauri-bindings";
+import { commands, type CommandError } from "@/generated/tauri-bindings";
 import {
   commandErrorFromUnknown,
   formatCommandError,
@@ -25,7 +22,8 @@ export function ImagePicker({
 }: {
   assetId: string | null;
   entityId: string;
-  kind: "memberAvatar" | "institutionLogo" | "groupLogo" | "accountLogo";
+  kind:
+    "memberAvatar" | "institutionLogo" | "groupLogo" | "accountLogo" | "instrumentLogo";
   onSaved: () => Promise<void>;
 }) {
   const { t } = useTranslation();
@@ -42,6 +40,9 @@ export function ImagePicker({
       }
       if (kind === "groupLogo") {
         return unwrapResult(commands.setGroupLogo(input));
+      }
+      if (kind === "instrumentLogo") {
+        return unwrapResult(commands.setInstrumentLogo(input));
       }
       return unwrapResult(commands.setAccountLogo(input));
     },

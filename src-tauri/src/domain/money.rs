@@ -1,8 +1,12 @@
-use std::str::FromStr;
-
 use rust_decimal::Decimal;
 
-use super::currency::CurrencyCode;
+use super::{
+    currency::CurrencyCode,
+    decimal::{
+        parse_canonical_decimal, round_to_money_scale, DecimalSyntax, MONEY_MAX_FRACTIONAL_DIGITS,
+        MONEY_MAX_INTEGER_DIGITS,
+    },
+};
 use crate::error::AppError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -13,8 +17,30 @@ pub struct Money {
 
 impl Money {
     pub fn parse(amount: &str, currency: CurrencyCode) -> Result<Self, AppError> {
-        let amount = parse_amount(amount)?;
+        let amount = parse_canonical_decimal(
+            amount,
+            DecimalSyntax {
+                max_integer_digits: MONEY_MAX_INTEGER_DIGITS,
+                max_fractional_digits: MONEY_MAX_FRACTIONAL_DIGITS,
+                allow_zero: true,
+            },
+        )
+        .map_err(|_| invalid_amount())?;
         Ok(Self { amount, currency })
+    }
+
+    pub fn from_canonical(amount: Decimal, currency: CurrencyCode) -> Result<Self, AppError> {
+        Ok(Self {
+            amount: round_to_money_scale(amount)?.normalize(),
+            currency,
+        })
+    }
+
+    pub(crate) fn from_unrounded(amount: Decimal, currency: CurrencyCode) -> Self {
+        Self {
+            amount: amount.normalize(),
+            currency,
+        }
     }
 
     #[must_use]
@@ -35,58 +61,6 @@ impl Money {
     #[must_use]
     pub fn is_zero(self) -> bool {
         self.amount.is_zero()
-    }
-}
-
-fn parse_amount(input: &str) -> Result<Decimal, AppError> {
-    if input.is_empty()
-        || input.contains(|character: char| {
-            character.is_whitespace()
-                || character == '+'
-                || character == '-'
-                || character == ','
-                || character == 'e'
-                || character == 'E'
-        })
-    {
-        return Err(invalid_amount());
-    }
-
-    let integer = match input.split_once('.') {
-        Some((integer, fraction)) => {
-            if fraction.is_empty()
-                || fraction.len() > 4
-                || !fraction.bytes().all(|byte| byte.is_ascii_digit())
-            {
-                return Err(invalid_amount());
-            }
-            integer
-        }
-        None => input,
-    };
-
-    if !is_valid_integer_part(integer) {
-        return Err(invalid_amount());
-    }
-
-    Decimal::from_str(input)
-        .map(|amount| amount.normalize())
-        .map_err(|_| invalid_amount())
-}
-
-fn is_valid_integer_part(integer: &str) -> bool {
-    if integer == "0" {
-        return true;
-    }
-    if integer.is_empty() || integer.len() > 12 {
-        return false;
-    }
-    let mut characters = integer.chars();
-    match characters.next() {
-        Some(first) if ('1'..='9').contains(&first) => {
-            characters.all(|character| character.is_ascii_digit())
-        }
-        _ => false,
     }
 }
 

@@ -1,5 +1,5 @@
-import { GroupsPage } from "@/features/groups/groups-page";
+import { lazyRouteComponent } from "@tanstack/react-router";
 
-export function GroupsRoute() {
-  return <GroupsPage />;
-}
+export const GroupsRoute = lazyRouteComponent(
+  () => import("@/features/groups/groups-page"),
+);

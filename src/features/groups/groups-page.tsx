@@ -19,8 +19,6 @@ import { ImagePicker } from "@/features/media/image-picker";
 import { MediaImage } from "@/features/media/media-image";
 import {
   emptyGroupValues,
-  GROUP_COLORS,
-  GROUP_ICONS,
   groupSchema,
   type GroupFormValues,
 } from "@/features/groups/schema";
@@ -39,9 +37,15 @@ import {
   commands,
   type CommandError,
   type GroupRecordDto,
+  type ReferenceCatalogDto,
 } from "@/generated/tauri-bindings";
 import { emptyToNull } from "@/lib/empty-to-null";
-import { bootstrapQueryKey } from "@/lib/tauri/bootstrap";
+import { bootstrapQueryKey, useBootstrapQuery } from "@/lib/tauri/bootstrap";
+import {
+  hasReferenceValue,
+  legacyOptionLabel,
+  referenceCatalogFromBootstrap,
+} from "@/lib/reference-catalog";
 import {
   commandErrorFromUnknown,
   formatCommandError,
@@ -49,7 +53,7 @@ import {
 } from "@/lib/tauri/errors";
 import { cn } from "@/lib/utils";
 
-const ICON_COMPONENTS: Record<(typeof GROUP_ICONS)[number], LucideIcon> = {
+const ICON_COMPONENTS: Record<string, LucideIcon> = {
   wallet: Wallet,
   home: Home,
   shield: Shield,
@@ -64,6 +68,8 @@ export function GroupsPage() {
   const [showArchived, setShowArchived] = useState(false);
   const [editor, setEditor] = useState<"create" | GroupRecordDto | null>(null);
   const [actionError, setActionError] = useState<CommandError | null>(null);
+  const bootstrap = useBootstrapQuery();
+  const catalog = referenceCatalogFromBootstrap(bootstrap.data);
 
   const list = useQuery({
     queryKey: ["groups", showArchived],
@@ -107,6 +113,7 @@ export function GroupsPage() {
       <div className="space-y-3">
         {editor === "create" ? (
           <GroupEditor
+            catalog={catalog}
             onCancel={() => setEditor(null)}
             onSaved={async () => {
               setEditor(null);
@@ -117,6 +124,7 @@ export function GroupsPage() {
         {items.map((group) =>
           editor !== "create" && editor?.id === group.id ? (
             <GroupEditor
+              catalog={catalog}
               group={group}
               key={group.id}
               onCancel={() => setEditor(null)}
@@ -129,10 +137,26 @@ export function GroupsPage() {
             <RecordCard
               archived={Boolean(group.archivedAt)}
               details={
-                group.description ? (
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {group.description}
-                  </p>
+                group.description ||
+                (group.iconKey &&
+                  !hasReferenceValue(catalog.groupIcons, group.iconKey)) ||
+                (group.color &&
+                  !hasReferenceValue(catalog.groupColors, group.color)) ? (
+                  <div className="mt-1 space-y-1 text-sm text-muted-foreground">
+                    {group.description ? <p>{group.description}</p> : null}
+                    {group.iconKey &&
+                    !hasReferenceValue(catalog.groupIcons, group.iconKey) ? (
+                      <p className="text-destructive">
+                        {t("groups.icon")}: {legacyOptionLabel(t, group.iconKey)}
+                      </p>
+                    ) : null}
+                    {group.color &&
+                    !hasReferenceValue(catalog.groupColors, group.color) ? (
+                      <p className="text-destructive">
+                        {t("groups.color")}: {legacyOptionLabel(t, group.color)}
+                      </p>
+                    ) : null}
+                  </div>
                 ) : null
               }
               key={group.id}
@@ -207,10 +231,12 @@ function GroupMark({
 }
 
 function GroupEditor({
+  catalog,
   group,
   onCancel,
   onSaved,
 }: {
+  catalog: ReferenceCatalogDto;
   group?: GroupRecordDto;
   onCancel: () => void;
   onSaved: () => Promise<void>;
@@ -261,7 +287,7 @@ function GroupEditor({
 
   return (
     <form
-      className="space-y-4 rounded-xl border border-muted bg-card px-4 py-4 shadow-sm"
+      className="space-y-4 rounded-xl border border-border bg-card px-4 py-4 shadow-sm"
       noValidate
       onSubmit={form.handleSubmit((values) => {
         const parsed = groupSchema.safeParse(values);
@@ -272,6 +298,20 @@ function GroupEditor({
             "color",
             "description",
           ]);
+          return;
+        }
+        if (
+          parsed.data.iconKey &&
+          !hasReferenceValue(catalog.groupIcons, parsed.data.iconKey)
+        ) {
+          form.setError("iconKey", { type: "catalog", message: "unsupported" });
+          return;
+        }
+        if (
+          parsed.data.color &&
+          !hasReferenceValue(catalog.groupColors, parsed.data.color.toUpperCase())
+        ) {
+          form.setError("color", { type: "catalog", message: "unsupported" });
           return;
         }
         setServerError(null);
@@ -300,15 +340,20 @@ function GroupEditor({
       <fieldset className="space-y-2">
         <legend className="text-sm font-medium">{t("groups.icon")}</legend>
         <div className="flex flex-wrap gap-2">
-          {GROUP_ICONS.map((key) => {
+          {catalog.groupIcons.map((key) => {
             const Icon = ICON_COMPONENTS[key];
+            if (!Icon) {
+              return null;
+            }
             return (
               <button
                 aria-label={t(`groups.icons.${key}`)}
                 aria-pressed={iconKey === key}
                 className={cn(
                   "flex h-10 w-10 items-center justify-center rounded-lg border",
-                  iconKey === key ? "border-ring bg-muted" : "border-muted bg-card",
+                  iconKey === key
+                    ? "border-ring bg-surface-soft"
+                    : "border-border bg-card",
                 )}
                 key={key}
                 onClick={() => form.setValue("iconKey", iconKey === key ? "" : key)}
@@ -318,12 +363,23 @@ function GroupEditor({
               </button>
             );
           })}
+          {iconKey && !hasReferenceValue(catalog.groupIcons, iconKey) ? (
+            <p className="w-full text-sm text-destructive">
+              {legacyOptionLabel(t, iconKey)}
+            </p>
+          ) : null}
+          <GhostButton onClick={() => form.setValue("iconKey", "")} type="button">
+            {t("accounts.none")}
+          </GhostButton>
         </div>
+        <FieldError
+          message={translateReferenceError(t, form.formState.errors.iconKey?.message)}
+        />
       </fieldset>
       <fieldset className="space-y-2">
         <legend className="text-sm font-medium">{t("groups.color")}</legend>
         <div className="flex flex-wrap gap-2">
-          {GROUP_COLORS.map((value) => (
+          {catalog.groupColors.map((value) => (
             <button
               aria-label={value}
               aria-pressed={color.toUpperCase() === value}
@@ -341,6 +397,14 @@ function GroupEditor({
               type="button"
             />
           ))}
+          {color && !hasReferenceValue(catalog.groupColors, color.toUpperCase()) ? (
+            <p className="w-full text-sm text-destructive">
+              {legacyOptionLabel(t, color)}
+            </p>
+          ) : null}
+          <GhostButton onClick={() => form.setValue("color", "")} type="button">
+            {t("accounts.none")}
+          </GhostButton>
         </div>
         <FieldError
           message={translateReferenceError(t, form.formState.errors.color?.message)}
@@ -371,3 +435,5 @@ function GroupEditor({
     </form>
   );
 }
+
+export default GroupsPage;

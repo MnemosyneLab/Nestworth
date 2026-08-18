@@ -1,6 +1,8 @@
 import { Navigate, Outlet, useRouterState } from "@tanstack/react-router";
+import { Suspense } from "react";
 import { useTranslation } from "react-i18next";
 
+import { Brand } from "@/components/brand";
 import { destinationForBootstrap, useBootstrapQuery } from "@/lib/tauri/bootstrap";
 import { commandErrorFromUnknown } from "@/lib/tauri/errors";
 
@@ -12,6 +14,7 @@ export function RootRoute() {
   if (bootstrap.isPending) {
     return (
       <main className="mx-auto flex min-h-screen max-w-xl flex-col justify-center px-8 py-16">
+        <Brand className="mb-8" size="lg" />
         <p role="status">{t("startup.loading")}</p>
       </main>
     );
@@ -28,7 +31,15 @@ export function RootRoute() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <Outlet />
+      <Suspense
+        fallback={
+          <p className="px-8 py-10" role="status">
+            {t("references.loading")}
+          </p>
+        }
+      >
+        <Outlet />
+      </Suspense>
     </div>
   );
 }

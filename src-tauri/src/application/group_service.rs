@@ -553,7 +553,7 @@ mod tests {
                 error,
                 AppError::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 1
+                    supported: 2
                 }
             ));
             let error = update_group(

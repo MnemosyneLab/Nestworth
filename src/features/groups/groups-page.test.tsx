@@ -32,7 +32,9 @@ describe("groups page", () => {
     await user.click(screen.getByRole("button", { name: "Shield" }));
     await user.click(screen.getByRole("button", { name: "#2563EB" }));
     await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(await screen.findByRole("heading", { name: "Emergency" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Emergency" }),
+    ).toBeInTheDocument();
     expect(commands.createGroup).toHaveBeenCalledWith({
       name: "Emergency",
       iconKey: "shield",
@@ -81,6 +83,31 @@ describe("groups page", () => {
     expect(screen.queryByText("Archived")).not.toBeInTheDocument();
   });
 
+  it("marks legacy icon and color values and requires replacement before saving", async () => {
+    const user = userEvent.setup();
+    const groups = [
+      groupRecord("g-1", "Legacy group", {
+        iconKey: "custom_icon",
+        color: "#FFFFFF",
+      }),
+    ];
+    mockGroupStore(groups);
+    await renderReadyApp();
+    await user.click(screen.getByRole("link", { name: "Groups" }));
+    await screen.findByRole("heading", { name: "Legacy group" });
+    expect(screen.getByText("Icon: custom_icon (Unlisted)")).toBeInTheDocument();
+    expect(screen.getByText("Color: #FFFFFF (Unlisted)")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.getByText("custom_icon (Unlisted)")).toBeInTheDocument();
+    expect(screen.getByText("#FFFFFF (Unlisted)")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(
+      await screen.findByText("Choose a value from the supported catalog."),
+    ).toBeInTheDocument();
+    expect(commands.updateGroup).not.toHaveBeenCalled();
+  });
+
   it("shows server color errors", async () => {
     const user = userEvent.setup();
     mockGroupStore([]);
@@ -95,7 +122,9 @@ describe("groups page", () => {
     await user.click(await screen.findByRole("button", { name: "Add group" }));
     await user.type(screen.getByLabelText("Name"), "Emergency");
     await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(await screen.findByText("Please check the highlighted fields.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Please check the highlighted fields."),
+    ).toBeInTheDocument();
     expect(screen.getByText("Use a #RRGGBB color.")).toBeInTheDocument();
   });
 
@@ -144,7 +173,9 @@ describe("groups page", () => {
     }
     expect(save).toHaveFocus();
     await user.keyboard("{Enter}");
-    expect(await screen.findByRole("heading", { name: "Emergency" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Emergency" }),
+    ).toBeInTheDocument();
   });
 });
 

@@ -16,6 +16,7 @@ pub enum SortTable {
     Institutions,
     AccountGroups,
     Accounts,
+    Instruments,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Type)]
@@ -146,6 +147,9 @@ pub async fn next_sort_order(
         SortTable::Accounts => {
             "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM accounts WHERE household_id = ?"
         }
+        SortTable::Instruments => {
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM instruments WHERE household_id = ?"
+        }
     };
     sqlx::query_scalar(sql)
         .bind(household_id)
@@ -162,6 +166,19 @@ pub fn map_read_error(event: &'static str, error: sqlx::Error) -> AppError {
 pub fn map_write_error(event: &'static str, error: sqlx::Error) -> AppError {
     tracing::error!(event, "database write failed");
     AppError::from(error)
+}
+
+pub fn map_unique_or_write(
+    event: &'static str,
+    error: sqlx::Error,
+    conflict: AppError,
+) -> AppError {
+    if let sqlx::Error::Database(database) = &error {
+        if database.is_unique_violation() {
+            return conflict;
+        }
+    }
+    map_write_error(event, error)
 }
 
 pub fn sort_order_i32(value: i64) -> Result<i32, AppError> {

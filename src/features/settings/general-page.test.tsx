@@ -4,12 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AppSettingsDto } from "@/generated/tauri-bindings";
 import { commands } from "@/generated/tauri-bindings";
-import {
-  deferred,
-  readyBootstrap,
-  renderReadyApp,
-  resetApp,
-} from "@/test/app-harness";
+import { deferred, readyBootstrap, renderReadyApp, resetApp } from "@/test/app-harness";
 
 describe("settings general page", () => {
   beforeEach(async () => {
@@ -28,8 +23,7 @@ describe("settings general page", () => {
     mockSettings(settings);
     expect(screen.getByRole("link", { name: "Overview" })).toBeInTheDocument();
     await user.click(screen.getByRole("link", { name: "Settings" }));
-    await screen.findByRole("heading", { name: "Settings" });
-    await user.selectOptions(screen.getByLabelText("Language"), "zh-CN");
+    await user.selectOptions(await screen.findByLabelText("Language"), "zh-CN");
     await waitFor(() => {
       expect(commands.updateSettings).toHaveBeenCalledWith({
         language: "zh-CN",
@@ -52,8 +46,7 @@ describe("settings general page", () => {
     mockSettings(settings);
     expect(document.documentElement).not.toHaveClass("dark");
     await user.click(screen.getByRole("link", { name: "Settings" }));
-    await screen.findByRole("heading", { name: "Settings" });
-    await user.selectOptions(screen.getByLabelText("Appearance"), "Dark");
+    await user.selectOptions(await screen.findByLabelText("Appearance"), "Dark");
     await waitFor(() => {
       expect(commands.updateSettings).toHaveBeenCalledWith({
         language: "en",
@@ -115,6 +108,49 @@ describe("settings general page", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "The database is unavailable.",
     );
+  });
+
+  it("requires a second keyboard-accessible confirmation before deleting data", async () => {
+    const user = userEvent.setup();
+    const settings: AppSettingsDto = {
+      language: "en",
+      appearance: "light",
+      lastHouseholdId: "hh-1",
+    };
+    mockSettings(settings);
+    vi.mocked(commands.deleteAllData).mockResolvedValue({ status: "ok", data: null });
+    await renderReadyApp();
+    await user.click(screen.getByRole("link", { name: "Settings" }));
+
+    await user.click(await screen.findByRole("button", { name: "Delete all data" }));
+    expect(commands.deleteAllData).not.toHaveBeenCalled();
+
+    const confirm = screen.getByRole("button", {
+      name: "Delete everything and restart",
+    });
+    expect(confirm).toHaveFocus();
+    await user.keyboard("{Enter}");
+
+    expect(commands.deleteAllData).toHaveBeenCalledWith({ confirmed: true });
+  });
+
+  it("can cancel deletion without invoking the command", async () => {
+    const user = userEvent.setup();
+    const settings: AppSettingsDto = {
+      language: "en",
+      appearance: "light",
+      lastHouseholdId: "hh-1",
+    };
+    mockSettings(settings);
+    await renderReadyApp();
+    await user.click(screen.getByRole("link", { name: "Settings" }));
+    await user.click(await screen.findByRole("button", { name: "Delete all data" }));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(commands.deleteAllData).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("button", { name: "Delete everything and restart" }),
+    ).not.toBeInTheDocument();
   });
 });
 

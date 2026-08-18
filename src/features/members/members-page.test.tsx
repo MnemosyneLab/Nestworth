@@ -76,7 +76,9 @@ describe("members page", () => {
     await user.clear(name);
     await user.type(name, "Walt Wang");
     await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(await screen.findByRole("heading", { name: "Walt Wang" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Walt Wang" }),
+    ).toBeInTheDocument();
     expect(commands.updateMember).toHaveBeenCalledWith({
       id: "m-1",
       name: "Walt Wang",
@@ -90,18 +92,26 @@ describe("members page", () => {
     mockMemberStore(members);
     vi.mocked(commands.updateMember).mockResolvedValue({
       status: "error",
-      error: commandError("VALIDATION_ERROR", "Name must be between 1 and 80 characters.", {
-        name: "Name must be between 1 and 80 characters.",
-      }),
+      error: commandError(
+        "VALIDATION_ERROR",
+        "Name must be between 1 and 80 characters.",
+        {
+          name: "Name must be between 1 and 80 characters.",
+        },
+      ),
     });
     await renderReadyApp();
     await user.click(screen.getByRole("link", { name: "Members" }));
     await user.click((await screen.findAllByRole("button", { name: "Edit" }))[0]);
     await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(await screen.findByText("Please check the highlighted fields.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Please check the highlighted fields."),
+    ).toBeInTheDocument();
     expect(screen.getByLabelText("Name")).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByLabelText("Name")).toHaveFocus();
-    expect(screen.getByText("Name must be between 1 and 80 characters.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Name must be between 1 and 80 characters."),
+    ).toBeInTheDocument();
   });
 
   it("focuses name when client validation fails", async () => {
@@ -126,7 +136,9 @@ describe("members page", () => {
     await user.click(screen.getByRole("link", { name: "Members" }));
     const archive = await screen.findByRole("button", { name: "Archive Spouse" });
     await user.click(archive);
-    const pendingArchive = await screen.findByRole("button", { name: "Archive Spouse" });
+    const pendingArchive = await screen.findByRole("button", {
+      name: "Archive Spouse",
+    });
     expect(pendingArchive).toBeDisabled();
     await user.click(pendingArchive);
     expect(commands.archiveMember).toHaveBeenCalledTimes(1);
@@ -150,7 +162,9 @@ describe("members page", () => {
     await user.click(await screen.findByLabelText("Show archived"));
     const restore = await screen.findByRole("button", { name: "Restore Spouse" });
     await user.click(restore);
-    const pendingRestore = await screen.findByRole("button", { name: "Restore Spouse" });
+    const pendingRestore = await screen.findByRole("button", {
+      name: "Restore Spouse",
+    });
     expect(pendingRestore).toBeDisabled();
     await user.click(pendingRestore);
     expect(commands.restoreMember).toHaveBeenCalledTimes(1);

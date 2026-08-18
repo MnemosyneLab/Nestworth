@@ -18,6 +18,11 @@ export function clampShareBps(shareBps: number): number {
 }
 
 export const AMOUNT_PATTERN = /^(0|[1-9][0-9]{0,11})(\.[0-9]{1,4})?$/;
+export const QUANTITY_PATTERN = /^(0|[1-9][0-9]{0,17})(\.[0-9]{1,8})?$/;
+export const UNIT_PRICE_PATTERN = /^(0|[1-9][0-9]{0,11})(\.[0-9]{1,8})?$/;
+export const FX_RATE_PATTERN =
+  /^([1-9][0-9]{0,7}|0\.[0-9]{1,12}|[1-9][0-9]{0,7}\.[0-9]{1,12})$/;
+export const CURRENCY_PATTERN = /^[A-Z]{3}$/;
 export const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 export const SECONDARY_CATEGORIES = [
@@ -54,9 +59,13 @@ export const PRIMARY_CATEGORIES = [
   "liability",
 ] as const;
 
+export type TrackingMode = "balance" | "manual_value" | "holdings";
+
 export type AccountFormValues = {
   name: string;
   secondaryCategory: string;
+  trackingMode: TrackingMode;
+  defaultCurrency: string;
   institutionId: string;
   groupId: string;
   note: string;
@@ -71,7 +80,7 @@ export type AccountFormValues = {
 
 export type CategoryDefaults = {
   primaryCategory: string;
-  trackingMode: "balance" | "manual_value";
+  trackingMode: TrackingMode;
   includeInNetWorth: boolean;
   includeInInvestment: boolean;
   includeInLiquidAssets: boolean;
@@ -86,7 +95,9 @@ export function categoryDefaults(secondary: string): CategoryDefaults {
     trackingMode:
       primary === "cash_equivalent" || primary === "liability"
         ? "balance"
-        : "manual_value",
+        : primary === "investment"
+          ? "holdings"
+          : "manual_value",
     includeInNetWorth: true,
     includeInInvestment: primary === "investment",
     includeInLiquidAssets: primary === "cash_equivalent",
@@ -214,6 +225,8 @@ export const accountSchema = z
     includeInLiquidAssets: z.boolean(),
     openedOn: z.string().refine(optionalDate, "date"),
     closedOn: z.string().refine(optionalDate, "date"),
+    trackingMode: z.enum(["balance", "manual_value", "holdings"]),
+    defaultCurrency: z.string(),
     owners: z.array(ownerSchema).min(1, "owners"),
     initialAmount: z.string(),
   })
@@ -249,6 +262,16 @@ export const accountSchema = z
   });
 
 export const createAccountSchema = accountSchema.superRefine((value, context) => {
+  if (!CURRENCY_PATTERN.test(value.defaultCurrency.trim())) {
+    context.addIssue({
+      code: "custom",
+      message: "currency",
+      path: ["defaultCurrency"],
+    });
+  }
+  if (value.trackingMode === "holdings") {
+    return;
+  }
   if (!AMOUNT_PATTERN.test(value.initialAmount.trim())) {
     context.addIssue({
       code: "custom",
@@ -262,13 +285,41 @@ export const updateValueSchema = z.object({
   amount: z.string().trim().min(1, "required").regex(AMOUNT_PATTERN, "amount"),
 });
 
-export type UpdateValueFormValues = z.infer<typeof updateValueSchema>;
+export const holdingSchema = z.object({
+  instrumentId: z.string().trim().min(1, "required"),
+  quantity: z.string().trim().regex(QUANTITY_PATTERN, "quantity"),
+  note: z.string().max(2000, "noteTooLong"),
+});
 
-export function emptyAccountValues(memberId: string): AccountFormValues {
+export const cashSchema = z.object({
+  amount: z.string().trim().regex(AMOUNT_PATTERN, "amount"),
+  currency: z.string().trim().regex(CURRENCY_PATTERN, "currency"),
+});
+
+export const unitPriceSchema = z.object({
+  unitPrice: z.string().trim().regex(UNIT_PRICE_PATTERN, "unitPrice"),
+});
+
+export const fxRateSchema = z.object({
+  rate: z.string().trim().regex(FX_RATE_PATTERN, "rate"),
+});
+
+export type UpdateValueFormValues = z.infer<typeof updateValueSchema>;
+export type HoldingFormValues = z.infer<typeof holdingSchema>;
+export type CashFormValues = z.infer<typeof cashSchema>;
+export type UnitPriceFormValues = z.infer<typeof unitPriceSchema>;
+export type FxRateFormValues = z.infer<typeof fxRateSchema>;
+
+export function emptyAccountValues(
+  memberId: string,
+  defaultCurrency = "CNY",
+): AccountFormValues {
   const defaults = categoryDefaults("bank_account");
   return {
     name: "",
     secondaryCategory: "bank_account",
+    trackingMode: defaults.trackingMode,
+    defaultCurrency,
     institutionId: "",
     groupId: "",
     note: "",
@@ -286,6 +337,8 @@ export function accountToFormValues(account: AccountRecordDto): AccountFormValue
   return {
     name: account.name,
     secondaryCategory: account.secondaryCategory,
+    trackingMode: account.trackingMode as TrackingMode,
+    defaultCurrency: account.defaultCurrency,
     institutionId: account.institutionId ?? "",
     groupId: account.groupId ?? "",
     note: account.note ?? "",
@@ -319,10 +372,10 @@ export function toCreateAccountInput(
     name: values.name.trim(),
     primaryCategory: defaults.primaryCategory,
     secondaryCategory: values.secondaryCategory,
-    defaultCurrency,
+    defaultCurrency: values.defaultCurrency.trim() || defaultCurrency,
     institutionId: emptyToNull(values.institutionId),
     groupId: emptyToNull(values.groupId),
-    trackingMode: defaults.trackingMode,
+    trackingMode: values.trackingMode,
     note: emptyToNull(values.note),
     includeInNetWorth: values.includeInNetWorth,
     includeInInvestment: values.includeInInvestment,
@@ -330,7 +383,8 @@ export function toCreateAccountInput(
     openedOn: emptyToNull(values.openedOn),
     closedOn: emptyToNull(values.closedOn),
     owners: ownerInputs(values.owners),
-    initialAmount: values.initialAmount.trim(),
+    initialAmount:
+      values.trackingMode === "holdings" ? null : values.initialAmount.trim(),
   };
 }
 

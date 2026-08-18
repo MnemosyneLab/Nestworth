@@ -1,7 +1,5 @@
 import { z } from "zod";
 
-export const CURRENCY_PRESETS = ["CNY", "SGD", "USD"] as const;
-
 export const onboardingSchema = z.object({
   householdName: z.string().trim().min(1, "required").max(80, "tooLong"),
   baseCurrency: z

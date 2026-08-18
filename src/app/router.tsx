@@ -1,17 +1,21 @@
-import { createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
+import {
+  createRootRoute,
+  createRoute,
+  createRouter,
+  lazyRouteComponent,
+} from "@tanstack/react-router";
 
 import { validateAccountSearch } from "@/features/accounts/search";
 import { RootRoute } from "@/routes/__root";
 import { AccountsRoute } from "@/routes/accounts";
-import { AccountDetailRoute } from "@/routes/accounts-detail";
 import { GroupsRoute } from "@/routes/groups";
 import { IndexRoute } from "@/routes/index";
 import { InstitutionsRoute } from "@/routes/institutions";
+import { InstrumentsRoute } from "@/routes/instruments";
+import { InvestmentsRoute } from "@/routes/investments";
 import { OnboardingRoute } from "@/routes/onboarding";
-import { OverviewRoute } from "@/routes/overview";
 import { SettingsGeneralRoute } from "@/routes/settings-general";
 import { MembersRoute } from "@/routes/settings-members";
-import { StartupErrorRoute } from "@/routes/startup-error";
 
 const rootRoute = createRootRoute({ component: RootRoute });
 const indexRoute = createRoute({
@@ -27,7 +31,17 @@ const onboardingRoute = createRoute({
 const overviewRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/overview",
-  component: OverviewRoute,
+  component: lazyRouteComponent(() => import("@/routes/overview")),
+});
+const investmentsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/investments",
+  component: InvestmentsRoute,
+});
+const instrumentsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/instruments",
+  component: InstrumentsRoute,
 });
 const accountsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -38,7 +52,7 @@ const accountsRoute = createRoute({
 const accountDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/accounts/$accountId",
-  component: AccountDetailRoute,
+  component: lazyRouteComponent(() => import("@/routes/accounts-detail")),
   validateSearch: validateAccountSearch,
 });
 const institutionsRoute = createRoute({
@@ -64,13 +78,15 @@ const membersRoute = createRoute({
 const startupErrorRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/startup-error",
-  component: StartupErrorRoute,
+  component: lazyRouteComponent(() => import("@/routes/startup-error")),
 });
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
   onboardingRoute,
   overviewRoute,
+  investmentsRoute,
+  instrumentsRoute,
   accountsRoute,
   accountDetailRoute,
   institutionsRoute,

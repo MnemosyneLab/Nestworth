@@ -7,6 +7,8 @@ export const bootstrapQueryKey = ["bootstrap"] as const;
 
 export const APP_ROUTES = [
   "/overview",
+  "/investments",
+  "/instruments",
   "/accounts",
   "/institutions",
   "/groups",

@@ -1,5 +1,5 @@
-import { InstitutionsPage } from "@/features/institutions/institutions-page";
+import { lazyRouteComponent } from "@tanstack/react-router";
 
-export function InstitutionsRoute() {
-  return <InstitutionsPage />;
-}
+export const InstitutionsRoute = lazyRouteComponent(
+  () => import("@/features/institutions/institutions-page"),
+);
