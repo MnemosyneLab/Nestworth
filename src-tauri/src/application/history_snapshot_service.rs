@@ -93,11 +93,31 @@ pub struct NetWorthTrendPointDto {
     pub total_component_count: i32,
 }
 
-struct PlannedSnapshot {
-    snapshot_on: String,
-    cutoff_at: String,
-    historical: HistoricalValuation,
-    snapshot: ValuationSnapshot,
+struct PlannedDays {
+    timezone: HistoryTimezone,
+    dates: Vec<CalendarDate>,
+}
+
+fn has_closed_dirty_days(dirty_from: Option<&str>, last_closed_on: Option<&str>) -> bool {
+    match (dirty_from, last_closed_on) {
+        (Some(dirty), Some(closed)) => dirty <= closed,
+        _ => false,
+    }
+}
+
+fn last_closed_on(timezone: HistoryTimezone, now: &Timestamp) -> Option<String> {
+    timezone.local_date(now).pred().map(|date| date.to_ymd())
+}
+
+async fn last_closed_on_from_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+) -> Result<Option<String>, AppError> {
+    let household = require_household_tx(tx).await?;
+    let origin = history_repositories::get_origin_by_household(tx, &household.id)
+        .await?
+        .ok_or(AppError::HistoryInitializationFailed)?;
+    let timezone = HistoryTimezone::parse(&origin.timezone)?;
+    Ok(last_closed_on(timezone, &Timestamp::now()))
 }
 
 pub async fn get_history_status(state: &AppState) -> Result<HistoryStatusDto, AppError> {
@@ -139,7 +159,7 @@ pub async fn rebuild_history_snapshots_bounded(
     ensure_activity_writes_allowed_state(state).await?;
     let started = std::time::Instant::now();
     let mut read_tx = begin_read_tx(database).await?;
-    let planned = match load_planned_snapshots(&mut read_tx, max_days).await {
+    let planned = match load_planned_days(&mut read_tx, max_days).await {
         Ok(planned) => {
             let _ = finish_read_tx(read_tx, Ok(())).await;
             planned
@@ -152,7 +172,8 @@ pub async fn rebuild_history_snapshots_bounded(
     };
 
     let mut processed = 0_i32;
-    if !planned.is_empty() {
+    let planned_len = planned.dates.len();
+    if !planned.dates.is_empty() {
         let mut tx = begin_write_tx(database).await?;
         let marked = set_rebuilding_in_tx(&mut tx).await;
         if let Err(error) = finish_write_tx(tx, marked).await {
@@ -160,12 +181,12 @@ pub async fn rebuild_history_snapshots_bounded(
             return Err(map_rebuild_error(error));
         }
     }
-    for day in &planned {
+    for date in planned.dates {
         if rebuild_was_cancelled(state).await? {
             return cancelled_progress(state, processed).await;
         }
         let mut write_tx = begin_write_tx(database).await?;
-        let persist = persist_snapshot_revision(&mut write_tx, day).await;
+        let persist = persist_snapshot_revision(&mut write_tx, planned.timezone, date).await;
         match finish_write_tx(write_tx, persist).await {
             Ok(()) => processed += 1,
             Err(error) => {
@@ -176,7 +197,7 @@ pub async fn rebuild_history_snapshots_bounded(
     }
 
     let mut tx = begin_write_tx(database).await?;
-    let result = finalize_rebuild_in_tx(&mut tx, processed, planned.len(), max_days).await;
+    let result = finalize_rebuild_in_tx(&mut tx, processed, planned_len, max_days).await;
     let result = finish_write_tx(tx, result).await?;
     tracing::info!(
         event = "history.rebuild",
@@ -194,10 +215,10 @@ async fn ensure_activity_writes_allowed_state(state: &AppState) -> Result<(), Ap
     finish_read_tx(tx, result).await
 }
 
-async fn load_planned_snapshots(
+async fn load_planned_days(
     tx: &mut Transaction<'_, Sqlite>,
     max_days: i64,
-) -> Result<Vec<PlannedSnapshot>, AppError> {
+) -> Result<PlannedDays, AppError> {
     query_count::record("rebuild_plan");
     let household = require_household_tx(tx).await?;
     let origin = history_repositories::get_origin_by_household(tx, &household.id)
@@ -207,11 +228,15 @@ async fn load_planned_snapshots(
         return Err(AppError::HistoryTimezoneConfirmationRequired);
     }
     let timezone = HistoryTimezone::parse(&origin.timezone)?;
+    let empty = PlannedDays {
+        timezone,
+        dates: Vec::new(),
+    };
     let state = history_repositories::get_snapshot_state(tx, &household.id)
         .await?
         .ok_or(AppError::HistoryInitializationFailed)?;
     let Some(start) = state.dirty_from.as_deref() else {
-        return Ok(Vec::new());
+        return Ok(empty);
     };
     let start = CalendarDate::parse(start)?;
     let origin_date = CalendarDate::parse(&origin.origin_local_date)?;
@@ -221,47 +246,39 @@ async fn load_planned_snapshots(
         start
     };
     let now = Timestamp::now();
-    let today = timezone.local_date(&now);
-    let Some(last_closed) = today.pred() else {
-        return Ok(Vec::new());
+    let Some(last_closed) = timezone.local_date(&now).pred() else {
+        return Ok(empty);
     };
     if start > last_closed {
-        return Ok(Vec::new());
+        return Ok(empty);
     }
-    let mut days = Vec::new();
+    let mut dates = Vec::new();
     let mut cursor = start;
-    while days.len() < usize::try_from(max_days).unwrap_or(0) && cursor <= last_closed {
-        days.push(cursor);
+    while dates.len() < usize::try_from(max_days).unwrap_or(0) && cursor <= last_closed {
+        dates.push(cursor);
         let Some(next) = cursor.succ() else {
             break;
         };
         cursor = next;
     }
-    let mut planned = Vec::with_capacity(days.len());
-    for date in days {
-        let cutoff_at = closed_day_cutoff(timezone, date)?;
-        let (historical, snapshot) =
-            historical_valuation_service::reconstruct_closed_day(tx, timezone, date).await?;
-        planned.push(PlannedSnapshot {
-            snapshot_on: date.to_ymd(),
-            cutoff_at: cutoff_at.to_rfc3339(),
-            historical,
-            snapshot,
-        });
-    }
-    Ok(planned)
+    Ok(PlannedDays { timezone, dates })
 }
 
 async fn persist_snapshot_revision(
     tx: &mut Transaction<'_, Sqlite>,
-    day: &PlannedSnapshot,
+    timezone: HistoryTimezone,
+    date: CalendarDate,
 ) -> Result<(), AppError> {
     query_count::record("snapshot_write");
     let household = require_household_tx(tx).await?;
+    let snapshot_on = date.to_ymd();
+    let cutoff_at = closed_day_cutoff(timezone, date)?.to_rfc3339();
+    let (historical, snapshot) =
+        historical_valuation_service::reconstruct_closed_day(tx, timezone, date).await?;
     let previous =
-        history_repositories::latest_snapshot_for_date(tx, &household.id, &day.snapshot_on).await?;
+        history_repositories::latest_snapshot_for_date(tx, &household.id, &snapshot_on).await?;
     let revision = previous.as_ref().map(|row| row.revision + 1).unwrap_or(1);
-    let items = snapshot_items(&day.historical, &day.snapshot)?;
+    let items = snapshot_items(&historical, &snapshot)?;
     let valued = items.iter().filter(|item| item.is_complete).count();
     let total = items.len();
     let coverage_bps = if total == 0 {
@@ -270,23 +287,23 @@ async fn persist_snapshot_revision(
         i64::try_from(valued).unwrap_or(0) * i64::from(TOTAL_BPS)
             / i64::try_from(total).unwrap_or(1)
     };
-    let currency = day.historical.base_currency;
-    let assets = day.historical.totals.rounded_assets(currency)?;
-    let liabilities = day.historical.totals.rounded_liabilities(currency)?;
-    let net_worth = day.historical.totals.rounded_net_worth(currency)?;
+    let currency = historical.base_currency;
+    let assets = historical.totals.rounded_assets(currency)?;
+    let liabilities = historical.totals.rounded_liabilities(currency)?;
+    let net_worth = historical.totals.rounded_net_worth(currency)?;
     let created_at = Timestamp::now().to_rfc3339();
     let header = DailyValuationSnapshotRecord {
         id: ValuationSnapshotId::new().to_string(),
         household_id: household.id.clone(),
-        snapshot_on: day.snapshot_on.clone(),
-        cutoff_at: day.cutoff_at.clone(),
+        snapshot_on: snapshot_on.clone(),
+        cutoff_at,
         revision,
         supersedes_snapshot_id: previous.map(|row| row.id),
         assets_amount: assets.amount,
         liabilities_amount: liabilities.amount,
         net_worth_amount: net_worth.amount,
         currency: currency.as_str().to_owned(),
-        is_complete: day.historical.totals.complete,
+        is_complete: historical.totals.complete,
         valued_component_count: i64::try_from(valued).unwrap_or(0),
         total_component_count: i64::try_from(total).unwrap_or(0),
         coverage_bps,
@@ -300,17 +317,15 @@ async fn persist_snapshot_revision(
         row.sort_order = i64::try_from(sort_order).unwrap_or(0);
         history_repositories::insert_daily_valuation_snapshot_item(tx, &row).await?;
     }
-    let next_dirty = CalendarDate::parse(&day.snapshot_on)?
-        .succ()
-        .map(|date| date.to_ymd());
+    let next_dirty = date.succ().map(|next| next.to_ymd());
     history_repositories::upsert_snapshot_state(
         tx,
         &SnapshotStateRecord {
             household_id: household.id,
             dirty_from: next_dirty,
-            last_completed_on: Some(day.snapshot_on.clone()),
+            last_completed_on: Some(snapshot_on.clone()),
             rebuild_status: "running".to_owned(),
-            rebuild_cursor_on: Some(day.snapshot_on.clone()),
+            rebuild_cursor_on: Some(snapshot_on),
             updated_at: created_at,
         },
     )
@@ -333,9 +348,10 @@ async fn finalize_rebuild_in_tx(
     state.rebuild_cursor_on = None;
     state.updated_at = Timestamp::now().to_rfc3339();
     history_repositories::upsert_snapshot_state(tx, &state).await?;
+    let last_closed = last_closed_on_from_tx(tx).await?;
     Ok(RebuildHistorySnapshotsResultDto {
         processed_days: processed,
-        remaining: state.dirty_from.is_some(),
+        remaining: has_closed_dirty_days(state.dirty_from.as_deref(), last_closed.as_deref()),
         cancelled: false,
         dirty_from: state.dirty_from,
         last_completed_on: state.last_completed_on,
@@ -357,9 +373,10 @@ async fn cancel_rebuild_in_tx(
         event = "history.rebuild_cancelled",
         "snapshot rebuild cancelled"
     );
+    let last_closed = last_closed_on_from_tx(tx).await?;
     Ok(RebuildHistorySnapshotsResultDto {
         processed_days: 0,
-        remaining: state.dirty_from.is_some(),
+        remaining: has_closed_dirty_days(state.dirty_from.as_deref(), last_closed.as_deref()),
         cancelled: true,
         dirty_from: state.dirty_from,
         last_completed_on: state.last_completed_on,
@@ -416,7 +433,10 @@ async fn cancelled_progress(
     let status = get_history_status(state).await?;
     Ok(RebuildHistorySnapshotsResultDto {
         processed_days: processed,
-        remaining: status.dirty_from.is_some(),
+        remaining: has_closed_dirty_days(
+            status.dirty_from.as_deref(),
+            status.last_closed_on.as_deref(),
+        ),
         cancelled: true,
         dirty_from: status.dirty_from,
         last_completed_on: status.last_completed_on,
@@ -444,10 +464,6 @@ async fn get_history_status_in_tx(
     let state = history_repositories::get_snapshot_state(tx, &household.id)
         .await?
         .ok_or(AppError::HistoryInitializationFailed)?;
-    let last_closed_on = timezone
-        .local_date(&Timestamp::now())
-        .pred()
-        .map(|date| date.to_ymd());
     Ok(HistoryStatusDto {
         timezone: origin.timezone,
         timezone_confirmed: origin.timezone_confirmed,
@@ -455,7 +471,7 @@ async fn get_history_status_in_tx(
         origin_local_date: origin.origin_local_date,
         dirty_from: state.dirty_from,
         last_completed_on: state.last_completed_on,
-        last_closed_on,
+        last_closed_on: last_closed_on(timezone, &Timestamp::now()),
         rebuild_status: state.rebuild_status,
         rebuild_cursor_on: state.rebuild_cursor_on,
     })
@@ -1077,6 +1093,7 @@ mod tests {
                 .expect("rebuild");
             assert_eq!(rebuilt.processed_days, 1);
             assert!(!rebuilt.cancelled);
+            assert!(!rebuilt.remaining);
 
             let database = state.writable_db().expect("db");
             let mut tx = begin_read_tx(database).await.expect("tx");
@@ -1269,6 +1286,39 @@ mod tests {
     }
 
     #[test]
+    fn rebuild_does_not_remain_when_only_open_day_is_dirty() {
+        tauri::async_runtime::block_on(async {
+            let (state, path) = onboarded_state("phase6-open-dirty").await;
+            confirm_tz(&state).await;
+            let rebuilt = rebuild_history_snapshots_bounded(&state, false, MAX_REBUILD_DAYS)
+                .await
+                .expect("rebuild");
+            assert_eq!(rebuilt.processed_days, 0);
+            assert!(!rebuilt.remaining);
+            assert!(rebuilt.dirty_from.is_some());
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn remaining_requires_a_closed_dirty_day() {
+        assert!(!has_closed_dirty_days(
+            Some("2026-08-19"),
+            Some("2026-08-18")
+        ));
+        assert!(has_closed_dirty_days(
+            Some("2026-08-18"),
+            Some("2026-08-18")
+        ));
+        assert!(has_closed_dirty_days(
+            Some("2026-08-01"),
+            Some("2026-08-18")
+        ));
+        assert!(!has_closed_dirty_days(Some("2026-08-19"), None));
+        assert!(!has_closed_dirty_days(None, Some("2026-08-18")));
+    }
+
+    #[test]
     fn quote_preference_and_current_reads_do_not_rebuild() {
         tauri::async_runtime::block_on(async {
             let (state, path) = onboarded_state("phase6-norebuild").await;
@@ -1375,6 +1425,7 @@ mod tests {
                     .await;
             let rebuilt = rebuilt.expect("rebuild");
             assert_eq!(rebuilt.processed_days, 1);
+            assert!(!rebuilt.remaining);
             let reconstructs = family_count(&rebuild_families, "historical_reconstruct");
             let legs = family_count(&rebuild_families, "activity_legs");
             assert_eq!(

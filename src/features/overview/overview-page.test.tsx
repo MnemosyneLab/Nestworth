@@ -218,6 +218,7 @@ describe("overview page", () => {
     );
     mockHistoryStatus({
       dirtyFrom: "2026-08-01",
+      lastClosedOn: "2026-08-18",
       lastCompletedOn: null,
       rebuildStatus: "idle",
     });
@@ -241,6 +242,66 @@ describe("overview page", () => {
     expect(commands.refreshRequiredFx).not.toHaveBeenCalled();
   });
 
+  it("does not prompt a rebuild when the dirty day has not closed", async () => {
+    mockPopulatedOverview();
+    mockTrend(
+      trendDto({
+        dirtyFrom: "2026-08-19",
+        current: livePoint({ netWorth: money("3110000") }),
+      }),
+    );
+    mockHistoryStatus({
+      dirtyFrom: "2026-08-19",
+      lastClosedOn: "2026-08-18",
+      lastCompletedOn: "2026-08-18",
+      rebuildStatus: "idle",
+    });
+    await renderReadyApp();
+    expect(await screen.findByText("CNY 3,110,000")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Rebuild snapshots" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Continue rebuild" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/Snapshots from 2026-08-19/)).not.toBeInTheDocument();
+  });
+
+  it("stops requesting rebuilds after a batch with no closed days", async () => {
+    const user = userEvent.setup();
+    mockPopulatedOverview();
+    mockTrend(
+      trendDto({
+        dirtyFrom: "2026-08-01",
+        current: livePoint({ netWorth: money("3110000") }),
+      }),
+    );
+    mockHistoryStatus({
+      dirtyFrom: "2026-08-01",
+      lastClosedOn: "2026-08-18",
+      lastCompletedOn: "2026-08-09",
+      rebuildStatus: "idle",
+    });
+    vi.mocked(commands.rebuildHistorySnapshots).mockResolvedValue({
+      status: "ok",
+      data: {
+        processedDays: 0,
+        remaining: true,
+        cancelled: false,
+        dirtyFrom: "2026-08-19",
+        lastCompletedOn: "2026-08-18",
+        status: "idle",
+      },
+    });
+    await renderReadyApp();
+    await user.click(
+      await screen.findByRole("button", { name: "Continue rebuild" }),
+    );
+    await waitFor(() => {
+      expect(commands.rebuildHistorySnapshots).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("keeps completed revisions and dirty state after rebuild cancellation", async () => {
     const user = userEvent.setup();
     const pending = deferred<{
@@ -262,6 +323,7 @@ describe("overview page", () => {
     );
     mockHistoryStatus({
       dirtyFrom: "2026-08-01",
+      lastClosedOn: "2026-08-18",
       lastCompletedOn: "2026-08-09",
       rebuildStatus: "running",
     });

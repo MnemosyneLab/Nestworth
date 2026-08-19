@@ -7,6 +7,7 @@ import {
   TREND_RANGES,
   chartDate,
   dateOrdinal,
+  hasClosedDirtyDays,
   isTrustedComplete,
   moneyPresentationUnits,
   pointKey,
@@ -65,7 +66,12 @@ export function NetWorthTrendSection({ catalog }: { catalog: ReferenceCatalogDto
         return latest;
       }
       setProgress(latest);
-      while (latest.remaining && !latest.cancelled && !cancelRequested.current) {
+      while (
+        latest.remaining &&
+        latest.processedDays > 0 &&
+        !latest.cancelled &&
+        !cancelRequested.current
+      ) {
         latest = await unwrapResult(commands.rebuildHistorySnapshots({}));
         if (cancelRequested.current) {
           return latest;
@@ -207,10 +213,11 @@ function RebuildPanel({
   const lastCompletedOn = lastResult?.lastCompletedOn ?? status.lastCompletedOn;
   const failed = status.rebuildStatus === "failed";
   const cancelled = lastResult?.cancelled === true;
-  const remaining =
-    Boolean(dirtyFrom) && (lastResult?.remaining === true || status.dirtyFrom != null);
+  const remaining = lastResult
+    ? lastResult.remaining
+    : hasClosedDirtyDays(dirtyFrom, status.lastClosedOn);
 
-  if (!dirtyFrom && !rebuilding && !failed && !cancelled) {
+  if (!remaining && !rebuilding && !failed) {
     return null;
   }
 
@@ -229,7 +236,7 @@ function RebuildPanel({
             : t("overview.trend.rebuildProgressUnknown")}
         </p>
       ) : null}
-      {!rebuilding && dirtyFrom ? (
+      {!rebuilding && remaining && dirtyFrom ? (
         <p>
           {t("overview.trend.rebuildPrompt", { date: dirtyFrom })}
           {lastCompletedOn
@@ -237,7 +244,7 @@ function RebuildPanel({
             : ""}
         </p>
       ) : null}
-      {!rebuilding && cancelled && dirtyFrom ? (
+      {!rebuilding && cancelled && remaining && dirtyFrom ? (
         <p role="status">{t("overview.trend.rebuildCancelled", { date: dirtyFrom })}</p>
       ) : null}
       {!rebuilding && remaining && lastCompletedOn && !cancelled ? (
@@ -256,7 +263,7 @@ function RebuildPanel({
           <Button onClick={onContinue} type="button">
             {t("overview.trend.rebuildContinue")}
           </Button>
-        ) : dirtyFrom ? (
+        ) : remaining ? (
           <Button onClick={onRebuild} type="button">
             {t("overview.trend.rebuild")}
           </Button>

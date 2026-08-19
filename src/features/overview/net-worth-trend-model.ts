@@ -65,6 +65,13 @@ export function trendPointState(
   return "complete";
 }
 
+export function hasClosedDirtyDays(
+  dirtyFrom: string | null | undefined,
+  lastClosedOn: string | null | undefined,
+): boolean {
+  return Boolean(dirtyFrom && lastClosedOn && dirtyFrom <= lastClosedOn);
+}
+
 export function isTrustedComplete(state: TrendPointState): boolean {
   return state === "complete" || state === "live";
 }
