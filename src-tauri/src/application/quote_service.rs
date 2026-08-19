@@ -503,6 +503,27 @@ async fn list_fx_quotes_in_tx(
     .collect()
 }
 
+pub(crate) async fn list_all_instrument_quotes(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+) -> Result<Vec<InstrumentQuoteRecordDto>, AppError> {
+    query_count::record("instrument_quotes");
+    sqlx::query(
+        "SELECT q.id, q.instrument_id, q.unit_price, q.quote_currency, q.source_kind, q.source_key, q.delayed, q.quoted_at, q.created_at
+         FROM instrument_quotes q
+         JOIN instruments i ON i.id = q.instrument_id
+         WHERE i.household_id = ?
+         ORDER BY q.quoted_at DESC, q.created_at DESC, q.id DESC",
+    )
+    .bind(household_id)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("instrument_quote.household_list_failed", error))?
+    .into_iter()
+    .map(instrument_quote_from_row)
+    .collect()
+}
+
 pub(crate) async fn list_latest_instrument_quotes(
     tx: &mut Transaction<'_, Sqlite>,
     household_id: &str,

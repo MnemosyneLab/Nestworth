@@ -1,6 +1,7 @@
 pub mod account_service;
 pub mod activity_service;
 pub mod analytics_repositories;
+pub mod attribution_service;
 pub mod cash_service;
 pub mod cost_basis_service;
 pub mod currency_decomposition;

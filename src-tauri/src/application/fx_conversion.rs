@@ -10,7 +10,7 @@ use specta::Type;
 use sqlx::{Sqlite, Transaction};
 
 use super::{
-    history_repositories::list_latest_fx_preferences_at,
+    history_repositories::{list_latest_fx_preferences_at, FxPreferenceObservationRecord},
     quote_service::{self, FxQuoteRecordDto},
     valuation_service::{self, ValuationSnapshot},
 };
@@ -21,6 +21,12 @@ use crate::{
     },
     error::AppError,
 };
+
+#[derive(Debug)]
+pub(crate) enum ConversionSpread {
+    Unconvertible,
+    Signed(rust_decimal::Decimal),
+}
 
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -48,26 +54,81 @@ pub async fn overlay_for_activity(
     base_currency: &str,
     activity: &Activity,
 ) -> Result<Option<ActivityFxConversionDto>, AppError> {
-    if activity.kind() != ActivityKind::Transfer {
+    if !is_cross_currency_transfer(activity) {
         return Ok(None);
     }
+    let (snapshot, quotes) =
+        fx_snapshot_at(tx, household_id, base_currency, activity.effective_at()).await?;
+    overlay_with_snapshot(base_currency, activity, &snapshot, &quotes)
+}
+
+pub(crate) fn overlay_for_activity_from_loaded(
+    household_id: &str,
+    base_currency: &str,
+    activity: &Activity,
+    quotes: &[FxQuoteRecordDto],
+    observations: &[FxPreferenceObservationRecord],
+    current_preferences: &HashMap<FxPair, QuoteSourceKind>,
+) -> Result<Option<ActivityFxConversionDto>, AppError> {
+    if !is_cross_currency_transfer(activity) {
+        return Ok(None);
+    }
+    let (snapshot, selected) = fx_snapshot_from_loaded(
+        household_id,
+        base_currency,
+        quotes,
+        observations,
+        current_preferences,
+        activity.effective_at(),
+    )?;
+    overlay_with_snapshot(base_currency, activity, &snapshot, &selected)
+}
+
+pub(crate) fn signed_spread(
+    overlay: &ActivityFxConversionDto,
+) -> Result<ConversionSpread, AppError> {
+    if overlay.status != "computed" {
+        return Ok(ConversionSpread::Unconvertible);
+    }
+    let amount = overlay.spread_amount.as_deref().ok_or(AppError::Internal)?;
+    let parsed = Money::parse(amount, CurrencyCode::parse(&overlay.base_currency)?)?.amount();
+    Ok(ConversionSpread::Signed(
+        match overlay.spread_effect.as_deref() {
+            Some("loss") => -parsed,
+            Some("gain") => parsed,
+            _ => rust_decimal::Decimal::ZERO,
+        },
+    ))
+}
+
+fn is_cross_currency_transfer(activity: &Activity) -> bool {
+    if activity.kind() != ActivityKind::Transfer {
+        return false;
+    }
+    let Some((source, destination)) = transfer_native_amounts(activity) else {
+        return false;
+    };
+    source.currency() != destination.currency()
+}
+
+fn overlay_with_snapshot(
+    base_currency: &str,
+    activity: &Activity,
+    snapshot: &ValuationSnapshot,
+    quotes: &[FxQuoteRecordDto],
+) -> Result<Option<ActivityFxConversionDto>, AppError> {
     let Some((source, destination)) = transfer_native_amounts(activity) else {
         return Ok(None);
     };
-    if source.currency() == destination.currency() {
-        return Ok(None);
-    }
     let transaction_rate = match activity.legs().iter().find_map(|leg| leg.fx_rate()) {
         Some(rate) => rate,
         None => FxRate::from_ratio(destination.amount(), source.amount())?,
     };
     let inverse = FxRate::from_ratio(source.amount(), destination.amount())?;
-    let (snapshot, quotes) =
-        fx_snapshot_at(tx, household_id, base_currency, activity.effective_at()).await?;
     let source_converted =
-        valuation_service::convert_amount(&snapshot, source, activity.effective_at())?;
+        valuation_service::convert_amount(snapshot, source, activity.effective_at())?;
     let destination_converted =
-        valuation_service::convert_amount(&snapshot, destination, activity.effective_at())?;
+        valuation_service::convert_amount(snapshot, destination, activity.effective_at())?;
     let pending = ActivityFxConversionDto {
         status: "unavailable".to_owned(),
         base_currency: base_currency.to_owned(),
@@ -114,9 +175,9 @@ pub async fn overlay_for_activity(
         )
     };
     let market_id =
-        valuation_service::fx_quote_id(&snapshot, destination.currency(), activity.effective_at())?
+        valuation_service::fx_quote_id(snapshot, destination.currency(), activity.effective_at())?
             .or(valuation_service::fx_quote_id(
-                &snapshot,
+                snapshot,
                 source.currency(),
                 activity.effective_at(),
             )?);
@@ -151,6 +212,92 @@ fn transfer_native_amounts(activity: &Activity) -> Option<(Money, Money)> {
         source.component().money().ok()?,
         destination.component().money().ok()?,
     ))
+}
+
+fn fx_snapshot_from_loaded(
+    household_id: &str,
+    base_currency: &str,
+    quotes: &[FxQuoteRecordDto],
+    observations: &[FxPreferenceObservationRecord],
+    current_preferences: &HashMap<FxPair, QuoteSourceKind>,
+    cutoff: &Timestamp,
+) -> Result<(ValuationSnapshot, Vec<FxQuoteRecordDto>), AppError> {
+    let mut fx_quotes = HashMap::new();
+    for quote in quotes {
+        let quoted_at = Timestamp::parse(&quote.quoted_at)?;
+        if quoted_at > *cutoff {
+            continue;
+        }
+        let key = (
+            quote.base_currency.clone(),
+            quote.quote_currency.clone(),
+            quote.source_kind.clone(),
+        );
+        let replace = match fx_quotes.get(&key) {
+            None => true,
+            Some(existing) => quote_is_newer(quote, existing),
+        };
+        if replace {
+            fx_quotes.insert(key, quote.clone());
+        }
+    }
+    let selected: Vec<FxQuoteRecordDto> = fx_quotes.values().cloned().collect();
+    let mut fx_preferences = current_preferences.clone();
+    let mut seen = HashMap::new();
+    for observation in observations {
+        let effective_at = Timestamp::parse(&observation.effective_at)?;
+        if effective_at > *cutoff {
+            continue;
+        }
+        let pair = FxPair::new(
+            CurrencyCode::parse(&observation.currency_a)?,
+            CurrencyCode::parse(&observation.currency_b)?,
+        )?;
+        let replace = match seen.get(&pair) {
+            None => true,
+            Some((existing_at, existing_created, existing_id)) => {
+                effective_at > *existing_at
+                    || (effective_at == *existing_at
+                        && (observation.created_at > *existing_created
+                            || (observation.created_at == *existing_created
+                                && observation.id > *existing_id)))
+            }
+        };
+        if replace {
+            seen.insert(
+                pair,
+                (
+                    effective_at,
+                    observation.created_at.clone(),
+                    observation.id.clone(),
+                ),
+            );
+            fx_preferences.insert(pair, QuoteSourceKind::parse(&observation.source_kind)?);
+        }
+    }
+    Ok((
+        ValuationSnapshot::from_parts(
+            household_id.to_owned(),
+            CurrencyCode::parse(base_currency)?,
+            HashMap::new(),
+            Vec::new(),
+            Vec::new(),
+            HashMap::new(),
+            fx_quotes,
+            fx_preferences,
+        ),
+        selected,
+    ))
+}
+
+fn quote_is_newer(candidate: &FxQuoteRecordDto, existing: &FxQuoteRecordDto) -> bool {
+    if candidate.quoted_at != existing.quoted_at {
+        return candidate.quoted_at > existing.quoted_at;
+    }
+    if candidate.created_at != existing.created_at {
+        return candidate.created_at > existing.created_at;
+    }
+    candidate.id > existing.id
 }
 
 async fn fx_snapshot_at(

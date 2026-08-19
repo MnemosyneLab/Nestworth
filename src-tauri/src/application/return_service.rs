@@ -123,30 +123,14 @@ pub(crate) async fn get_performance_summary_at_in_tx(
             "The period end must be on or after the period start.",
         ));
     }
-    let household = require_household_tx(tx).await?;
-    let origin = history_repositories::get_origin_by_household(tx, &household.id)
-        .await?
-        .ok_or(AppError::HistoryInitializationFailed)?;
-    if !origin.timezone_confirmed {
-        return Err(AppError::HistoryTimezoneConfirmationRequired);
-    }
-    let timezone = HistoryTimezone::parse(&origin.timezone)?;
-    let today = timezone.local_date(now);
-    let Some(last_closed) = today.pred() else {
+    let Some(series) = load_analytics_period_series(tx, start_on, end_on, now).await? else {
         return Ok(period_unavailable(Vec::new()));
     };
-    let t1 = if end_on < last_closed {
-        end_on
-    } else {
-        last_closed
-    };
-    if start_on > t1 {
-        return Ok(period_unavailable(Vec::new()));
-    }
-    let first_complete = history_repositories::earliest_complete_snapshot_on(tx, &household.id)
-        .await?
-        .map(|value| CalendarDate::parse(&value))
-        .transpose()?;
+    let first_complete =
+        history_repositories::earliest_complete_snapshot_on(tx, &series.household_id)
+            .await?
+            .map(|value| CalendarDate::parse(&value))
+            .transpose()?;
     let Some(first_complete) = first_complete else {
         return Ok(period_unavailable(vec![start_on.to_ymd()]));
     };
@@ -154,83 +138,32 @@ pub(crate) async fn get_performance_summary_at_in_tx(
         return Ok(period_unavailable(vec![start_on.to_ymd()]));
     }
 
-    let snapshots = history_repositories::list_latest_snapshots_in_range(
-        tx,
-        &household.id,
-        &start_on.to_ymd(),
-        &t1.to_ymd(),
-    )
-    .await?;
-    let by_date: HashMap<&str, &DailyValuationSnapshotRecord> = snapshots
-        .iter()
-        .map(|snapshot| (snapshot.snapshot_on.as_str(), snapshot))
-        .collect();
-    let required_days = dates_inclusive(start_on, t1);
+    let required_days = dates_inclusive(series.start_on, series.t1);
     let mut blocking = Vec::new();
     for date in &required_days {
         let key = date.to_ymd();
-        match by_date.get(key.as_str()) {
+        match series.snapshots_by_date.get(&key) {
             Some(snapshot) if snapshot.is_complete => {}
             _ => blocking.push(key),
         }
     }
-    let snapshot_ids: Vec<String> = snapshots
-        .iter()
-        .map(|snapshot| snapshot.id.clone())
-        .collect();
-    let items = history_repositories::list_snapshot_items_for_ids(tx, &snapshot_ids).await?;
-    let mut items_by_snapshot: HashMap<String, Vec<DailyValuationSnapshotItemRecord>> =
-        HashMap::new();
-    for item in items {
-        items_by_snapshot
-            .entry(item.snapshot_id.clone())
-            .or_default()
-            .push(item);
-    }
-
-    let flow_start = start_on.succ().unwrap_or(start_on);
-    let activities = if flow_start <= t1 {
-        history_repositories::list_activities_in_local_date_range(
-            tx,
-            &household.id,
-            &flow_start.to_ymd(),
-            &t1.to_ymd(),
-        )
-        .await?
-    } else {
-        Vec::new()
-    };
-    let origin_states = history_repositories::list_origin_account_states(tx, &origin.id).await?;
-    let observations =
-        history_repositories::list_account_state_observations_for_household(tx, &household.id)
-            .await?;
-    let fx_quotes = quote_service::list_all_fx_quotes(tx, &household.id).await?;
-    let fx_observations =
-        history_repositories::list_fx_preference_observations(tx, &household.id).await?;
-    let current_preferences = quote_service::list_fx_preferences(tx, &household.id)
-        .await?
-        .into_iter()
-        .collect();
-    let base = CurrencyCode::parse(&household.base_currency)?;
     if !blocking.is_empty() {
         return Ok(period_unavailable(blocking));
     }
 
-    let membership = AccountMembership {
-        origin_states,
-        observations,
-    };
     let mut values = Vec::with_capacity(required_days.len());
     for date in &required_days {
-        let snapshot = by_date
-            .get(date.to_ymd().as_str())
+        let snapshot = series
+            .snapshots_by_date
+            .get(&date.to_ymd())
             .ok_or(AppError::Internal)?;
         let cutoff = Timestamp::parse(&snapshot.cutoff_at)?;
-        let items = items_by_snapshot
+        let items = series
+            .items_by_snapshot
             .get(&snapshot.id)
             .map(Vec::as_slice)
             .unwrap_or(&[]);
-        match scope_value(scope, snapshot, items, &membership, &cutoff)? {
+        match scope_value(scope, snapshot, items, &series.membership, &cutoff)? {
             Some(value) => values.push(value),
             None => return Ok(period_unavailable(vec![date.to_ymd()])),
         }
@@ -245,12 +178,12 @@ pub(crate) async fn get_performance_summary_at_in_tx(
         .collect();
     match accumulate_flows(
         scope,
-        &activities,
-        &membership,
-        &fx_quotes,
-        &fx_observations,
-        &current_preferences,
-        base,
+        &series.activities,
+        &series.membership,
+        &series.fx_quotes,
+        &series.fx_observations,
+        &series.current_preferences,
+        series.base,
         &date_index,
         &mut flows,
         &mut attributed,
@@ -258,6 +191,7 @@ pub(crate) async fn get_performance_summary_at_in_tx(
         None => {}
         Some(unconvertible) => return Ok(period_unavailable(unconvertible)),
     }
+    let t1 = series.t1;
 
     let mut days = Vec::new();
     for (index, flow) in flows.iter().enumerate() {
@@ -413,12 +347,118 @@ fn period_unavailable(blocking_dates: Vec<String>) -> PerformanceSummaryDto {
     }
 }
 
-struct AccountMembership {
+pub(crate) struct AnalyticsPeriodSeries {
+    pub household_id: String,
+    pub base: CurrencyCode,
+    pub start_on: CalendarDate,
+    pub t1: CalendarDate,
+    pub snapshots_by_date: HashMap<String, DailyValuationSnapshotRecord>,
+    pub items_by_snapshot: HashMap<String, Vec<DailyValuationSnapshotItemRecord>>,
+    pub activities: Vec<crate::domain::Activity>,
+    pub membership: AccountMembership,
+    pub fx_quotes: Vec<FxQuoteRecordDto>,
+    pub fx_observations: Vec<FxPreferenceObservationRecord>,
+    pub current_preferences: HashMap<FxPair, QuoteSourceKind>,
+}
+
+pub(crate) async fn load_analytics_period_series(
+    tx: &mut Transaction<'_, Sqlite>,
+    start_on: CalendarDate,
+    end_on: CalendarDate,
+    now: &Timestamp,
+) -> Result<Option<AnalyticsPeriodSeries>, AppError> {
+    let household = require_household_tx(tx).await?;
+    let origin = history_repositories::get_origin_by_household(tx, &household.id)
+        .await?
+        .ok_or(AppError::HistoryInitializationFailed)?;
+    if !origin.timezone_confirmed {
+        return Err(AppError::HistoryTimezoneConfirmationRequired);
+    }
+    let timezone = HistoryTimezone::parse(&origin.timezone)?;
+    let today = timezone.local_date(now);
+    let Some(last_closed) = today.pred() else {
+        return Ok(None);
+    };
+    let t1 = if end_on < last_closed {
+        end_on
+    } else {
+        last_closed
+    };
+    if start_on > t1 {
+        return Ok(None);
+    }
+    let snapshots = history_repositories::list_latest_snapshots_in_range(
+        tx,
+        &household.id,
+        &start_on.to_ymd(),
+        &t1.to_ymd(),
+    )
+    .await?;
+    let snapshot_ids: Vec<String> = snapshots
+        .iter()
+        .map(|snapshot| snapshot.id.clone())
+        .collect();
+    let items = history_repositories::list_snapshot_items_for_ids(tx, &snapshot_ids).await?;
+    let mut items_by_snapshot: HashMap<String, Vec<DailyValuationSnapshotItemRecord>> =
+        HashMap::new();
+    for item in items {
+        items_by_snapshot
+            .entry(item.snapshot_id.clone())
+            .or_default()
+            .push(item);
+    }
+    let snapshots_by_date: HashMap<String, DailyValuationSnapshotRecord> = snapshots
+        .into_iter()
+        .map(|snapshot| (snapshot.snapshot_on.clone(), snapshot))
+        .collect();
+    let flow_start = start_on.succ().unwrap_or(start_on);
+    let activities = if flow_start <= t1 {
+        history_repositories::list_activities_in_local_date_range(
+            tx,
+            &household.id,
+            &flow_start.to_ymd(),
+            &t1.to_ymd(),
+        )
+        .await?
+    } else {
+        Vec::new()
+    };
+    let origin_states = history_repositories::list_origin_account_states(tx, &origin.id).await?;
+    let observations =
+        history_repositories::list_account_state_observations_for_household(tx, &household.id)
+            .await?;
+    let fx_quotes = quote_service::list_all_fx_quotes(tx, &household.id).await?;
+    let fx_observations =
+        history_repositories::list_fx_preference_observations(tx, &household.id).await?;
+    let current_preferences = quote_service::list_fx_preferences(tx, &household.id)
+        .await?
+        .into_iter()
+        .collect();
+    let base = CurrencyCode::parse(&household.base_currency)?;
+    Ok(Some(AnalyticsPeriodSeries {
+        household_id: household.id,
+        base,
+        start_on,
+        t1,
+        snapshots_by_date,
+        items_by_snapshot,
+        activities,
+        membership: AccountMembership {
+            origin_states,
+            observations,
+        },
+        fx_quotes,
+        fx_observations,
+        current_preferences,
+    }))
+}
+
+pub(crate) struct AccountMembership {
     origin_states: Vec<OriginAccountStateRecord>,
     observations: Vec<AccountStateObservationRecord>,
 }
 
-fn scope_value(
+pub(crate) fn scope_value(
     scope: AnalyticsScope,
     snapshot: &DailyValuationSnapshotRecord,
     items: &[DailyValuationSnapshotItemRecord],
@@ -578,14 +618,14 @@ fn accumulate_flows(
     }
 }
 
-fn signed_amount(direction: Direction, amount: Decimal) -> Decimal {
+pub(crate) fn signed_amount(direction: Direction, amount: Decimal) -> Decimal {
     match direction {
         Direction::Increase => amount,
         Direction::Decrease => -amount,
     }
 }
 
-fn monetary_base(
+pub(crate) fn monetary_base(
     activity: &Activity,
     leg: &crate::domain::ActivityLeg,
     quotes: &[FxQuoteRecordDto],
@@ -614,7 +654,7 @@ fn monetary_base(
     )
 }
 
-fn convert_to_base(
+pub(crate) fn convert_to_base(
     native: Money,
     household_base: CurrencyCode,
     quotes: &[FxQuoteRecordDto],
@@ -639,7 +679,7 @@ fn convert_to_base(
     )?)?))
 }
 
-fn endpoint_facts(
+pub(crate) fn endpoint_facts(
     membership: &AccountMembership,
     account_id: crate::domain::AccountId,
     instrument_id: Option<crate::domain::InstrumentId>,
@@ -697,7 +737,7 @@ fn endpoint_facts(
     })
 }
 
-fn excluded_activity_ids(activities: &[Activity]) -> HashSet<ActivityId> {
+pub(crate) fn excluded_activity_ids(activities: &[Activity]) -> HashSet<ActivityId> {
     let mut excluded = HashSet::new();
     for activity in activities {
         if let Some(original) = activity.reverses() {
@@ -708,7 +748,7 @@ fn excluded_activity_ids(activities: &[Activity]) -> HashSet<ActivityId> {
     excluded
 }
 
-fn dates_inclusive(start: CalendarDate, end: CalendarDate) -> Vec<CalendarDate> {
+pub(crate) fn dates_inclusive(start: CalendarDate, end: CalendarDate) -> Vec<CalendarDate> {
     let mut dates = Vec::new();
     let mut current = start;
     while current <= end {
@@ -721,7 +761,7 @@ fn dates_inclusive(start: CalendarDate, end: CalendarDate) -> Vec<CalendarDate> 
     dates
 }
 
-fn parse_decimal(value: &str) -> Result<Decimal, AppError> {
+pub(crate) fn parse_decimal(value: &str) -> Result<Decimal, AppError> {
     Decimal::from_str(value).map_err(|_| AppError::Internal)
 }
 
