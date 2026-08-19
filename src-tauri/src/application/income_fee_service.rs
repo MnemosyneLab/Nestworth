@@ -7,11 +7,13 @@
 use std::collections::{HashMap, HashSet};
 
 use rust_decimal::Decimal;
+use serde::Serialize;
+use specta::Type;
 use sqlx::{Sqlite, Transaction};
 
 use super::{
     account_service::{self, AccountRecordDto, MoneyDto},
-    history_repositories,
+    history_repositories, query_count,
     reference::{begin_read_tx, finish_read_tx, require_household_tx},
     valuation_service,
 };
@@ -27,21 +29,24 @@ use crate::{
 
 pub const TRADE_COMMISSION: &str = "tradeCommission";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct IncomeBucketDto {
     pub income_kind: String,
     pub attributed_instrument_id: Option<String>,
     pub amount: MoneyDto,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct FeeBucketDto {
     pub fee_kind: String,
     pub attributed_instrument_id: Option<String>,
     pub amount: MoneyDto,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct IncomeFeeTotalsDto {
     pub income: Vec<IncomeBucketDto>,
     pub fees: Vec<FeeBucketDto>,
@@ -68,6 +73,7 @@ pub async fn get_income_fee_totals_in_tx(
     tx: &mut Transaction<'_, Sqlite>,
     scope: AnalyticsScope,
 ) -> Result<IncomeFeeTotalsDto, AppError> {
+    query_count::record("income_fees");
     let household = require_household_tx(tx).await?;
     let activities = history_repositories::list_all_activities_asc(tx, &household.id).await?;
     let accounts = account_service::list_account_records_in_tx(tx, &household.id, true).await?;

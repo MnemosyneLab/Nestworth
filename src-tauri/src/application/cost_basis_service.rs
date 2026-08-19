@@ -1138,17 +1138,17 @@ mod tests {
     }
 
     #[test]
-    fn error_codes_map_to_existing_validation_and_not_found() {
+    fn error_codes_map_to_dedicated_analytics_codes() {
         use crate::error::ErrorCode;
         assert_eq!(
             AppError::invalid_cost_basis_declaration("x")
                 .into_command_error()
                 .code,
-            ErrorCode::ValidationError
+            ErrorCode::InvalidCostBasisDeclaration
         );
         assert_eq!(
             AppError::CostBasisLotNotFound.into_command_error().code,
-            ErrorCode::NotFound
+            ErrorCode::CostBasisLotNotFound
         );
     }
 

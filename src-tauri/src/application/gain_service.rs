@@ -6,11 +6,13 @@
 use std::collections::HashMap;
 
 use rust_decimal::Decimal;
+use serde::Serialize;
+use specta::Type;
 use sqlx::{Sqlite, Transaction};
 
 use super::{
     account_service::{self, AccountRecordDto, MoneyDto},
-    cost_basis_service, quote_service,
+    cost_basis_service, query_count, quote_service,
     reference::{begin_read_tx, finish_read_tx, require_household_tx},
     valuation_service::{self, ValuationSnapshot},
 };
@@ -24,7 +26,8 @@ use crate::{
     state::AppState,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct SignedMoneyDto {
     pub amount: String,
     pub currency: String,
@@ -57,6 +60,7 @@ pub async fn get_gain_summary_in_tx(
     tx: &mut Transaction<'_, Sqlite>,
     scope: AnalyticsScope,
 ) -> Result<GainSummaryDto, AppError> {
+    query_count::record("gain_summary");
     let household = require_household_tx(tx).await?;
     let ledger = cost_basis_service::load_effective_lot_ledger_in_tx(tx, &household.id).await?;
     let accounts = account_service::list_account_records_in_tx(tx, &household.id, true).await?;

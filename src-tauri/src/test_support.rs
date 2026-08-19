@@ -7,6 +7,15 @@ use std::{
 
 use crate::{
     application::{
+        analytics_query_service::{
+            declare_lot_cost_basis, get_analytics_status, get_gain_summary,
+            get_net_worth_attribution, get_performance_summary, list_cost_basis_declarations,
+            list_holding_lots, list_unknown_basis_lots, revoke_lot_cost_basis, AnalyticsPeriodDto,
+            AnalyticsScopeDto, DeclareLotCostBasisInput, GetAnalyticsStatusInput,
+            GetGainSummaryInput, GetNetWorthAttributionInput, GetPerformanceSummaryInput,
+            ListCostBasisDeclarationsInput, ListHoldingLotsInput, ListUnknownBasisLotsInput,
+            LotRefDto, LotRefSourceKind, RevokeLotCostBasisInput,
+        },
         history_query_service::{
             confirm_history_timezone, correct_activity, create_activity, get_account_timeline,
             get_activity, get_history_origin, list_activities, preview_activity, reverse_activity,
@@ -226,6 +235,124 @@ pub async fn assert_activity_history_commands_write_nothing(
                 state,
                 GetNetWorthTrendInput {
                     range: "all".to_owned(),
+                },
+            )
+            .await
+            .err(),
+        ),
+        (
+            "get_analytics_status",
+            get_analytics_status(
+                state,
+                GetAnalyticsStatusInput {
+                    scope: AnalyticsScopeDto::Household,
+                },
+            )
+            .await
+            .err(),
+        ),
+        (
+            "get_performance_summary",
+            get_performance_summary(
+                state,
+                GetPerformanceSummaryInput {
+                    scope: AnalyticsScopeDto::Household,
+                    period: AnalyticsPeriodDto::OneMonth,
+                },
+            )
+            .await
+            .err(),
+        ),
+        (
+            "get_gain_summary",
+            get_gain_summary(
+                state,
+                GetGainSummaryInput {
+                    scope: AnalyticsScopeDto::Household,
+                },
+            )
+            .await
+            .err(),
+        ),
+        (
+            "get_net_worth_attribution",
+            get_net_worth_attribution(
+                state,
+                GetNetWorthAttributionInput {
+                    scope: AnalyticsScopeDto::Household,
+                    period: AnalyticsPeriodDto::OneMonth,
+                },
+            )
+            .await
+            .err(),
+        ),
+        (
+            "list_holding_lots",
+            list_holding_lots(
+                state,
+                ListHoldingLotsInput {
+                    scope: AnalyticsScopeDto::Household,
+                    cursor: None,
+                    limit: Some(10),
+                },
+            )
+            .await
+            .err(),
+        ),
+        (
+            "list_unknown_basis_lots",
+            list_unknown_basis_lots(
+                state,
+                ListUnknownBasisLotsInput {
+                    scope: AnalyticsScopeDto::Household,
+                    cursor: None,
+                    limit: Some(10),
+                },
+            )
+            .await
+            .err(),
+        ),
+        (
+            "list_cost_basis_declarations",
+            list_cost_basis_declarations(
+                state,
+                ListCostBasisDeclarationsInput {
+                    scope: AnalyticsScopeDto::Household,
+                    cursor: None,
+                    limit: Some(10),
+                },
+            )
+            .await
+            .err(),
+        ),
+        (
+            "declare_lot_cost_basis",
+            declare_lot_cost_basis(
+                state,
+                DeclareLotCostBasisInput {
+                    lot_ref: LotRefDto {
+                        source_kind: LotRefSourceKind::OriginHolding,
+                        source_id: UNKNOWN_UUID.to_owned(),
+                    },
+                    instrument_id: UNKNOWN_UUID.to_owned(),
+                    declared_cost: "1".to_owned(),
+                    declared_currency: "USD".to_owned(),
+                    acquired_on: None,
+                    note: None,
+                },
+            )
+            .await
+            .err(),
+        ),
+        (
+            "revoke_lot_cost_basis",
+            revoke_lot_cost_basis(
+                state,
+                RevokeLotCostBasisInput {
+                    lot_ref: LotRefDto {
+                        source_kind: LotRefSourceKind::OriginHolding,
+                        source_id: UNKNOWN_UUID.to_owned(),
+                    },
                 },
             )
             .await

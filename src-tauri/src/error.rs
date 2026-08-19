@@ -93,6 +93,8 @@ pub enum AppError {
         reason: String,
         blocking_dates: Vec<String>,
     },
+    #[error("analytics inputs are incomplete")]
+    AnalyticsInputIncomplete { reason: String },
     #[error("the return is not computable")]
     ReturnNotComputable { reason: String },
     #[error("internal application error")]
@@ -195,6 +197,12 @@ impl AppError {
     pub fn invalid_cost_basis_declaration(message: &str) -> Self {
         Self::InvalidCostBasisDeclaration {
             message: message.to_owned(),
+        }
+    }
+
+    pub fn analytics_input_incomplete(reason: &str) -> Self {
+        Self::AnalyticsInputIncomplete {
+            reason: reason.to_owned(),
         }
     }
 
@@ -442,32 +450,27 @@ impl AppError {
                 ErrorCode::SnapshotRebuildFailed,
                 "History snapshots could not be rebuilt.",
             ),
-            // Phase 7 will add dedicated ErrorCode variants. Map to existing
-            // codes so generated bindings stay unchanged until then.
             Self::InvalidCostBasisDeclaration { message } => CommandError {
-                code: ErrorCode::ValidationError,
+                code: ErrorCode::InvalidCostBasisDeclaration,
                 message,
                 fields: None,
             },
-            Self::CostBasisLotNotFound => {
-                let mut fields = HashMap::new();
-                fields.insert("entity".to_owned(), "costBasisLot".to_owned());
-                CommandError {
-                    code: ErrorCode::NotFound,
-                    message: "The cost-basis lot could not be found.".to_owned(),
-                    fields: Some(fields),
-                }
-            }
-            Self::AnalyticsPeriodUnavailable { reason, .. } => CommandError {
-                code: ErrorCode::Conflict,
-                message: reason,
-                fields: None,
-            },
-            Self::ReturnNotComputable { reason } => CommandError {
-                code: ErrorCode::ValidationError,
-                message: reason,
-                fields: None,
-            },
+            Self::CostBasisLotNotFound => CommandError::new(
+                ErrorCode::CostBasisLotNotFound,
+                "The referenced lot could not be found.",
+            ),
+            Self::AnalyticsPeriodUnavailable { .. } => CommandError::new(
+                ErrorCode::AnalyticsPeriodUnavailable,
+                "This analytics period is unavailable.",
+            ),
+            Self::AnalyticsInputIncomplete { .. } => CommandError::new(
+                ErrorCode::AnalyticsInputIncomplete,
+                "Analytics inputs are incomplete.",
+            ),
+            Self::ReturnNotComputable { .. } => CommandError::new(
+                ErrorCode::ReturnNotComputable,
+                "The return cannot be computed for this period.",
+            ),
             Self::Internal => CommandError::new(
                 ErrorCode::InternalError,
                 "An internal application error occurred.",
@@ -524,6 +527,11 @@ pub enum ErrorCode {
     HistoryTimezoneConfirmationRequired,
     SnapshotRebuildRequired,
     SnapshotRebuildFailed,
+    AnalyticsPeriodUnavailable,
+    AnalyticsInputIncomplete,
+    ReturnNotComputable,
+    InvalidCostBasisDeclaration,
+    CostBasisLotNotFound,
     InternalError,
 }
 

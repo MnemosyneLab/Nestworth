@@ -15,6 +15,7 @@ use super::{
     gain_service::{self, SignedMoneyDto},
     historical_valuation_service::select_fx_quote_at,
     history_repositories::{self, FxPreferenceObservationRecord},
+    query_count,
     quote_service::{self, FxQuoteRecordDto},
     reference::{begin_read_tx, finish_read_tx, require_household_tx},
     valuation_service::ValuationSnapshot,
@@ -129,6 +130,7 @@ pub async fn get_currency_decomposition_in_tx(
     tx: &mut Transaction<'_, Sqlite>,
     scope: AnalyticsScope,
 ) -> Result<CurrencyDecompositionSummaryDto, AppError> {
+    query_count::record("currency_decomposition");
     let household = require_household_tx(tx).await?;
     let origin = history_repositories::get_origin_by_household(tx, &household.id)
         .await?

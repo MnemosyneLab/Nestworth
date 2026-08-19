@@ -7,6 +7,8 @@
 use std::collections::{HashMap, HashSet};
 
 use rust_decimal::Decimal;
+use serde::Serialize;
+use specta::Type;
 use sqlx::{Sqlite, Transaction};
 
 use super::{
@@ -63,7 +65,8 @@ pub struct HoldingDayDecomposition {
     pub currency: Decimal,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct AvailableAttributionDto {
     pub start_on: String,
     pub end_on: String,
@@ -84,11 +87,12 @@ pub struct AvailableAttributionDto {
     pub method_note: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct UnavailableAttributionDto {
     pub reason: String,
     pub blocking_dates: Vec<String>,
-    pub unconvertible_flow_count: i64,
+    pub unconvertible_flow_count: i32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -899,7 +903,7 @@ fn unavailable(
     NetWorthAttributionDto::Unavailable(UnavailableAttributionDto {
         reason: REASON_PERIOD_UNAVAILABLE.to_owned(),
         blocking_dates,
-        unconvertible_flow_count,
+        unconvertible_flow_count: i32::try_from(unconvertible_flow_count).unwrap_or(i32::MAX),
     })
 }
 

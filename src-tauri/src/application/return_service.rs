@@ -6,6 +6,8 @@ use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
 use rust_decimal::Decimal;
+use serde::Serialize;
+use specta::Type;
 use sqlx::{Sqlite, Transaction};
 
 use super::{
@@ -36,36 +38,43 @@ pub const FLOW_ASSUMPTION_START_OF_DAY: &str = "startOfDay";
 pub const REASON_PERIOD_UNAVAILABLE: &str = "ANALYTICS_PERIOD_UNAVAILABLE";
 pub const REASON_NOT_COMPUTABLE: &str = "RETURN_NOT_COMPUTABLE";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
 pub enum TwrResultDto {
+    #[serde(rename_all = "camelCase")]
     Available {
         method: String,
         flow_assumption: String,
         cumulative: String,
         annualized: Option<String>,
-        skipped_days: i64,
-        linked_days: i64,
+        skipped_days: i32,
+        linked_days: i32,
     },
+    #[serde(rename_all = "camelCase")]
     Unavailable {
         reason: String,
         blocking_dates: Vec<String>,
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
 pub enum XirrResultDto {
+    #[serde(rename_all = "camelCase")]
     Available {
         method: String,
         cumulative: String,
         annualized: Option<String>,
     },
+    #[serde(rename_all = "camelCase")]
     Unavailable {
         reason: String,
         blocking_dates: Vec<String>,
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct PerformanceSummaryDto {
     pub twr: TwrResultDto,
     pub xirr: XirrResultDto,
@@ -314,8 +323,8 @@ fn available_twr(chain: &TwrChain, period_days: i64) -> Result<TwrResultDto, App
         flow_assumption: FLOW_ASSUMPTION_START_OF_DAY.to_owned(),
         cumulative: cumulative.canonical(),
         annualized,
-        skipped_days: chain.skipped_days,
-        linked_days: chain.linked_days,
+        skipped_days: i32::try_from(chain.skipped_days).map_err(|_| AppError::Internal)?,
+        linked_days: i32::try_from(chain.linked_days).map_err(|_| AppError::Internal)?,
     })
 }
 

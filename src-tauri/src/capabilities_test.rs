@@ -74,6 +74,15 @@ mod tests {
         "get_history_status",
         "rebuild_history_snapshots",
         "get_net_worth_trend",
+        "get_analytics_status",
+        "get_performance_summary",
+        "get_gain_summary",
+        "get_net_worth_attribution",
+        "list_holding_lots",
+        "list_unknown_basis_lots",
+        "list_cost_basis_declarations",
+        "declare_lot_cost_basis",
+        "revoke_lot_cost_basis",
     ];
 
     const ALLOWED_PERMISSIONS: &[&str] = &[
@@ -112,6 +121,12 @@ mod tests {
         "raw_legs",
         "unit_price",
         "unitPrice",
+        "cost",
+        "basis",
+        "gain",
+        "proceeds",
+        "return",
+        "rate",
     ];
 
     #[test]
@@ -188,8 +203,26 @@ mod tests {
             "TAURI_INVOKE(\"preview_activity\"",
             "TAURI_INVOKE(\"rebuild_history_snapshots\"",
             "TAURI_INVOKE(\"get_net_worth_trend\"",
+            "TAURI_INVOKE(\"get_analytics_status\"",
+            "TAURI_INVOKE(\"get_performance_summary\"",
+            "TAURI_INVOKE(\"get_gain_summary\"",
+            "TAURI_INVOKE(\"get_net_worth_attribution\"",
+            "TAURI_INVOKE(\"list_holding_lots\"",
+            "TAURI_INVOKE(\"list_unknown_basis_lots\"",
+            "TAURI_INVOKE(\"list_cost_basis_declarations\"",
+            "TAURI_INVOKE(\"declare_lot_cost_basis\"",
+            "TAURI_INVOKE(\"revoke_lot_cost_basis\"",
             "SNAPSHOT_REBUILD_FAILED",
             "SNAPSHOT_REBUILD_REQUIRED",
+            "ANALYTICS_PERIOD_UNAVAILABLE",
+            "ANALYTICS_INPUT_INCOMPLETE",
+            "RETURN_NOT_COMPUTABLE",
+            "INVALID_COST_BASIS_DECLARATION",
+            "COST_BASIS_LOT_NOT_FOUND",
+            "kind: \"oneMonth\"",
+            "kind: \"household\"",
+            "export type LotRefDto",
+            "\"originHolding\" | \"acquisition\"",
         ] {
             assert!(
                 source.contains(needle),
