@@ -461,6 +461,7 @@ pub async fn list_origin_account_states(
     tx: &mut Transaction<'_, Sqlite>,
     origin_id: &str,
 ) -> Result<Vec<OriginAccountStateRecord>, AppError> {
+    query_count::record("origin_account_states");
     sqlx::query(
         "SELECT origin_id, account_id, primary_category, secondary_category, tracking_mode,
                 include_in_net_worth, include_in_investment, include_in_liquid_assets,
@@ -721,6 +722,29 @@ pub async fn list_all_activities_asc(
     .fetch_all(&mut **tx)
     .await
     .map_err(|error| map_read_error("history.activity_replay_list_failed", error))?;
+    activities_from_headers(tx, rows).await
+}
+
+pub async fn list_activities_in_local_date_range(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    start_on: &str,
+    end_on: &str,
+) -> Result<Vec<Activity>, AppError> {
+    query_count::record("activity_headers");
+    let rows = sqlx::query(
+        "SELECT id, household_id, kind, effective_at, effective_local_date, created_at, note,
+                reverses, corrects, correction_group, income_kind, fee_kind, related_instrument_id
+         FROM activities
+         WHERE household_id = ? AND effective_local_date >= ? AND effective_local_date <= ?
+         ORDER BY effective_at ASC, created_at ASC, id ASC",
+    )
+    .bind(household_id)
+    .bind(start_on)
+    .bind(end_on)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("history.activity_range_list_failed", error))?;
     activities_from_headers(tx, rows).await
 }
 
@@ -1236,6 +1260,29 @@ pub async fn list_latest_account_states_at(
     .fetch_all(&mut **tx)
     .await
     .map_err(|error| map_read_error("history.account_states_at_failed", error))?
+    .into_iter()
+    .map(account_state_from_row)
+    .collect()
+}
+
+pub async fn list_account_state_observations_for_household(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+) -> Result<Vec<AccountStateObservationRecord>, AppError> {
+    query_count::record("account_states");
+    sqlx::query(
+        "SELECT s.id, s.account_id, s.primary_category, s.secondary_category, s.tracking_mode,
+                s.include_in_net_worth, s.include_in_investment, s.include_in_liquid_assets,
+                s.archived_at, s.institution_id, s.group_id, s.effective_at, s.created_at
+         FROM account_state_observations s
+         JOIN accounts a ON a.id = s.account_id
+         WHERE a.household_id = ?
+         ORDER BY s.account_id ASC, s.effective_at ASC, s.created_at ASC, s.id ASC",
+    )
+    .bind(household_id)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("history.account_states_household_failed", error))?
     .into_iter()
     .map(account_state_from_row)
     .collect()
@@ -1803,6 +1850,29 @@ pub async fn list_latest_snapshots_in_range(
     .collect()
 }
 
+pub async fn earliest_complete_snapshot_on(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+) -> Result<Option<String>, AppError> {
+    query_count::record("snapshots_first_complete");
+    sqlx::query_scalar(
+        "SELECT MIN(snapshot_on) FROM (
+            SELECT snapshot_on, is_complete,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY snapshot_on
+                       ORDER BY revision DESC, created_at DESC, id DESC
+                   ) AS rn
+            FROM daily_valuation_snapshots
+            WHERE household_id = ?
+         ) ranked
+         WHERE rn = 1 AND is_complete = 1",
+    )
+    .bind(household_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("history.snapshot_first_complete_failed", error))
+}
+
 pub async fn count_snapshots_for_date(
     tx: &mut Transaction<'_, Sqlite>,
     household_id: &str,
@@ -1836,6 +1906,32 @@ pub async fn list_snapshot_items(
     .fetch_all(&mut **tx)
     .await
     .map_err(|error| map_read_error("history.snapshot_items_load_failed", error))?
+    .into_iter()
+    .map(snapshot_item_from_row)
+    .collect()
+}
+
+pub async fn list_snapshot_items_for_ids(
+    tx: &mut Transaction<'_, Sqlite>,
+    snapshot_ids: &[String],
+) -> Result<Vec<DailyValuationSnapshotItemRecord>, AppError> {
+    query_count::record("snapshot_items");
+    if snapshot_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let payload = serde_json::to_string(snapshot_ids).map_err(|_| AppError::Internal)?;
+    sqlx::query(
+        "SELECT id, snapshot_id, account_id, holding_id, instrument_id, component_kind,
+                native_amount, native_currency, base_amount, instrument_quote_id, fx_quote_id,
+                account_state_observation_id, origin_id, activity_id, is_complete, missing_reason, sort_order
+         FROM daily_valuation_snapshot_items
+         WHERE snapshot_id IN (SELECT value FROM json_each(?))
+         ORDER BY snapshot_id ASC, sort_order ASC, account_id ASC, id ASC",
+    )
+    .bind(payload)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("history.snapshot_items_batch_failed", error))?
     .into_iter()
     .map(snapshot_item_from_row)
     .collect()

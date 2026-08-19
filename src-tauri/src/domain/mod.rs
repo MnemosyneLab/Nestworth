@@ -26,6 +26,7 @@ mod text;
 mod time;
 mod unit_price;
 mod valuation;
+mod xirr;
 
 pub use account::{
     Account, AccountValue, NewAccount, PersistedAccount, PersistedAccountValue, ValueKind,
@@ -89,6 +90,7 @@ pub use unit_price::UnitPrice;
 pub use valuation::{
     convert_native_to_base, holding_native_value, unavailable_holding, ConvertedValue, HoldingValue,
 };
+pub use xirr::{solve_xirr, solve_xirr_bounded, XirrCashflow, XirrError};
 
 #[cfg(test)]
 mod tests {

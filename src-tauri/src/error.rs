@@ -88,6 +88,13 @@ pub enum AppError {
     InvalidCostBasisDeclaration { message: String },
     #[error("the cost-basis lot was not found")]
     CostBasisLotNotFound,
+    #[error("the analytics period is unavailable")]
+    AnalyticsPeriodUnavailable {
+        reason: String,
+        blocking_dates: Vec<String>,
+    },
+    #[error("the return is not computable")]
+    ReturnNotComputable { reason: String },
     #[error("internal application error")]
     Internal,
 }
@@ -451,6 +458,16 @@ impl AppError {
                     fields: Some(fields),
                 }
             }
+            Self::AnalyticsPeriodUnavailable { reason, .. } => CommandError {
+                code: ErrorCode::Conflict,
+                message: reason,
+                fields: None,
+            },
+            Self::ReturnNotComputable { reason } => CommandError {
+                code: ErrorCode::ValidationError,
+                message: reason,
+                fields: None,
+            },
             Self::Internal => CommandError::new(
                 ErrorCode::InternalError,
                 "An internal application error occurred.",
