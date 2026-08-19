@@ -128,7 +128,7 @@ pub async fn initialize_database(path: PathBuf) -> DatabaseBootstrapResult {
 
     if let Err(_error) = crate::application::history_origin::initialize_history_origin_if_needed(
         &pool,
-        supported_migration,
+        crate::application::history_origin::HISTORY_ORIGIN_SCHEMA_VERSION,
     )
     .await
     {
@@ -300,11 +300,24 @@ mod tests {
             .await
             .expect("history schema query should succeed");
             assert_eq!(history_tables, 4);
+            let analytics_tables: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'cost_basis_declarations'",
+            )
+            .fetch_one(&first_pool)
+            .await
+            .expect("analytics schema query should succeed");
+            assert_eq!(analytics_tables, 1);
+            let declarations: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM cost_basis_declarations")
+                    .fetch_one(&first_pool)
+                    .await
+                    .expect("declaration count");
+            assert_eq!(declarations, 0);
             let version: i64 = sqlx::query_scalar("SELECT MAX(version) FROM _sqlx_migrations")
                 .fetch_one(&first_pool)
                 .await
                 .expect("version");
-            assert_eq!(version, 3);
+            assert_eq!(version, 4);
             let foreign_keys: i64 = sqlx::query_scalar("PRAGMA foreign_keys")
                 .fetch_one(&first_pool)
                 .await
@@ -363,7 +376,7 @@ mod tests {
                 read_migration_version(&path)
                     .await
                     .expect("migrated database should be readable"),
-                3
+                4
             );
 
             remove_database(&path);
@@ -467,7 +480,7 @@ mod tests {
                 result.status,
                 DatabaseBootstrapStatus::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 3,
+                    supported: 4,
                 }
             );
             assert!(result.pool.is_none());
@@ -481,7 +494,7 @@ mod tests {
                 crate::state::DatabaseRuntime::Blocked {
                     status: DatabaseBootstrapStatus::UnsupportedNewerDatabase {
                         found: 999,
-                        supported: 3,
+                        supported: 4,
                     },
                     ..
                 }
@@ -490,7 +503,7 @@ mod tests {
                 app_state.writable_db(),
                 Err(crate::error::AppError::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 3,
+                    supported: 4,
                 })
             ));
 
@@ -569,7 +582,13 @@ mod tests {
                 .fetch_one(&pool)
                 .await
                 .expect("version");
-            assert_eq!(version, 3);
+            assert_eq!(version, 4);
+            let declarations: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM cost_basis_declarations")
+                    .fetch_one(&pool)
+                    .await
+                    .expect("declaration count");
+            assert_eq!(declarations, 0);
             for (table, expected) in [
                 ("households", 1),
                 ("app_settings", 1),
@@ -775,7 +794,13 @@ mod tests {
                 .fetch_one(&pool)
                 .await
                 .expect("migrated version");
-            assert_eq!(version, 3);
+            assert_eq!(version, 4);
+            let declarations: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM cost_basis_declarations")
+                    .fetch_one(&pool)
+                    .await
+                    .expect("declaration count");
+            assert_eq!(declarations, 0);
             let activity_id_columns: i64 = sqlx::query_scalar(
                 "SELECT COUNT(*) FROM pragma_table_info('account_values') WHERE name = 'activity_id'",
             )
@@ -1027,6 +1052,188 @@ mod tests {
     }
 
     #[test]
+    fn released_v013_fixture_migrates_to_4_with_zero_declarations_and_unchanged_ids() {
+        tauri::async_runtime::block_on(async {
+            let path = test_path("v013-migrate-004");
+            remove_database(&path);
+            let pool = connect_writable(&path, true)
+                .await
+                .expect("v0.1.3 fixture should open");
+            for version in [1_i64, 2, 3] {
+                let migration = super::MIGRATOR
+                    .iter()
+                    .find(|item| item.version == version)
+                    .expect("migrations 001, 002, and 003 should exist")
+                    .clone();
+                let mut conn = pool.acquire().await.expect("connection");
+                sqlx::migrate::Migrate::ensure_migrations_table(&mut *conn)
+                    .await
+                    .expect("migration metadata table should be created");
+                sqlx::migrate::Migrate::apply(&mut *conn, &migration)
+                    .await
+                    .expect("released schema should apply");
+            }
+            sqlx::raw_sql(include_str!("../../test-fixtures/v0.1.3.sql"))
+                .execute(&pool)
+                .await
+                .expect("released v0.1.3 fixture should load");
+
+            let before_activities: String = sqlx::query_scalar(
+                "SELECT COALESCE(GROUP_CONCAT(id, ','), '') FROM (SELECT id FROM activities ORDER BY id)",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("activity ids");
+            let before_legs: String = sqlx::query_scalar(
+                "SELECT COALESCE(GROUP_CONCAT(id, ','), '') FROM (SELECT id FROM activity_legs ORDER BY id)",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("leg ids");
+            let before_snapshots: String = sqlx::query_scalar(
+                "SELECT COALESCE(GROUP_CONCAT(id || ':' || CAST(revision AS TEXT), ','), '') FROM (SELECT id, revision FROM daily_valuation_snapshots ORDER BY id)",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("snapshot ids");
+            let before_corrections: String = sqlx::query_scalar(
+                "SELECT COALESCE(GROUP_CONCAT(id || ':' || IFNULL(reverses, '') || ':' || IFNULL(corrects, ''), ','), '') FROM (SELECT id, reverses, corrects FROM activities ORDER BY id)",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("correction links");
+            let before_archives: String = sqlx::query_scalar(
+                "SELECT COALESCE(GROUP_CONCAT(id || ':' || IFNULL(archived_at, ''), ','), '') FROM (SELECT id, archived_at FROM accounts ORDER BY id)",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("archive state");
+            let before_holdings: String = sqlx::query_scalar(
+                "SELECT COALESCE(GROUP_CONCAT(id || ':' || quantity, ','), '') FROM (SELECT id, quantity FROM holdings ORDER BY id)",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("holding quantities");
+            let before_activity_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM activities")
+                .fetch_one(&pool)
+                .await
+                .expect("activity count");
+            let origin_schema: i64 =
+                sqlx::query_scalar("SELECT schema_version FROM history_origins")
+                    .fetch_one(&pool)
+                    .await
+                    .expect("origin schema");
+            assert_eq!(origin_schema, 3);
+            pool.close().await;
+
+            let migrated = initialize_database(path.clone()).await;
+            assert_eq!(migrated.status, DatabaseBootstrapStatus::Migrated);
+            let pool = migrated.pool.expect("migrated fixture should be writable");
+            let version: i64 = sqlx::query_scalar("SELECT MAX(version) FROM _sqlx_migrations")
+                .fetch_one(&pool)
+                .await
+                .expect("version");
+            assert_eq!(version, 4);
+            let declarations: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM cost_basis_declarations")
+                    .fetch_one(&pool)
+                    .await
+                    .expect("declaration count");
+            assert_eq!(declarations, 0);
+            let after_activity_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM activities")
+                .fetch_one(&pool)
+                .await
+                .expect("activity count after migrate");
+            assert_eq!(after_activity_count, before_activity_count);
+            let after_activities: String = sqlx::query_scalar(
+                "SELECT COALESCE(GROUP_CONCAT(id, ','), '') FROM (SELECT id FROM activities ORDER BY id)",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("activity ids after");
+            let after_legs: String = sqlx::query_scalar(
+                "SELECT COALESCE(GROUP_CONCAT(id, ','), '') FROM (SELECT id FROM activity_legs ORDER BY id)",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("leg ids after");
+            let after_snapshots: String = sqlx::query_scalar(
+                "SELECT COALESCE(GROUP_CONCAT(id || ':' || CAST(revision AS TEXT), ','), '') FROM (SELECT id, revision FROM daily_valuation_snapshots ORDER BY id)",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("snapshot ids after");
+            let after_corrections: String = sqlx::query_scalar(
+                "SELECT COALESCE(GROUP_CONCAT(id || ':' || IFNULL(reverses, '') || ':' || IFNULL(corrects, ''), ','), '') FROM (SELECT id, reverses, corrects FROM activities ORDER BY id)",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("correction links after");
+            let after_archives: String = sqlx::query_scalar(
+                "SELECT COALESCE(GROUP_CONCAT(id || ':' || IFNULL(archived_at, ''), ','), '') FROM (SELECT id, archived_at FROM accounts ORDER BY id)",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("archive state after");
+            let after_holdings: String = sqlx::query_scalar(
+                "SELECT COALESCE(GROUP_CONCAT(id || ':' || quantity, ','), '') FROM (SELECT id, quantity FROM holdings ORDER BY id)",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("holding quantities after");
+            assert_eq!(after_activities, before_activities);
+            assert_eq!(after_legs, before_legs);
+            assert_eq!(after_snapshots, before_snapshots);
+            assert_eq!(after_corrections, before_corrections);
+            assert_eq!(after_archives, before_archives);
+            assert_eq!(after_holdings, before_holdings);
+            let origin_schema: i64 =
+                sqlx::query_scalar("SELECT schema_version FROM history_origins")
+                    .fetch_one(&pool)
+                    .await
+                    .expect("origin schema after");
+            assert_eq!(origin_schema, 3);
+            let zero_gross_settlement_legs: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM activity_legs
+                 WHERE activity_id = '01a0188f-8621-7a61-a206-bf5800173c36'
+                   AND role = 'settlement'",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("zero-gross settlement legs after migrate");
+            assert_eq!(zero_gross_settlement_legs, 0);
+            let fifo_trade_fee_kinds: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM activities
+                 WHERE id IN (
+                   '01a0188f-861c-7b20-8609-535e345b7c42',
+                   '01a0188f-861e-7e70-930b-5f4e2d6cda2d',
+                   '01a0188f-861f-7c20-83d1-4abb57f8ddc0'
+                 )
+                   AND fee_kind IS NOT NULL",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("FIFO trade fee_kind after migrate");
+            assert_eq!(fifo_trade_fee_kinds, 0);
+            let foreign_keys = sqlx::query("PRAGMA foreign_key_check")
+                .fetch_all(&pool)
+                .await
+                .expect("foreign key check");
+            assert!(foreign_keys.is_empty());
+            let integrity: String = sqlx::query_scalar("PRAGMA integrity_check")
+                .fetch_one(&pool)
+                .await
+                .expect("integrity check");
+            assert_eq!(integrity, "ok");
+            pool.close().await;
+
+            remove_database(&path);
+            let snapshot = pre_migration_snapshot_path(&path, 3);
+            remove_database(&snapshot);
+        });
+    }
+
+    #[test]
     fn schema_002_database_is_snapshotted_before_migrate_to_003() {
         tauri::async_runtime::block_on(async {
             let path = test_path("snapshot-002");
@@ -1070,7 +1277,7 @@ mod tests {
                 read_migration_version(&path)
                     .await
                     .expect("migrated database should be readable"),
-                3
+                4
             );
 
             remove_database(&path);
@@ -1124,19 +1331,19 @@ mod tests {
     }
 
     #[test]
-    fn future_version_4_is_unchanged_and_writes_no_origin_or_snapshot() {
+    fn future_version_5_is_unchanged_and_writes_no_origin_snapshot_or_declaration() {
         tauri::async_runtime::block_on(async {
-            let path = test_path("future-v4");
+            let path = test_path("future-v5");
             remove_database(&path);
             let migrated = initialize_database(path.clone()).await;
             assert_eq!(migrated.status, DatabaseBootstrapStatus::Migrated);
-            let pool = migrated.pool.expect("schema 3 database");
+            let pool = migrated.pool.expect("schema 4 database");
             sqlx::query(
-                "INSERT INTO _sqlx_migrations (version, description, installed_on, success, checksum, execution_time) VALUES (4, 'future', CURRENT_TIMESTAMP, 1, zeroblob(32), 1)",
+                "INSERT INTO _sqlx_migrations (version, description, installed_on, success, checksum, execution_time) VALUES (5, 'future', CURRENT_TIMESTAMP, 1, zeroblob(32), 1)",
             )
             .execute(&pool)
             .await
-            .expect("version 4 row should be inserted");
+            .expect("version 5 row should be inserted");
             pool.close().await;
 
             let before_hash = stable_sqlite_hash(&path).await;
@@ -1147,8 +1354,8 @@ mod tests {
             assert_eq!(
                 result.status,
                 DatabaseBootstrapStatus::UnsupportedNewerDatabase {
-                    found: 4,
-                    supported: 3,
+                    found: 5,
+                    supported: 4,
                 }
             );
             assert!(result.pool.is_none());
@@ -1177,6 +1384,12 @@ mod tests {
                     .await
                     .expect("snapshot rows");
             assert_eq!(snapshots, 0);
+            let declarations: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM cost_basis_declarations")
+                    .fetch_one(&pool)
+                    .await
+                    .expect("declaration rows");
+            assert_eq!(declarations, 0);
             pool.close().await;
 
             let state = AppState::initialize(path.clone()).await;
@@ -1186,6 +1399,44 @@ mod tests {
                 before_hash,
             )
             .await;
+            let declare = crate::application::cost_basis_service::declare_lot_cost_basis(
+                &state,
+                crate::application::cost_basis_service::DeclareLotCostBasisInput {
+                    origin_holding_id: Some("30303030-3030-4303-8303-303030303030".to_owned()),
+                    activity_leg_id: None,
+                    instrument_id: "20202020-2020-4202-8202-202020202020".to_owned(),
+                    declared_cost: "1500".to_owned(),
+                    declared_currency: "USD".to_owned(),
+                    acquired_on: None,
+                    note: None,
+                },
+            )
+            .await
+            .expect_err("blocked declare");
+            assert!(matches!(
+                declare,
+                crate::error::AppError::UnsupportedNewerDatabase {
+                    found: 5,
+                    supported: 4
+                }
+            ));
+            let revoke = crate::application::cost_basis_service::revoke_lot_cost_basis(
+                &state,
+                crate::application::cost_basis_service::RevokeLotCostBasisInput {
+                    origin_holding_id: Some("30303030-3030-4303-8303-303030303030".to_owned()),
+                    activity_leg_id: None,
+                },
+            )
+            .await
+            .expect_err("blocked revoke");
+            assert!(matches!(
+                revoke,
+                crate::error::AppError::UnsupportedNewerDatabase {
+                    found: 5,
+                    supported: 4
+                }
+            ));
+            assert_eq!(stable_sqlite_hash(&path).await, before_hash);
 
             remove_database(&path);
         });
@@ -1202,6 +1453,11 @@ mod tests {
             .await
             .expect("activity count");
         assert_eq!(activity_count, 0);
+        let declarations: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM cost_basis_declarations")
+            .fetch_one(pool)
+            .await
+            .expect("declaration count");
+        assert_eq!(declarations, 0);
         let source: String = sqlx::query_scalar("SELECT source FROM history_origins")
             .fetch_one(pool)
             .await

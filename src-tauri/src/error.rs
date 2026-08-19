@@ -84,6 +84,10 @@ pub enum AppError {
     SnapshotRebuildRequired,
     #[error("history snapshots could not be rebuilt")]
     SnapshotRebuildFailed,
+    #[error("the cost-basis declaration is invalid")]
+    InvalidCostBasisDeclaration { message: String },
+    #[error("the cost-basis lot was not found")]
+    CostBasisLotNotFound,
     #[error("internal application error")]
     Internal,
 }
@@ -177,6 +181,12 @@ impl AppError {
 
     pub fn activity_not_correctable(message: &str) -> Self {
         Self::ActivityNotCorrectable {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn invalid_cost_basis_declaration(message: &str) -> Self {
+        Self::InvalidCostBasisDeclaration {
             message: message.to_owned(),
         }
     }
@@ -425,6 +435,22 @@ impl AppError {
                 ErrorCode::SnapshotRebuildFailed,
                 "History snapshots could not be rebuilt.",
             ),
+            // Phase 7 will add dedicated ErrorCode variants. Map to existing
+            // codes so generated bindings stay unchanged until then.
+            Self::InvalidCostBasisDeclaration { message } => CommandError {
+                code: ErrorCode::ValidationError,
+                message,
+                fields: None,
+            },
+            Self::CostBasisLotNotFound => {
+                let mut fields = HashMap::new();
+                fields.insert("entity".to_owned(), "costBasisLot".to_owned());
+                CommandError {
+                    code: ErrorCode::NotFound,
+                    message: "The cost-basis lot could not be found.".to_owned(),
+                    fields: Some(fields),
+                }
+            }
             Self::Internal => CommandError::new(
                 ErrorCode::InternalError,
                 "An internal application error occurred.",

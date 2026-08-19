@@ -154,7 +154,7 @@ async fn persist_onboarding_in_transaction(
         tx,
         prepared.household.id(),
         &prepared.now,
-        crate::infrastructure::database_bootstrap::max_supported_migration(),
+        crate::application::history_origin::HISTORY_ORIGIN_SCHEMA_VERSION,
     )
     .await?;
 
@@ -451,7 +451,7 @@ mod tests {
                 state.bootstrap_status(),
                 DatabaseBootstrapStatus::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 3
+                    supported: 4
                 }
             ));
             let before_hash = crate::test_support::stable_sqlite_hash(&path).await;
@@ -463,7 +463,7 @@ mod tests {
                 error,
                 AppError::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 3
+                    supported: 4
                 }
             ));
             assert_eq!(

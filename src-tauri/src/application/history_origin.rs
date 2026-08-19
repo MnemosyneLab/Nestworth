@@ -38,6 +38,9 @@ use crate::{
 
 pub const ORIGIN_SOURCE_MIGRATED_V012: &str = "migrated_v012";
 pub const ORIGIN_SOURCE_FRESH_ONBOARDING: &str = "fresh_onboarding";
+/// Activity-history schema that History Origin provenance captures.
+/// Analytics migrations do not recapture origin, so this stays 3.
+pub const HISTORY_ORIGIN_SCHEMA_VERSION: i64 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OriginTimezoneChoice {

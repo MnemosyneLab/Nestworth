@@ -147,6 +147,37 @@ pub enum LotEffect {
     None,
 }
 
+/// Identity of a lot at the moment it was opened, including later-consumed lots.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LotOpening {
+    lot_ref: LotRef,
+    instrument_id: InstrumentId,
+    acquired_at: Timestamp,
+    basis: BasisStatus,
+}
+
+impl LotOpening {
+    #[must_use]
+    pub fn lot_ref(&self) -> LotRef {
+        self.lot_ref
+    }
+
+    #[must_use]
+    pub fn instrument_id(&self) -> InstrumentId {
+        self.instrument_id
+    }
+
+    #[must_use]
+    pub fn acquired_at(&self) -> &Timestamp {
+        &self.acquired_at
+    }
+
+    #[must_use]
+    pub fn basis(&self) -> BasisStatus {
+        self.basis
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpenLot {
     lot_ref: LotRef,
@@ -376,6 +407,7 @@ impl RealizedGainTotals {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LotLedger {
     open_lots: Vec<OpenLot>,
+    openings: Vec<LotOpening>,
     consumptions: Vec<LotConsumption>,
     diagnostics: Vec<LedgerDiagnostic>,
     quantity_shortfall: bool,
@@ -385,6 +417,18 @@ impl LotLedger {
     #[must_use]
     pub fn open_lots(&self) -> &[OpenLot] {
         &self.open_lots
+    }
+
+    #[must_use]
+    pub fn openings(&self) -> &[LotOpening] {
+        &self.openings
+    }
+
+    #[must_use]
+    pub fn opening(&self, lot_ref: LotRef) -> Option<&LotOpening> {
+        self.openings
+            .iter()
+            .find(|opening| opening.lot_ref == lot_ref)
     }
 
     #[must_use]
@@ -494,6 +538,7 @@ pub fn replay(events: impl IntoIterator<Item = LedgerEvent>) -> Result<LotLedger
     events.sort_by_key(event_sort_key);
 
     let mut lots: Vec<InternalLot> = Vec::new();
+    let mut openings: Vec<LotOpening> = Vec::new();
     let mut consumptions: Vec<LotConsumption> = Vec::new();
     let mut diagnostics: Vec<LedgerDiagnostic> = Vec::new();
     let mut quantity_shortfall = false;
@@ -513,6 +558,7 @@ pub fn replay(events: impl IntoIterator<Item = LedgerEvent>) -> Result<LotLedger
             } => {
                 open_unknown_lot(
                     &mut lots,
+                    &mut openings,
                     LotRef::OriginHolding(holding_id),
                     quantity,
                     origin_at.clone(),
@@ -525,6 +571,7 @@ pub fn replay(events: impl IntoIterator<Item = LedgerEvent>) -> Result<LotLedger
             LedgerEvent::Activity(activity) => {
                 apply_activity(
                     &mut lots,
+                    &mut openings,
                     &mut consumptions,
                     &mut diagnostics,
                     &mut quantity_shortfall,
@@ -561,8 +608,15 @@ pub fn replay(events: impl IntoIterator<Item = LedgerEvent>) -> Result<LotLedger
             .then(left.account_id.as_uuid().cmp(&right.account_id.as_uuid()))
     });
 
+    openings.sort_by(|left, right| {
+        left.acquired_at
+            .cmp(&right.acquired_at)
+            .then(left.lot_ref.cmp(&right.lot_ref))
+    });
+
     Ok(LotLedger {
         open_lots,
+        openings,
         consumptions,
         diagnostics,
         quantity_shortfall,
@@ -623,6 +677,7 @@ fn event_sort_key(event: &LedgerEvent) -> (Timestamp, Timestamp, Uuid, i64, Uuid
 
 fn apply_activity(
     lots: &mut Vec<InternalLot>,
+    openings: &mut Vec<LotOpening>,
     consumptions: &mut Vec<LotConsumption>,
     diagnostics: &mut Vec<LedgerDiagnostic>,
     quantity_shortfall: &mut bool,
@@ -640,6 +695,7 @@ fn apply_activity(
         } => {
             open_known_lot(
                 lots,
+                openings,
                 LotRef::Acquisition(holding_leg_id),
                 quantity,
                 activity.effective_at,
@@ -666,6 +722,7 @@ fn apply_activity(
         } => {
             open_unknown_lot(
                 lots,
+                openings,
                 LotRef::Acquisition(holding_leg_id),
                 quantity,
                 activity.effective_at,
@@ -737,6 +794,7 @@ fn apply_activity(
 #[allow(clippy::too_many_arguments)]
 fn open_known_lot(
     lots: &mut Vec<InternalLot>,
+    openings: &mut Vec<LotOpening>,
     lot_ref: LotRef,
     quantity: Quantity,
     acquired_at: Timestamp,
@@ -771,6 +829,12 @@ fn open_known_lot(
         }
         None => Decimal::ZERO,
     };
+    openings.push(LotOpening {
+        lot_ref,
+        instrument_id,
+        acquired_at: acquired_at.clone(),
+        basis: BasisStatus::Known,
+    });
     lots.push(InternalLot {
         lot_ref,
         remaining_qty: quantity.amount(),
@@ -793,6 +857,7 @@ fn open_known_lot(
 #[allow(clippy::too_many_arguments)]
 fn open_unknown_lot(
     lots: &mut Vec<InternalLot>,
+    openings: &mut Vec<LotOpening>,
     lot_ref: LotRef,
     quantity: Quantity,
     acquired_at: Timestamp,
@@ -804,6 +869,12 @@ fn open_unknown_lot(
     if quantity.is_zero() {
         return;
     }
+    openings.push(LotOpening {
+        lot_ref,
+        instrument_id,
+        acquired_at: acquired_at.clone(),
+        basis: BasisStatus::Unknown,
+    });
     lots.push(InternalLot {
         lot_ref,
         remaining_qty: quantity.amount(),
@@ -1170,7 +1241,7 @@ fn reopen_at(
 mod tests {
     use super::{
         replay, ActivityLedgerEvent, BasisStatus, ConsumptionKind, LedgerDiagnostic, LedgerEvent,
-        LotEffect, LotRef,
+        LotEffect, LotOpening, LotRef,
     };
     use crate::domain::currency::CurrencyCode;
     use crate::domain::ids::{
@@ -1536,6 +1607,13 @@ mod tests {
             ledger.open_lots()[2].lot_ref(),
             LotRef::Acquisition(leg_id(increase_leg))
         );
+        assert_eq!(ledger.openings().len(), 3);
+        assert_eq!(
+            ledger
+                .opening(LotRef::OriginHolding(holding_id(origin_holding)))
+                .map(LotOpening::basis),
+            Some(BasisStatus::Unknown)
+        );
     }
 
     #[test]
@@ -1570,6 +1648,12 @@ mod tests {
         let ledger = replay(events).expect("replay");
         assert!(ledger.open_lots().is_empty());
         assert_eq!(ledger.consumptions().len(), 1);
+        assert_eq!(
+            ledger
+                .opening(LotRef::Acquisition(leg_id(buy_leg)))
+                .map(LotOpening::basis),
+            Some(BasisStatus::Known)
+        );
         assert_eq!(
             ledger.consumptions()[0].kind(),
             ConsumptionKind::UnexplainedDisposal
