@@ -4,7 +4,7 @@ All notable changes to Nestworth are recorded here. The project follows semantic
 
 ## [0.1.4] - Unreleased
 
-v0.1.4 is development-complete pending Phase 11 release closeout. Package, Cargo, and Tauri versions remain `0.1.3` until that closeout. This revision does not assign a publish date, create a git tag, or mark the product Released.
+v0.1.4 is development-complete and is undergoing release-candidate validation. Package, Cargo, and Tauri versions are `0.1.4`. This closeout does not assign a publish date, create a git tag, or mark the product Released.
 
 ### Added
 
@@ -31,17 +31,18 @@ v0.1.4 is development-complete pending Phase 11 release closeout. Package, Cargo
 - No benchmarks, index series, peer comparison, or relative return
 - FIFO is the only lot policy; average-cost, specific-lot, LIFO, and HIFO remain deferred
 - No tax reporting, wash-sale rules, or jurisdiction-specific cost rules
-- Isolated-data launch, keyboard/VoiceOver, arm64 packaging, and signing remain named Phase 11 macOS checks
+- Isolated-data launch, keyboard/VoiceOver, arm64 packaging, and signing remain named macOS release checks
 - Binary floating point remains prohibited, including in the XIRR solver
+- A declared basis is not an imported transaction; v0.1.5 must not backfill acquisition history from a declaration and must not silently reinterpret an existing FIFO result
 
 ### Distribution Status
 
 - Automated frontend and Linux-host Rust gates are the development evidence for this revision
 - Remaining named macOS distribution checks, not executed in this Linux closeout:
   - Isolated-data application launch with production providers unconfigured
-  - Keyboard-only smoke of Analytics, lot table, declaration, and attribution workflows
+  - Keyboard-only smoke of Analytics, lot table, declaration, attribution, and integrated Overview/Investments/Account workflows
   - VoiceOver smoke testing
-  - arm64 `.app` and `.dmg` packaging with version and minimum-macOS metadata (`Nestworth_0.1.3_aarch64.dmg` until Phase 11)
+  - arm64 `.app` and `.dmg` packaging with version and minimum-macOS metadata (`Nestworth_0.1.4_aarch64.dmg`)
   - Chosen signing/notarization policy; unsigned artifacts remain controlled-test only
 
 ## [0.1.3] - Unreleased
