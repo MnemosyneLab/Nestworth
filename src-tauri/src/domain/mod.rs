@@ -47,8 +47,8 @@ pub use analytics_scope::{
 pub use category::{PrimaryCategory, SecondaryCategory, TrackingMode};
 pub use currency::CurrencyCode;
 pub use decimal::{
-    canonical_decimal, checked_add, checked_exp, checked_ln, checked_powd, checked_sub,
-    round_to_money_scale, round_to_return_rate_scale,
+    canonical_decimal, checked_add, checked_div, checked_exp, checked_ln, checked_mul,
+    checked_powd, checked_sub, round_to_money_scale, round_to_return_rate_scale,
 };
 pub use fx::{convert_with_direct_rate, convert_with_inverse_rate, FxPair, FxRate};
 pub use group::{AccountGroup, NewAccountGroup, PersistedAccountGroup};

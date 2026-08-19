@@ -47,7 +47,7 @@ use super::{
     ids::{AccountId, ActivityId, ActivityLegId, HistoryOriginId, HoldingId, InstrumentId},
     money::Money,
     quantity::Quantity,
-    time::Timestamp,
+    time::{CalendarDate, Timestamp},
 };
 use crate::error::AppError;
 
@@ -153,7 +153,9 @@ pub struct LotOpening {
     lot_ref: LotRef,
     instrument_id: InstrumentId,
     acquired_at: Timestamp,
+    original_quantity: Quantity,
     basis: BasisStatus,
+    declared_acquired_on: Option<CalendarDate>,
 }
 
 impl LotOpening {
@@ -175,6 +177,16 @@ impl LotOpening {
     #[must_use]
     pub fn basis(&self) -> BasisStatus {
         self.basis
+    }
+
+    #[must_use]
+    pub fn original_quantity(&self) -> Quantity {
+        self.original_quantity
+    }
+
+    #[must_use]
+    pub fn declared_acquired_on(&self) -> Option<CalendarDate> {
+        self.declared_acquired_on
     }
 }
 
@@ -444,6 +456,59 @@ impl LotLedger {
     #[must_use]
     pub fn has_quantity_shortfall(&self) -> bool {
         self.quantity_shortfall
+    }
+
+    /// Overlay a supplying cost-basis declaration onto this derived ledger.
+    ///
+    /// Makes an unknown-basis opening known with `cost` for the original lot
+    /// quantity. Remaining and consumed cost are `cost × q / Q` at full checked
+    /// precision. Quantity, proceeds, and fees are unchanged. Known-basis lots
+    /// and missing lot refs are left untouched.
+    pub fn apply_declaration(
+        &mut self,
+        lot_ref: LotRef,
+        cost: Money,
+        acquired_on: Option<CalendarDate>,
+    ) -> Result<(), AppError> {
+        let Some(opening) = self
+            .openings
+            .iter_mut()
+            .find(|opening| opening.lot_ref == lot_ref)
+        else {
+            return Ok(());
+        };
+        if opening.basis != BasisStatus::Unknown {
+            return Ok(());
+        }
+        let original_qty = opening.original_quantity.amount();
+        opening.basis = BasisStatus::Known;
+        opening.declared_acquired_on = acquired_on;
+        let cost_amount = cost.amount();
+        let currency = cost.currency();
+        for lot in &mut self.open_lots {
+            if lot.lot_ref != lot_ref {
+                continue;
+            }
+            lot.basis = BasisStatus::Known;
+            lot.original_cost = Some(cost_amount);
+            lot.cost_remaining = Some(allocate_share(
+                cost_amount,
+                lot.quantity_remaining.amount(),
+                original_qty,
+            )?);
+            lot.cost_currency = Some(currency);
+        }
+        for consumption in &mut self.consumptions {
+            if consumption.lot_ref != lot_ref {
+                continue;
+            }
+            consumption.consumed_cost = Some(allocate_share(
+                cost_amount,
+                consumption.quantity_consumed.amount(),
+                original_qty,
+            )?);
+        }
+        Ok(())
     }
 
     pub fn realized_gain_totals(&self) -> Result<Option<RealizedGainTotals>, AppError> {
@@ -833,7 +898,9 @@ fn open_known_lot(
         lot_ref,
         instrument_id,
         acquired_at: acquired_at.clone(),
+        original_quantity: quantity,
         basis: BasisStatus::Known,
+        declared_acquired_on: None,
     });
     lots.push(InternalLot {
         lot_ref,
@@ -873,7 +940,9 @@ fn open_unknown_lot(
         lot_ref,
         instrument_id,
         acquired_at: acquired_at.clone(),
+        original_quantity: quantity,
         basis: BasisStatus::Unknown,
+        declared_acquired_on: None,
     });
     lots.push(InternalLot {
         lot_ref,
@@ -1812,6 +1881,84 @@ mod tests {
         assert_eq!(ledger.open_lots().len(), 1);
         assert_eq!(ledger.open_lots()[0].quantity_remaining().canonical(), "1");
         assert!(ledger.consumptions().is_empty());
+    }
+
+    #[test]
+    fn apply_declaration_makes_unknown_opening_known_and_scales_remaining_and_consumed_cost() {
+        let origin_holding = "30303030-3030-4303-8303-303030303030";
+        let events = vec![
+            LedgerEvent::OriginBaseline {
+                origin_id: HistoryOriginId::parse("a0a0a0a0-a0a0-4a0a-8a0a-a0a0a0a0a0a0")
+                    .expect("origin"),
+                holding_id: holding_id(origin_holding),
+                instrument_id: instrument_id("20202020-2020-4202-8202-202020202020"),
+                account_id: account_id(BROKERAGE),
+                quantity: qty("4"),
+                origin_at: ts("2026-01-02T00:00:00.000Z"),
+            },
+            activity_event(
+                SELL_ACTIVITY,
+                "2026-01-06T02:00:00.000Z",
+                "2026-01-06T02:00:00.000Z",
+                LotEffect::Sell {
+                    holding_leg_id: leg_id(SELL_LEG),
+                    instrument_id: instrument_id("20202020-2020-4202-8202-202020202020"),
+                    account_id: account_id(BROKERAGE),
+                    quantity: qty("1"),
+                    proceeds_gross: Some(usd("50")),
+                    disposal_fee: None,
+                },
+            ),
+        ];
+        let mut ledger = replay(events).expect("replay");
+        assert_eq!(ledger.open_lots()[0].basis(), BasisStatus::Unknown);
+        assert!(ledger.open_lots()[0].cost_remaining().is_none());
+        assert!(ledger.consumptions()[0].consumed_cost().is_none());
+        ledger
+            .apply_declaration(
+                LotRef::OriginHolding(holding_id(origin_holding)),
+                usd("400"),
+                Some(crate::domain::CalendarDate::parse("2020-01-01").expect("date")),
+            )
+            .expect("declare");
+        assert_eq!(ledger.open_lots()[0].basis(), BasisStatus::Known);
+        assert_eq!(ledger.open_lots()[0].quantity_remaining().canonical(), "3");
+        assert_eq!(
+            ledger.open_lots()[0].cost_remaining_canonical().as_deref(),
+            Some("300")
+        );
+        assert_eq!(
+            ledger.consumptions()[0]
+                .consumed_cost_canonical()
+                .as_deref(),
+            Some("100")
+        );
+        assert_eq!(
+            ledger
+                .opening(LotRef::OriginHolding(holding_id(origin_holding)))
+                .map(LotOpening::basis),
+            Some(BasisStatus::Known)
+        );
+        assert_eq!(
+            ledger
+                .opening(LotRef::OriginHolding(holding_id(origin_holding)))
+                .and_then(LotOpening::declared_acquired_on)
+                .map(|date| date.to_ymd()),
+            Some("2020-01-01".to_owned())
+        );
+    }
+
+    #[test]
+    fn apply_declaration_does_not_change_known_basis_cost_or_quantity() {
+        let mut ledger = replay(golden_fifo_events()).expect("replay");
+        let remaining = ledger.open_lots()[0].quantity_remaining();
+        let cost = ledger.open_lots()[0].cost_remaining();
+        ledger
+            .apply_declaration(LotRef::Acquisition(leg_id(BUY2_LEG)), usd("1"), None)
+            .expect("ignored");
+        assert_eq!(ledger.open_lots()[0].quantity_remaining(), remaining);
+        assert_eq!(ledger.open_lots()[0].cost_remaining(), cost);
+        assert_eq!(ledger.open_lots()[0].basis(), BasisStatus::Known);
     }
 
     #[test]

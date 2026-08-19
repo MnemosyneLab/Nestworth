@@ -4,6 +4,7 @@ pub mod analytics_repositories;
 pub mod cash_service;
 pub mod cost_basis_service;
 pub mod fx_conversion;
+pub mod gain_service;
 pub mod group_service;
 pub mod historical_valuation_service;
 pub mod history_origin;

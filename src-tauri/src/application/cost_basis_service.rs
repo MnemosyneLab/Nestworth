@@ -18,8 +18,8 @@ use crate::{
         parse_optional_note, replay, AccountId, Activity, ActivityId, ActivityKind,
         ActivityLedgerEvent, ActivityLegId, BasisStatus, CalendarDate, CostBasisDeclarationId,
         CurrencyCode, Direction, HistoryOriginId, HistoryTimezone, HoldingId, InstrumentId,
-        LedgerEvent, LegComponent, LegRole, LotEffect, LotOpening, LotRef, Money, Quantity,
-        Timestamp,
+        LedgerEvent, LegComponent, LegRole, LotEffect, LotLedger, LotOpening, LotRef, Money,
+        Quantity, Timestamp,
     },
     error::AppError,
     state::AppState,
@@ -251,6 +251,58 @@ async fn required_origin(
     history_repositories::get_origin_by_household(tx, household_id)
         .await?
         .ok_or(AppError::HistoryInitializationFailed)
+}
+
+/// Replay the posted ledger and overlay the latest effective declaration per lot.
+///
+/// A supplying declaration makes an unknown-basis opening known. A latest
+/// revocation leaves the lot unknown. Quantity and money balances are unchanged.
+pub(crate) async fn load_effective_lot_ledger_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+) -> Result<LotLedger, AppError> {
+    let origin = required_origin(tx, household_id).await?;
+    let holdings = history_repositories::list_origin_holdings(tx, &origin.id).await?;
+    let activities = history_repositories::list_all_activities_asc(tx, household_id).await?;
+    let events = ledger_events_from_origin_and_activities(&origin, &holdings, &activities)?;
+    let mut ledger = replay(events)?;
+    let declarations =
+        analytics_repositories::list_declarations_for_household(tx, household_id).await?;
+    overlay_effective_declarations(&mut ledger, &declarations)?;
+    Ok(ledger)
+}
+
+pub(crate) fn overlay_effective_declarations(
+    ledger: &mut LotLedger,
+    declarations: &[CostBasisDeclarationRecord],
+) -> Result<(), AppError> {
+    let mut latest = HashMap::new();
+    for record in declarations {
+        let lot_ref = parse_lot_ref(
+            record.origin_holding_id.as_deref(),
+            record.activity_leg_id.as_deref(),
+        )?;
+        latest.entry(lot_ref).or_insert(record);
+    }
+    for (lot_ref, record) in latest {
+        if record.is_revocation {
+            continue;
+        }
+        let (Some(amount), Some(currency)) = (
+            record.declared_cost.as_deref(),
+            record.declared_currency.as_deref(),
+        ) else {
+            return Err(AppError::Internal);
+        };
+        let cost = Money::parse(amount, CurrencyCode::parse(currency)?)?;
+        let acquired_on = record
+            .acquired_on
+            .as_deref()
+            .map(CalendarDate::parse)
+            .transpose()?;
+        ledger.apply_declaration(lot_ref, cost, acquired_on)?;
+    }
+    Ok(())
 }
 
 pub(crate) fn ledger_events_from_origin_and_activities(
