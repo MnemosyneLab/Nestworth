@@ -253,7 +253,7 @@ pub(crate) fn summarize_gain(
     })
 }
 
-fn in_scope(
+pub(crate) fn in_scope(
     scope: AnalyticsScope,
     account_id: crate::domain::AccountId,
     instrument_id: crate::domain::InstrumentId,
@@ -275,7 +275,7 @@ fn in_scope(
     Ok(endpoint_in_scope(scope, &facts))
 }
 
-fn analytics_scope_facts(
+pub(crate) fn analytics_scope_facts(
     account: &AccountRecordDto,
     instrument_id: crate::domain::InstrumentId,
 ) -> Result<crate::domain::ScopeEndpointFacts, AppError> {
@@ -354,7 +354,7 @@ fn known_unrealized(
     )))
 }
 
-fn native_holding_value(
+pub(crate) fn native_holding_value(
     snapshot: &ValuationSnapshot,
     instrument_id: crate::domain::InstrumentId,
     quantity: Quantity,
@@ -372,7 +372,7 @@ fn native_holding_value(
     Ok(Some(holding_native_value(quantity, &quote)?))
 }
 
-fn quote_currency(
+pub(crate) fn quote_currency(
     snapshot: &ValuationSnapshot,
     instrument_id: crate::domain::InstrumentId,
 ) -> Option<CurrencyCode> {

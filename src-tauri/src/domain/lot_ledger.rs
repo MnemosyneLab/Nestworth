@@ -155,6 +155,7 @@ pub struct LotOpening {
     acquired_at: Timestamp,
     original_quantity: Quantity,
     basis: BasisStatus,
+    declared: bool,
     declared_acquired_on: Option<CalendarDate>,
 }
 
@@ -182,6 +183,11 @@ impl LotOpening {
     #[must_use]
     pub fn original_quantity(&self) -> Quantity {
         self.original_quantity
+    }
+
+    #[must_use]
+    pub fn is_declared(&self) -> bool {
+        self.declared
     }
 
     #[must_use]
@@ -482,6 +488,7 @@ impl LotLedger {
         }
         let original_qty = opening.original_quantity.amount();
         opening.basis = BasisStatus::Known;
+        opening.declared = true;
         opening.declared_acquired_on = acquired_on;
         let cost_amount = cost.amount();
         let currency = cost.currency();
@@ -900,6 +907,7 @@ fn open_known_lot(
         acquired_at: acquired_at.clone(),
         original_quantity: quantity,
         basis: BasisStatus::Known,
+        declared: false,
         declared_acquired_on: None,
     });
     lots.push(InternalLot {
@@ -942,6 +950,7 @@ fn open_unknown_lot(
         acquired_at: acquired_at.clone(),
         original_quantity: quantity,
         basis: BasisStatus::Unknown,
+        declared: false,
         declared_acquired_on: None,
     });
     lots.push(InternalLot {
@@ -1945,6 +1954,12 @@ mod tests {
                 .and_then(LotOpening::declared_acquired_on)
                 .map(|date| date.to_ymd()),
             Some("2020-01-01".to_owned())
+        );
+        assert_eq!(
+            ledger
+                .opening(LotRef::OriginHolding(holding_id(origin_holding)))
+                .map(LotOpening::is_declared),
+            Some(true)
         );
     }
 

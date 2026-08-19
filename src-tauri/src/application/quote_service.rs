@@ -9,7 +9,7 @@ use super::{
         insert_fx_preference_observation, insert_instrument_preference_observation,
         FxPreferenceObservationRecord, InstrumentPreferenceObservationRecord,
     },
-    instrument_service,
+    instrument_service, query_count,
     reference::{
         begin_write_tx, finish_write_tx, map_read_error, map_write_error, require_household_id_tx,
         require_household_tx,
@@ -523,6 +523,26 @@ pub(crate) async fn list_latest_instrument_quotes(
     .map_err(|error| map_read_error("instrument_quote.latest_failed", error))?
     .into_iter()
     .map(instrument_quote_from_row)
+    .collect()
+}
+
+pub(crate) async fn list_all_fx_quotes(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+) -> Result<Vec<FxQuoteRecordDto>, AppError> {
+    query_count::record("fx_quotes");
+    sqlx::query(
+        "SELECT id, household_id, base_currency, quote_currency, rate, source_kind, source_key, delayed, quoted_at, created_at
+         FROM fx_quotes
+         WHERE household_id = ?
+         ORDER BY quoted_at DESC, created_at DESC, id DESC",
+    )
+    .bind(household_id)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("fx_quote.household_list_failed", error))?
+    .into_iter()
+    .map(fx_quote_from_row)
     .collect()
 }
 
