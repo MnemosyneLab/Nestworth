@@ -11,6 +11,7 @@ use super::{
     activity_service::{
         self, ActivityPreview, ActivityTimeSpec, PostCommand, PreviewEndpointChange,
     },
+    fx_conversion::{self, ActivityFxConversionDto},
     history_origin,
     history_repositories::{
         self, ActivityListCursor, ActivityListFilter, CorrectionLink, HistoryOriginRecord,
@@ -25,8 +26,8 @@ use crate::{
     domain::{
         classify, AccountId, Activity, ActivityKind, AmbiguousOffset, Classification,
         ComponentOpening, CurrencyCode, DebtCashLink, DebtDrawSpec, DebtPaymentSpec, FeeKind,
-        FxRate, HoldingId, IncomeKind, InstrumentId, LegComponent, MonetaryComponent,
-        MonetaryEndpoint, Money, Quantity, QuantityEndpoint, TradeSpec, UnitPrice,
+        HoldingId, IncomeKind, InstrumentId, LegComponent, MonetaryComponent, MonetaryEndpoint,
+        Money, Quantity, QuantityEndpoint, TradeSpec, UnitPrice,
     },
     error::AppError,
     state::AppState,
@@ -117,6 +118,7 @@ pub struct ActivityDetailDto {
     pub is_replacement: bool,
     pub legs: Vec<ActivityLegDto>,
     pub chain: CorrectionChainDto,
+    pub fx_conversion: Option<ActivityFxConversionDto>,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -314,10 +316,11 @@ pub enum CreateActivityInput {
         destination_component: String,
         destination_amount: String,
         destination_currency: String,
-        fx_rate: Option<String>,
         source_holding_id: Option<String>,
         destination_holding_id: Option<String>,
         quantity: Option<String>,
+        fee_amount: Option<String>,
+        fee_kind: Option<String>,
     },
     #[serde(rename_all = "camelCase")]
     Buy {
@@ -592,7 +595,7 @@ pub async fn preview_activity(
         let preview =
             activity_service::preview_in_tx(&mut tx, command, Some(time), fields.note.as_deref())
                 .await?;
-        preview_dto(&mut tx, &household.id, preview).await
+        preview_dto(&mut tx, &household.id, &household.base_currency, preview).await
     }
     .await;
     finish_read_tx(tx, result).await
@@ -612,7 +615,7 @@ pub async fn create_activity(
         let activity =
             activity_service::post_in_tx(&mut tx, command, Some(time), fields.note.as_deref())
                 .await?;
-        activity_detail(&mut tx, &household.id, &activity).await
+        activity_detail(&mut tx, &household.id, &household.base_currency, &activity).await
     }
     .await;
     finish_write_tx(tx, result).await
@@ -651,8 +654,20 @@ pub async fn correct_activity(
         )
         .await?;
         Ok(PostedCorrectionDto {
-            reversal: activity_detail(&mut tx, &household.id, &posted.reversal).await?,
-            replacement: activity_detail(&mut tx, &household.id, &posted.replacement).await?,
+            reversal: activity_detail(
+                &mut tx,
+                &household.id,
+                &household.base_currency,
+                &posted.reversal,
+            )
+            .await?,
+            replacement: activity_detail(
+                &mut tx,
+                &household.id,
+                &household.base_currency,
+                &posted.replacement,
+            )
+            .await?,
         })
     }
     .await;
@@ -787,6 +802,7 @@ async fn list_activities_in_tx(
                 &labels,
                 activity,
                 Some(chain_dto(&original_id, chains.get(&original_id))),
+                None,
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -816,7 +832,7 @@ async fn get_activity_in_tx(
     if activity.household_id().to_string() != household.id {
         return Err(AppError::not_found("activity", id));
     }
-    activity_detail(tx, &household.id, &activity).await
+    activity_detail(tx, &household.id, &household.base_currency, &activity).await
 }
 
 async fn get_account_timeline_in_tx(
@@ -854,6 +870,7 @@ async fn get_account_timeline_in_tx(
                 &labels,
                 &activity,
                 Some(chain_dto(&original_id, chains.get(&original_id))),
+                None,
             )?,
         });
     }
@@ -931,11 +948,14 @@ async fn load_labels(
 async fn activity_detail(
     tx: &mut Transaction<'_, Sqlite>,
     household_id: &str,
+    base_currency: &str,
     activity: &Activity,
 ) -> Result<ActivityDetailDto, AppError> {
     let labels = load_labels(tx, household_id).await?;
     let chain = load_chain(tx, activity).await?;
-    activity_detail_from(&labels, activity, Some(chain))
+    let fx_conversion =
+        fx_conversion::overlay_for_activity(tx, household_id, base_currency, activity).await?;
+    activity_detail_from(&labels, activity, Some(chain), fx_conversion)
 }
 
 async fn load_chains_for_activities(
@@ -978,6 +998,7 @@ fn activity_detail_from(
     labels: &LabelMaps,
     activity: &Activity,
     chain: Option<CorrectionChainDto>,
+    fx_conversion: Option<ActivityFxConversionDto>,
 ) -> Result<ActivityDetailDto, AppError> {
     let chain = chain.unwrap_or(CorrectionChainDto {
         original_id: activity
@@ -1058,17 +1079,22 @@ fn activity_detail_from(
             })
             .collect(),
         chain,
+        fx_conversion,
     })
 }
 
 async fn preview_dto(
     tx: &mut Transaction<'_, Sqlite>,
     household_id: &str,
+    base_currency: &str,
     preview: ActivityPreview,
 ) -> Result<ActivityPreviewDto, AppError> {
     let labels = load_labels(tx, household_id).await?;
+    let fx_conversion =
+        fx_conversion::overlay_for_activity(tx, household_id, base_currency, &preview.activity)
+            .await?;
     Ok(ActivityPreviewDto {
-        activity: activity_detail_from(&labels, &preview.activity, None)?,
+        activity: activity_detail_from(&labels, &preview.activity, None, fx_conversion)?,
         resulting: preview
             .endpoints
             .into_iter()
@@ -1104,7 +1130,8 @@ fn header_classification(activity: &Activity) -> Classification {
                     ActivityKind::Buy
                         | ActivityKind::Sell
                         | ActivityKind::DebtDraw
-                        | ActivityKind::DebtPayment,
+                        | ActivityKind::DebtPayment
+                        | ActivityKind::Transfer,
                     crate::domain::LegRole::Fee
                 )
             )
@@ -1344,10 +1371,11 @@ async fn post_command_from_input(
             destination_component,
             destination_amount,
             destination_currency,
-            fx_rate,
             source_holding_id,
             destination_holding_id,
             quantity,
+            fee_amount,
+            fee_kind,
             ..
         } => {
             if source_component == "holding_quantity" || destination_component == "holding_quantity"
@@ -1372,6 +1400,18 @@ async fn post_command_from_input(
                     quantity,
                 })
             } else {
+                let fee = match (fee_amount.as_deref(), fee_kind.as_deref()) {
+                    (None, None) => None,
+                    (Some(amount), Some(kind)) => {
+                        Some((money(amount, &source_currency)?, FeeKind::parse(kind)?))
+                    }
+                    _ => {
+                        return Err(AppError::validation(
+                            "feeAmount",
+                            "A transfer fee requires both an amount and a fee kind.",
+                        ))
+                    }
+                };
                 Ok(PostCommand::CashTransfer {
                     source: monetary_endpoint(&source_account_id, &source_component)?,
                     destination: monetary_endpoint(
@@ -1380,7 +1420,7 @@ async fn post_command_from_input(
                     )?,
                     source_amount: money(&source_amount, &source_currency)?,
                     destination_amount: money(&destination_amount, &destination_currency)?,
-                    fx_rate: fx_rate.as_deref().map(FxRate::parse).transpose()?,
+                    fee,
                 })
             }
         }
@@ -1615,7 +1655,7 @@ fn debt_cash(
     component: Option<String>,
     amount: Option<String>,
     currency: Option<String>,
-    fx_rate: Option<String>,
+    _fx_rate: Option<String>,
 ) -> Result<Option<DebtCashLink>, AppError> {
     match (account_id, component, amount, currency) {
         (None, None, None, None) => Ok(None),
@@ -1623,7 +1663,6 @@ fn debt_cash(
             Ok(Some(DebtCashLink {
                 endpoint: monetary_endpoint(&account_id, &component)?,
                 amount: money(&amount, &currency)?,
-                fx_rate: fx_rate.as_deref().map(FxRate::parse).transpose()?,
             }))
         }
         _ => Err(AppError::invalid_activity(

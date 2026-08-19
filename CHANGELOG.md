@@ -16,6 +16,12 @@ v0.1.3 is development-complete and is undergoing release-candidate validation. P
 - Top-level `/activity` route with URL-backed filters, cursor pagination, type-specific forms, and Rust-produced preview
 - Closed-day append-only valuation snapshots, bounded rebuild, and Overview net-worth trend with a live current point
 - English and Simplified Chinese copy for Activity, timeline, origin, rebuild, and trend workflows
+- Cross-currency internal transfer conversion spread versus market FX at effective time, with a derived transaction rate and optional explicit fee
+
+### Changed
+
+- Cross-currency cash Transfer no longer accepts a user-entered transaction FX rate; Rust derives it from the two native amounts
+- Manual FX quote history is listed on the Investments FX card; quote edits remain observations, not Activities
 
 ### Engineering
 

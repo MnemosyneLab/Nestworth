@@ -331,6 +331,19 @@
     "before": "变更前 {{value}}",
     "after": "变更后 {{value}}",
     "legs": "影响",
+    "fxConversion": {
+      "title": "汇兑",
+      "transaction": "成交汇率：1 {{source}} = {{rate}} {{destination}}",
+      "inverse": "1 {{destination}} = {{rate}} {{source}}",
+      "market": "入账时市场汇率：1 {{base}} = {{rate}} {{quote}}",
+      "sourceBase": "转出按 {{currency}} 计价：{{amount}}",
+      "destinationBase": "转入按 {{currency}} 计价：{{amount}}",
+      "spreadLoss": "汇兑价差：亏损 {{amount}}",
+      "spreadGain": "汇兑价差：盈利 {{amount}}",
+      "spreadNone": "汇兑价差：无",
+      "unavailable": "缺少当时市场汇率，暂时无法计算汇兑价差。",
+      "externalFlow": "外部资金流：0"
+    },
     "chain": "更正链",
     "original": "原始记录",
     "reversalRecord": "冲销",
@@ -497,7 +510,11 @@
     "equation": "1 {{baseCurrency}} = [rate] {{quoteCurrency}}",
     "rateHelp": "请输入 1 {{baseCurrency}} 可兑换多少 {{quoteCurrency}}。",
     "rateLabel": "1 {{baseCurrency}} 对 {{quoteCurrency}} 的汇率",
-    "selectedQuote": "当前汇率：1 {{baseCurrency}} = {{rate}} {{quoteCurrency}}"
+    "selectedQuote": "当前汇率：1 {{baseCurrency}} = {{rate}} {{quoteCurrency}}",
+    "historyTitle": "汇率记录",
+    "historyHelp": "更新汇率会重估净资产。这是报价观察，不是活动。转账时的汇兑亏损记录在内部转账上。",
+    "historyEmpty": "还没有汇率记录。",
+    "historyItem": "{{quotedAt}}：1 {{baseCurrency}} = {{rate}} {{quoteCurrency}}"
   },
   "quotes": {
     "incomplete": "不完整",

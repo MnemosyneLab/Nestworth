@@ -131,7 +131,12 @@ describe("activity page", () => {
       const input = vi.mocked(commands.createActivity).mock.calls[0]?.[0];
       expect(input).toMatchObject(expected);
       expect(input).not.toHaveProperty("legs");
+      expect(input).not.toHaveProperty("fxRate");
       expect(JSON.stringify(input)).not.toMatch(/externalFlow|resulting|grossTotal/);
+      if (expected.kind === "transfer") {
+        expect(within(form).queryByLabelText("FX rate")).not.toBeInTheDocument();
+        expect(input).toMatchObject({ feeAmount: null, feeKind: null });
+      }
     },
   );
 

@@ -16,7 +16,7 @@ use super::{
     },
     currency::CurrencyCode,
     decimal::{checked_mul, checked_sub},
-    fx::{convert_with_direct_rate, FxRate},
+    fx::FxRate,
     ids::{AccountId, ActivityId, HouseholdId, InstrumentId},
     money::Money,
     quantity::Quantity,
@@ -240,6 +240,7 @@ pub fn classify(kind: ActivityKind, role: LegRole) -> Classification {
     match (kind, role) {
         (ActivityKind::Deposit, _) => Classification::ExternalInflow,
         (ActivityKind::Withdrawal, _) => Classification::ExternalOutflow,
+        (ActivityKind::Transfer, LegRole::Fee) => Classification::Fee,
         (ActivityKind::Transfer, _) => Classification::InternalTransfer,
         (ActivityKind::Buy | ActivityKind::Sell, LegRole::Fee) => Classification::Fee,
         (ActivityKind::Buy | ActivityKind::Sell, _) => Classification::TradePrincipal,
@@ -354,7 +355,6 @@ pub struct TradeSpec {
 pub struct DebtCashLink {
     pub endpoint: MonetaryEndpoint,
     pub amount: Money,
-    pub fx_rate: Option<FxRate>,
 }
 
 pub struct DebtDrawSpec {
@@ -706,7 +706,7 @@ impl Activity {
         destination: MonetaryEndpoint,
         source_amount: Money,
         destination_amount: Money,
-        fx_rate: Option<FxRate>,
+        fee: Option<(Money, FeeKind)>,
     ) -> Result<Self, AppError> {
         require_positive_money(source_amount)?;
         require_positive_money(destination_amount)?;
@@ -718,33 +718,48 @@ impl Activity {
                 "Transfer source and destination must be different endpoints.",
             ));
         }
-        let fx_rate = match_transfer_amounts(source_amount, destination_amount, fx_rate)?;
+        let fx_rate = match_transfer_amounts(source_amount, destination_amount)?;
         let id = ActivityId::new();
-        let source_leg = ActivityLeg::new(
-            id,
-            source.account_id,
-            LegRole::Source,
-            Direction::Decrease,
-            source.component.into_leg_component(source_amount),
-            fx_rate,
-            0,
-        )?;
-        let destination_leg = ActivityLeg::new(
-            id,
-            destination.account_id,
-            LegRole::Destination,
-            Direction::Increase,
-            destination.component.into_leg_component(destination_amount),
-            fx_rate,
-            1,
-        )?;
-        assemble(
-            id,
-            params,
-            ActivityKind::Transfer,
-            vec![source_leg, destination_leg],
-            ActivityExtras::none(),
-        )
+        let mut legs = vec![
+            ActivityLeg::new(
+                id,
+                source.account_id,
+                LegRole::Source,
+                Direction::Decrease,
+                source.component.into_leg_component(source_amount),
+                fx_rate,
+                0,
+            )?,
+            ActivityLeg::new(
+                id,
+                destination.account_id,
+                LegRole::Destination,
+                Direction::Increase,
+                destination.component.into_leg_component(destination_amount),
+                fx_rate,
+                1,
+            )?,
+        ];
+        let mut extras = ActivityExtras::none();
+        if let Some((fee_amount, fee_kind)) = fee {
+            require_positive_money(fee_amount)?;
+            if fee_amount.currency() != source_amount.currency() {
+                return Err(AppError::invalid_activity_legs(
+                    "A transfer fee must use the source currency.",
+                ));
+            }
+            extras.fee_kind = Some(fee_kind);
+            legs.push(ActivityLeg::new(
+                id,
+                source.account_id,
+                LegRole::Fee,
+                Direction::Decrease,
+                source.component.into_leg_component(fee_amount),
+                None,
+                2,
+            )?);
+        }
+        assemble(id, params, ActivityKind::Transfer, legs, extras)
     }
 
     pub fn position_transfer(
@@ -831,7 +846,7 @@ impl Activity {
         )?];
         if let Some(cash) = spec.cash {
             require_positive_money(cash.amount)?;
-            let fx_rate = match_transfer_amounts(spec.principal, cash.amount, cash.fx_rate)?;
+            let fx_rate = match_transfer_amounts(spec.principal, cash.amount)?;
             legs[0] = ActivityLeg::new(
                 id,
                 spec.liability_account_id,
@@ -871,7 +886,7 @@ impl Activity {
         if let Some(fee) = spec.fee {
             require_positive_money(fee)?;
         }
-        let fx_rate = match_transfer_amounts(spec.principal, spec.cash.amount, spec.cash.fx_rate)?;
+        let fx_rate = match_transfer_amounts(spec.principal, spec.cash.amount)?;
         let id = ActivityId::new();
         let mut legs = vec![
             ActivityLeg::new(
@@ -1166,17 +1181,8 @@ fn expected_gross(
     Money::from_canonical(product, currency)
 }
 
-fn match_transfer_amounts(
-    source: Money,
-    destination: Money,
-    fx_rate: Option<FxRate>,
-) -> Result<Option<FxRate>, AppError> {
+fn match_transfer_amounts(source: Money, destination: Money) -> Result<Option<FxRate>, AppError> {
     if source.currency() == destination.currency() {
-        if fx_rate.is_some() {
-            return Err(AppError::invalid_activity_legs(
-                "Same-currency transfers cannot include an FX rate.",
-            ));
-        }
         if source != destination {
             return Err(AppError::transfer_mismatch(
                 "Same-currency transfer amounts must match exactly.",
@@ -1184,19 +1190,10 @@ fn match_transfer_amounts(
         }
         return Ok(None);
     }
-    let Some(rate) = fx_rate else {
-        return Err(AppError::transfer_mismatch(
-            "Cross-currency transfers require an explicit FX rate.",
-        ));
-    };
-    let converted = convert_with_direct_rate(source.amount(), rate)?;
-    let rounded = Money::from_canonical(converted, destination.currency())?;
-    if rounded != destination {
-        return Err(AppError::transfer_mismatch(
-            "The destination amount must equal the source amount converted at the recorded FX rate.",
-        ));
-    }
-    Ok(Some(rate))
+    Ok(Some(FxRate::from_ratio(
+        destination.amount(),
+        source.amount(),
+    )?))
 }
 
 fn derive_money_delta(current: Money, target: Money) -> Result<(Direction, Money), AppError> {
@@ -1272,6 +1269,10 @@ mod tests {
 
     fn cny(amount: &str) -> Money {
         Money::parse(amount, CurrencyCode::CNY).expect("cny")
+    }
+
+    fn sgd(amount: &str) -> Money {
+        Money::parse(amount, CurrencyCode::SGD).expect("sgd")
     }
 
     fn qty(amount: &str) -> Quantity {
@@ -1509,17 +1510,16 @@ mod tests {
     }
 
     #[test]
-    fn cross_currency_transfer_uses_one_time_money_rounding() {
+    fn cross_currency_transfer_derives_transaction_fx_from_amounts() {
         let source = AccountId::new();
         let destination = AccountId::new();
-        let rate = FxRate::parse("6.9").expect("rate");
         let activity = Activity::cash_transfer(
             &params(),
             cash_endpoint(source),
             cash_endpoint(destination),
             usd("100"),
             cny("690"),
-            Some(rate),
+            None,
         )
         .expect("golden fx transfer");
         assert_eq!(activity.legs()[0].direction(), Direction::Decrease);
@@ -1553,16 +1553,19 @@ mod tests {
             .iter()
             .all(|leg| activity.classification_for(leg) == Classification::InternalTransfer));
 
-        let mismatch = Activity::cash_transfer(
+        let derived = Activity::cash_transfer(
             &params(),
             cash_endpoint(source),
             cash_endpoint(destination),
             usd("100"),
             cny("691"),
-            Some(rate),
+            None,
         )
-        .expect_err("rate mismatch");
-        assert!(matches!(mismatch, AppError::TransferMismatch { .. }));
+        .expect("amounts determine the rate");
+        assert_eq!(
+            derived.legs()[0].fx_rate().expect("derived").canonical(),
+            "6.91"
+        );
 
         let rounded = Activity::cash_transfer(
             &params(),
@@ -1570,9 +1573,9 @@ mod tests {
             cash_endpoint(destination),
             usd("1"),
             cny("1.3333"),
-            Some(FxRate::parse("1.33333").expect("round rate")),
+            None,
         )
-        .expect("rounded once to money scale");
+        .expect("derived from destination amount");
         assert_eq!(
             rounded.legs()[1]
                 .component()
@@ -1581,15 +1584,50 @@ mod tests {
                 .canonical_amount(),
             "1.3333"
         );
-        assert!(Activity::cash_transfer(
+        assert_eq!(
+            rounded.legs()[0].fx_rate().expect("rate").canonical(),
+            "1.3333"
+        );
+
+        let moomoo = Activity::cash_transfer(
             &params(),
             cash_endpoint(source),
             cash_endpoint(destination),
-            usd("1"),
-            cny("1.3334"),
-            Some(FxRate::parse("1.33333").expect("round rate")),
+            cny("1000"),
+            sgd("186.9"),
+            None,
         )
-        .is_err());
+        .expect("moomoo amounts");
+        assert_eq!(
+            moomoo.legs()[0].fx_rate().expect("cny to sgd").canonical(),
+            "0.1869"
+        );
+        assert_eq!(
+            FxRate::from_ratio(cny("1000").amount(), sgd("186.9").amount(),)
+                .expect("inverse")
+                .canonical(),
+            "5.350454788657"
+        );
+
+        let with_fee = Activity::cash_transfer(
+            &params(),
+            cash_endpoint(source),
+            cash_endpoint(destination),
+            cny("1000"),
+            sgd("186.9"),
+            Some((cny("2"), FeeKind::ForeignExchangeFee)),
+        )
+        .expect("explicit fee");
+        assert_eq!(with_fee.legs().len(), 3);
+        assert_eq!(
+            with_fee.classification_for(&with_fee.legs()[2]),
+            Classification::Fee
+        );
+        assert_eq!(
+            with_fee.classification_for(&with_fee.legs()[0]),
+            Classification::InternalTransfer
+        );
+        assert_eq!(with_fee.fee_kind(), Some(FeeKind::ForeignExchangeFee));
     }
 
     #[test]
@@ -1839,7 +1877,6 @@ mod tests {
                 cash: Some(DebtCashLink {
                     endpoint: cash_endpoint(cash_account),
                     amount: usd("1000"),
-                    fx_rate: None,
                 }),
             },
         )
@@ -1863,7 +1900,6 @@ mod tests {
                 cash: DebtCashLink {
                     endpoint: cash_endpoint(cash_account),
                     amount: usd("1000"),
-                    fx_rate: None,
                 },
                 fee: Some(usd("15")),
                 fee_kind: Some(FeeKind::Interest),
@@ -2028,7 +2064,7 @@ mod tests {
             cash_endpoint(destination),
             usd("100"),
             cny("690"),
-            Some(FxRate::parse("6.9").expect("rate")),
+            None,
         )
         .expect("original");
         let inverse = inverse_legs(&original);

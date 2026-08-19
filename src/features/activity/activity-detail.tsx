@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import {
   ActivityBadges,
   ActivityLegs,
+  FxConversionPanel,
   activityKindLabel,
   classificationLabel,
 } from "@/features/activity/activity-display";
@@ -241,6 +242,7 @@ function ActivitySummary({
         ) : null}
       </dl>
       <ActivityLegs catalog={catalog} legs={activity.legs} />
+      <FxConversionPanel catalog={catalog} conversion={activity.fxConversion} />
       <CorrectionChain activity={activity} />
     </div>
   );

@@ -7,6 +7,7 @@ use crate::{
             archive_account, create_account, get_account, CreateAccountInput, OwnershipShareInput,
         },
         cash_service::{append_account_cash, list_account_cash, AppendAccountCashInput},
+        history_query_service,
         history_repositories::get_activity,
         holding_service::{archive_holding, create_holding, CreateHoldingInput},
         instrument_service::{archive_instrument, create_instrument, CreateInstrumentInput},
@@ -21,8 +22,8 @@ use crate::{
     },
     domain::{
         classify, AccountId, ActivityKind, Classification, CurrencyCode, DebtCashLink,
-        DebtDrawSpec, DebtPaymentSpec, FeeKind, FxRate, HoldingId, IncomeKind, InstrumentId,
-        LegRole, MonetaryComponent, MonetaryEndpoint, Money, Quantity, QuantityEndpoint, TradeSpec,
+        DebtDrawSpec, DebtPaymentSpec, FeeKind, HoldingId, IncomeKind, InstrumentId, LegRole,
+        MonetaryComponent, MonetaryEndpoint, Money, Quantity, QuantityEndpoint, TradeSpec,
         UnitPrice,
     },
     error::{AppError, ErrorCode},
@@ -98,6 +99,10 @@ fn cny(amount: &str) -> Money {
 
 fn usd(amount: &str) -> Money {
     Money::parse(amount, CurrencyCode::USD).expect("usd")
+}
+
+fn sgd(amount: &str) -> Money {
+    Money::parse(amount, CurrencyCode::SGD).expect("sgd")
 }
 
 fn qty(amount: &str) -> Quantity {
@@ -358,20 +363,6 @@ fn same_currency_and_cross_currency_mismatches_write_nothing() {
         .expect_err("same-currency mismatch");
         assert!(matches!(same, AppError::TransferMismatch { .. }));
         assert_eq!(same.into_command_error().code, ErrorCode::TransferMismatch);
-        let cross = post(
-            &state,
-            PostCommand::cash_transfer(
-                balance_endpoint(&source.id),
-                balance_endpoint(&dest.id),
-                usd("100"),
-                cny("691"),
-                Some(FxRate::parse("6.9").expect("rate")),
-            ),
-            None,
-        )
-        .await
-        .expect_err("fx mismatch");
-        assert!(matches!(cross, AppError::TransferMismatch { .. }));
         assert_eq!(
             count(&state, "SELECT COUNT(*) FROM activities").await,
             before_activities
@@ -402,7 +393,7 @@ fn cross_currency_transfer_retains_natives_and_fx_rate() {
                 balance_endpoint(&dest.id),
                 usd("100"),
                 cny("690"),
-                Some(FxRate::parse("6.9").expect("rate")),
+                None,
             ),
             None,
         )
@@ -789,7 +780,6 @@ fn debt_principal_payment_is_separated_from_fee() {
                 cash: DebtCashLink {
                     endpoint: balance_endpoint(&cash.id),
                     amount: cny("400"),
-                    fx_rate: None,
                 },
                 fee: Some(cny("25")),
                 fee_kind: Some(FeeKind::Interest),
@@ -821,7 +811,6 @@ fn debt_principal_payment_is_separated_from_fee() {
                 cash: Some(DebtCashLink {
                     endpoint: balance_endpoint(&cash.id),
                     amount: cny("100"),
-                    fx_rate: None,
                 }),
             }),
             None,
@@ -943,7 +932,6 @@ fn reversal_undoes_supported_activity_shapes() {
                 cash: DebtCashLink {
                     endpoint: balance_endpoint(&bank.id),
                     amount: cny("50"),
-                    fx_rate: None,
                 },
                 fee: Some(cny("5")),
                 fee_kind: Some(FeeKind::Interest),
@@ -1407,7 +1395,6 @@ fn debt_payment_cannot_make_principal_or_cash_negative() {
                 cash: DebtCashLink {
                     endpoint: balance_endpoint(&cash.id),
                     amount: cny("25"),
-                    fx_rate: None,
                 },
                 fee: None,
                 fee_kind: None,
@@ -1425,7 +1412,6 @@ fn debt_payment_cannot_make_principal_or_cash_negative() {
                 cash: DebtCashLink {
                     endpoint: balance_endpoint(&cash.id),
                     amount: cny("10"),
-                    fx_rate: None,
                 },
                 fee: Some(cny("25")),
                 fee_kind: Some(FeeKind::Interest),
@@ -1478,6 +1464,175 @@ fn zero_quantity_trade_is_rejected() {
             .await
             .expect_err("zero qty");
         assert!(matches!(error, AppError::InvalidActivity { .. }));
+        cleanup(&path);
+    });
+}
+
+#[test]
+fn cross_currency_conversion_spread_uses_market_fx_at_effective_time() {
+    tauri::async_runtime::block_on(async {
+        let (state, path) = crate::test_support::onboarded_state("p4-fx-spread").await;
+        let walt = member_id(&state).await;
+        let source = create_account(&state, bank_input("CNY Cash", &walt, "1000", "CNY"))
+            .await
+            .expect("cny");
+        let dest = create_account(&state, bank_input("SGD Cash", &walt, "0", "SGD"))
+            .await
+            .expect("sgd");
+        append_manual_fx_quote(
+            &state,
+            AppendManualFxQuoteInput {
+                base_currency: "SGD".to_owned(),
+                quote_currency: "CNY".to_owned(),
+                rate: "5.3".to_owned(),
+                quoted_at: None,
+            },
+        )
+        .await
+        .expect("market fx");
+        let transfer = post(
+            &state,
+            PostCommand::cash_transfer(
+                balance_endpoint(&source.id),
+                balance_endpoint(&dest.id),
+                cny("1000"),
+                sgd("186.9"),
+                None,
+            ),
+            None,
+        )
+        .await
+        .expect("transfer");
+        assert_eq!(
+            transfer.legs()[0].fx_rate().expect("tx fx").canonical(),
+            "0.1869"
+        );
+        let detail = history_query_service::get_activity(&state, &transfer.id().to_string())
+            .await
+            .expect("detail");
+        let fx = detail.fx_conversion.expect("overlay");
+        assert_eq!(fx.status, "computed");
+        assert_eq!(fx.transaction_rate, "0.1869");
+        assert_eq!(fx.transaction_rate_inverse, "5.350454788657");
+        assert_eq!(fx.source_base.as_deref(), Some("1000"));
+        assert_eq!(fx.destination_base.as_deref(), Some("990.57"));
+        assert_eq!(fx.spread_amount.as_deref(), Some("9.43"));
+        assert_eq!(fx.spread_effect.as_deref(), Some("loss"));
+        assert_eq!(fx.spread_currency.as_deref(), Some("CNY"));
+        assert_eq!(latest_amount(&state, &source.id).await, "0");
+        assert_eq!(latest_amount(&state, &dest.id).await, "186.9");
+        cleanup(&path);
+    });
+}
+
+#[test]
+fn conversion_spread_is_unavailable_until_market_quote_is_backfilled() {
+    tauri::async_runtime::block_on(async {
+        let (state, path) = crate::test_support::onboarded_state("p4-fx-spread-backfill").await;
+        let walt = member_id(&state).await;
+        let source = create_account(&state, bank_input("CNY Cash", &walt, "1000", "CNY"))
+            .await
+            .expect("cny");
+        let dest = create_account(&state, bank_input("SGD Cash", &walt, "0", "SGD"))
+            .await
+            .expect("sgd");
+        let transfer = post(
+            &state,
+            PostCommand::cash_transfer(
+                balance_endpoint(&source.id),
+                balance_endpoint(&dest.id),
+                cny("1000"),
+                sgd("186.9"),
+                None,
+            ),
+            None,
+        )
+        .await
+        .expect("offline transfer");
+        let pending = history_query_service::get_activity(&state, &transfer.id().to_string())
+            .await
+            .expect("pending");
+        let fx = pending.fx_conversion.expect("overlay");
+        assert_eq!(fx.status, "unavailable");
+        assert_eq!(fx.transaction_rate, "0.1869");
+        assert!(fx.spread_amount.is_none());
+        append_manual_fx_quote(
+            &state,
+            AppendManualFxQuoteInput {
+                base_currency: "SGD".to_owned(),
+                quote_currency: "CNY".to_owned(),
+                rate: "5.3".to_owned(),
+                quoted_at: Some(transfer.effective_at().to_rfc3339()),
+            },
+        )
+        .await
+        .expect("backfill");
+        let computed = history_query_service::get_activity(&state, &transfer.id().to_string())
+            .await
+            .expect("recomputed");
+        let fx = computed.fx_conversion.expect("overlay");
+        assert_eq!(fx.status, "computed");
+        assert_eq!(fx.spread_amount.as_deref(), Some("9.43"));
+        assert_eq!(fx.spread_effect.as_deref(), Some("loss"));
+        cleanup(&path);
+    });
+}
+
+#[test]
+fn explicit_transfer_fee_does_not_change_conversion_spread() {
+    tauri::async_runtime::block_on(async {
+        let (state, path) = crate::test_support::onboarded_state("p4-fx-spread-fee").await;
+        let walt = member_id(&state).await;
+        let source = create_account(&state, bank_input("CNY Cash", &walt, "1010", "CNY"))
+            .await
+            .expect("cny");
+        let dest = create_account(&state, bank_input("SGD Cash", &walt, "0", "SGD"))
+            .await
+            .expect("sgd");
+        append_manual_fx_quote(
+            &state,
+            AppendManualFxQuoteInput {
+                base_currency: "SGD".to_owned(),
+                quote_currency: "CNY".to_owned(),
+                rate: "5.3".to_owned(),
+                quoted_at: None,
+            },
+        )
+        .await
+        .expect("market fx");
+        let transfer = post(
+            &state,
+            PostCommand::cash_transfer(
+                balance_endpoint(&source.id),
+                balance_endpoint(&dest.id),
+                cny("1000"),
+                sgd("186.9"),
+                Some((cny("2"), FeeKind::ForeignExchangeFee)),
+            ),
+            None,
+        )
+        .await
+        .expect("transfer with fee");
+        assert_eq!(transfer.legs().len(), 3);
+        assert_eq!(
+            classify(transfer.kind(), transfer.legs()[2].role()),
+            Classification::Fee
+        );
+        assert_eq!(
+            classify(transfer.kind(), transfer.legs()[0].role()),
+            Classification::InternalTransfer
+        );
+        let detail = history_query_service::get_activity(&state, &transfer.id().to_string())
+            .await
+            .expect("detail");
+        let fx = detail.fx_conversion.expect("overlay");
+        assert_eq!(fx.status, "computed");
+        assert_eq!(fx.source_base.as_deref(), Some("1000"));
+        assert_eq!(fx.destination_base.as_deref(), Some("990.57"));
+        assert_eq!(fx.spread_amount.as_deref(), Some("9.43"));
+        assert_eq!(fx.spread_effect.as_deref(), Some("loss"));
+        assert_eq!(latest_amount(&state, &source.id).await, "8");
+        assert_eq!(latest_amount(&state, &dest.id).await, "186.9");
         cleanup(&path);
     });
 }

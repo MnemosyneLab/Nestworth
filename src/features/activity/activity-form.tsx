@@ -611,11 +611,15 @@ function KindFields({
             {...register("destinationCurrency")}
           />
           <Field
-            error={errors.fxRate?.message}
-            id={`${formId}-fx`}
-            label={t("activity.fxRate")}
+            error={errors.feeAmount?.message}
+            id={`${formId}-transfer-fee`}
+            label={t("activity.feeAmount")}
           >
-            <Input id={`${formId}-fx`} inputMode="decimal" {...register("fxRate")} />
+            <Input
+              id={`${formId}-transfer-fee`}
+              inputMode="decimal"
+              {...register("feeAmount")}
+            />
           </Field>
         </>
       ) : null}
@@ -735,16 +739,18 @@ function KindFields({
           ))}
         </LabeledSelect>
       ) : null}
-      {kind === "fee" || kind === "debt_payment" ? (
+      {kind === "fee" ||
+      kind === "debt_payment" ||
+      (kind === "transfer" && transferType === "cash") ? (
         <LabeledSelect
           error={errors.feeKind?.message}
           id={`${formId}-fee-kind`}
           label={t("activity.feeKind")}
           {...register("feeKind")}
         >
-          {kind === "debt_payment" ? (
+          {kind === "fee" ? null : (
             <option value="">{t("activity.noneOption")}</option>
-          ) : null}
+          )}
           {FEE_KINDS.map((value) => (
             <option key={value} value={value}>
               {t(`activity.feeKinds.${value}`)}

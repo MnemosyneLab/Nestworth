@@ -95,7 +95,7 @@ An Activity is an immutable ledger header with one or more validated typed legs.
 
 Supported kinds are Opening Adjustment, Balance Adjustment, Position Adjustment, Deposit, Withdrawal, Transfer, Buy, Sell, Income, Fee, Debt Draw, Debt Payment, Debt Adjustment, Manual Valuation, and Reversal.
 
-Classification is derived in Rust from kind and leg role. Internal transfers and trade principal contribute zero external wealth flow. Explicit fees remain distinguishable from principal.
+Classification is derived in Rust from kind and leg role. Internal transfers and trade principal contribute zero external wealth flow. Explicit fees remain distinguishable from principal. A cross-currency internal transfer may change base-currency net worth by conversion spread versus market FX; that spread is a computed overlay, not a fee and not external flow.
 
 ### History Origin
 

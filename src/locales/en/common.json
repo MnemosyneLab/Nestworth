@@ -331,6 +331,19 @@
     "before": "Before {{value}}",
     "after": "After {{value}}",
     "legs": "Effects",
+    "fxConversion": {
+      "title": "FX conversion",
+      "transaction": "Transaction FX: 1 {{source}} = {{rate}} {{destination}}",
+      "inverse": "1 {{destination}} = {{rate}} {{source}}",
+      "market": "Market FX at posting: 1 {{base}} = {{rate}} {{quote}}",
+      "sourceBase": "Source in {{currency}}: {{amount}}",
+      "destinationBase": "Destination in {{currency}}: {{amount}}",
+      "spreadLoss": "Conversion spread: {{amount}} loss",
+      "spreadGain": "Conversion spread: {{amount}} gain",
+      "spreadNone": "Conversion spread: none",
+      "unavailable": "Conversion spread cannot be calculated until a market FX quote exists for this time.",
+      "externalFlow": "External flow: 0"
+    },
     "chain": "Correction chain",
     "original": "Original",
     "reversalRecord": "Reversal",
@@ -497,7 +510,11 @@
     "equation": "1 {{baseCurrency}} = [rate] {{quoteCurrency}}",
     "rateHelp": "Enter how many {{quoteCurrency}} equal 1 {{baseCurrency}}.",
     "rateLabel": "Rate for 1 {{baseCurrency}} in {{quoteCurrency}}",
-    "selectedQuote": "Selected quote: 1 {{baseCurrency}} = {{rate}} {{quoteCurrency}}"
+    "selectedQuote": "Selected quote: 1 {{baseCurrency}} = {{rate}} {{quoteCurrency}}",
+    "historyTitle": "Quote history",
+    "historyHelp": "Updating this rate revalues net worth. It is a quote observation, not an Activity. Conversion loss at transfer time is recorded on the Transfer.",
+    "historyEmpty": "No quotes recorded yet.",
+    "historyItem": "{{quotedAt}}: 1 {{baseCurrency}} = {{rate}} {{quoteCurrency}}"
   },
   "quotes": {
     "incomplete": "Incomplete",

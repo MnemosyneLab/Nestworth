@@ -328,6 +328,7 @@ export function activityDetail(
     isReplacement: false,
     legs: [],
     chain: { originalId: id, reversalId: null, replacementId: null },
+    fxConversion: null,
     ...extras,
   };
 }
@@ -403,6 +404,7 @@ export function resetCommandMocks() {
     status: "ok",
     data: [],
   });
+  vi.mocked(commands.listFxQuotes).mockResolvedValue({ status: "ok", data: [] });
   vi.mocked(commands.listRequiredFx).mockResolvedValue({ status: "ok", data: [] });
   vi.mocked(commands.getPortfolio).mockResolvedValue({
     status: "ok",

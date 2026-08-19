@@ -79,6 +79,9 @@ describe("activity form mapping", () => {
     if (input.kind === "transfer") {
       expect(input.sourceAmount).toBe("3000");
       expect(input.destinationAmount).toBe("3000");
+      expect(input).not.toHaveProperty("fxRate");
+      expect(input.feeAmount).toBeNull();
+      expect(input.feeKind).toBeNull();
     }
   });
 
@@ -97,5 +100,34 @@ describe("activity form mapping", () => {
       accounts,
     );
     expect(previewFingerprint(first)).not.toBe(previewFingerprint(second));
+  });
+
+  it("maps an explicit cash-transfer fee without a user fxRate", () => {
+    const values = {
+      ...emptyActivityFormValues("transfer", "CNY", "2026-08-18", "09:30"),
+      kind: "transfer" as const,
+      sourceAccountId: "a-1",
+      destinationAccountId: "a-2",
+      sourceAmount: "1000",
+      sourceCurrency: "CNY",
+      destinationAmount: "186.9",
+      destinationCurrency: "SGD",
+      feeAmount: "2",
+      feeKind: "foreign_exchange_fee",
+    };
+    const parsed = activityFormSchema.safeParse(values);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) {
+      return;
+    }
+    const input = toCreateActivityInput(parsed.data, accounts);
+    expect(input).toMatchObject({
+      kind: "transfer",
+      sourceAmount: "1000",
+      destinationAmount: "186.9",
+      feeAmount: "2",
+      feeKind: "foreign_exchange_fee",
+    });
+    expect(input).not.toHaveProperty("fxRate");
   });
 });

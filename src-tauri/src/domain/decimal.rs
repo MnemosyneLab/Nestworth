@@ -101,6 +101,15 @@ pub fn round_to_quantity_scale(amount: Decimal) -> Result<Decimal, AppError> {
     Ok(rounded)
 }
 
+pub fn round_to_fx_rate_scale(amount: Decimal) -> Result<Decimal, AppError> {
+    let rounded = amount.round_dp_with_strategy(12, RoundingStrategy::MidpointNearestEven);
+    let max = Decimal::from_str("99999999.999999999999").expect("literal FX rate maximum");
+    if rounded.abs() > max {
+        return Err(AppError::DecimalOverflow);
+    }
+    Ok(rounded)
+}
+
 fn is_valid_integer_part(integer: &str, max_integer_digits: usize) -> bool {
     if integer == "0" {
         return true;

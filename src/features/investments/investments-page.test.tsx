@@ -133,6 +133,22 @@ describe("investments page", () => {
         ],
       },
     });
+    vi.mocked(commands.listFxQuotes).mockResolvedValue({
+      status: "ok",
+      data: [
+        {
+          id: "fx-1",
+          baseCurrency: "SGD",
+          quoteCurrency: "CNY",
+          rate: "5.3",
+          sourceKind: "manual",
+          sourceKey: "manual",
+          delayed: false,
+          quotedAt: "2026-08-18T00:00:00.000Z",
+          createdAt: "2026-08-18T00:00:00.000Z",
+        },
+      ],
+    });
     vi.mocked(commands.appendManualFxQuote).mockResolvedValue({
       status: "ok",
       data: {
@@ -151,6 +167,9 @@ describe("investments page", () => {
     await user.click(await screen.findByRole("link", { name: "Investments" }));
     expect(await screen.findByText("1 SGD = [rate] CNY")).toBeInTheDocument();
     expect(screen.getByText(/Selected quote: 1 SGD = 5\.3 CNY/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Updating this rate revalues net worth/),
+    ).toBeInTheDocument();
     await user.type(screen.getByLabelText("Rate for 1 SGD in CNY"), "5.3");
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(commands.appendManualFxQuote).toHaveBeenCalledWith({

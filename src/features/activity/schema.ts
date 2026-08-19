@@ -132,7 +132,7 @@ export function emptyActivityFormValues(
     feeAmount: "",
     confirmZeroUnitPrice: false,
     incomeKind: "salary",
-    feeKind: "bank_fee",
+    feeKind: kind === "fee" ? "bank_fee" : "",
     liabilityAccountId: "",
     principalAmount: "",
     principalCurrency: currency,
@@ -293,6 +293,9 @@ export const activityFormSchema = z
           requireCurrency("sourceCurrency", value.sourceCurrency);
           requireAmount("destinationAmount", value.destinationAmount);
           requireCurrency("destinationCurrency", value.destinationCurrency);
+          if (value.feeAmount.trim().length > 0 && value.feeKind.trim().length === 0) {
+            issue("feeKind", "required");
+          }
         }
         break;
       case "debt_draw":
@@ -400,10 +403,11 @@ export function toCreateActivityInput(
           destinationComponent: "holding_quantity",
           destinationAmount: "0",
           destinationCurrency: "XXX",
-          fxRate: null,
           sourceHoldingId: values.sourceHoldingId.trim(),
           destinationHoldingId: values.destinationHoldingId.trim(),
           quantity: values.quantity.trim(),
+          feeAmount: null,
+          feeKind: null,
         };
       }
       return {
@@ -421,10 +425,13 @@ export function toCreateActivityInput(
         ),
         destinationAmount: values.destinationAmount.trim(),
         destinationCurrency: values.destinationCurrency.trim().toUpperCase(),
-        fxRate: emptyToNull(values.fxRate),
         sourceHoldingId: null,
         destinationHoldingId: null,
         quantity: null,
+        feeAmount: emptyToNull(values.feeAmount),
+        feeKind: emptyToNull(values.feeAmount)
+          ? emptyToNull(values.feeKind)
+          : null,
       };
     case "buy":
     case "sell":
@@ -493,7 +500,9 @@ export function toCreateActivityInput(
         cashCurrency: values.cashCurrency.trim().toUpperCase(),
         fxRate: emptyToNull(values.fxRate),
         feeAmount: emptyToNull(values.feeAmount),
-        feeKind: emptyToNull(values.feeKind),
+        feeKind: emptyToNull(values.feeAmount)
+          ? emptyToNull(values.feeKind)
+          : null,
       };
     case "debt_adjustment":
       return {

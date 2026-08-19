@@ -27,10 +27,10 @@ use crate::{
         resolve_activity_time, validate_activity_time, AccountCashValue, AccountCashValueId,
         AccountId, AccountValue, AccountValueId, Activity, ActivityId, ActivityKind, ActivityLeg,
         ActivityRecordParams, AmbiguousOffset, ComponentOpening, ConstructActivity, CurrencyCode,
-        DebtDrawSpec, DebtPaymentSpec, FeeKind, FxRate, HistoryTimezone, HoldingId,
-        HoldingQuantityValueId, HouseholdId, IncomeKind, InstrumentId, LegComponent,
-        MonetaryComponent, MonetaryEndpoint, Money, PersistedAccountValue, PrimaryCategory,
-        Quantity, QuantityEndpoint, Timestamp, TrackingMode, TradeSpec, ValueKind,
+        DebtDrawSpec, DebtPaymentSpec, FeeKind, HistoryTimezone, HoldingId, HoldingQuantityValueId,
+        HouseholdId, IncomeKind, InstrumentId, LegComponent, MonetaryComponent, MonetaryEndpoint,
+        Money, PersistedAccountValue, PrimaryCategory, Quantity, QuantityEndpoint, Timestamp,
+        TrackingMode, TradeSpec, ValueKind,
     },
     error::AppError,
     state::AppState,
@@ -85,7 +85,7 @@ pub enum PostCommand {
         destination: MonetaryEndpoint,
         source_amount: Money,
         destination_amount: Money,
-        fx_rate: Option<FxRate>,
+        fee: Option<(Money, FeeKind)>,
     },
     PositionTransfer {
         source: QuantityEndpoint,
@@ -104,14 +104,14 @@ impl PostCommand {
         destination: MonetaryEndpoint,
         source_amount: Money,
         destination_amount: Money,
-        fx_rate: Option<FxRate>,
+        fee: Option<(Money, FeeKind)>,
     ) -> Self {
         Self::CashTransfer {
             source,
             destination,
             source_amount,
             destination_amount,
-            fx_rate,
+            fee,
         }
     }
 
@@ -614,7 +614,7 @@ async fn construct_posted_activity(
             destination,
             source_amount,
             destination_amount,
-            fx_rate,
+            fee,
         } => {
             validate_transfer_money_endpoint(tx, origin, source).await?;
             validate_transfer_money_endpoint(tx, origin, destination).await?;
@@ -624,7 +624,7 @@ async fn construct_posted_activity(
                 destination,
                 source_amount,
                 destination_amount,
-                fx_rate,
+                fee,
             )
         }
         PostCommand::PositionTransfer {

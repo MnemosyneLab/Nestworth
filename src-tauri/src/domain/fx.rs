@@ -38,6 +38,18 @@ impl FxRate {
     pub fn canonical(self) -> String {
         canonical_decimal(self.0)
     }
+
+    pub fn from_decimal(amount: Decimal) -> Result<Self, AppError> {
+        if !amount.is_sign_positive() {
+            return Err(invalid_fx_rate());
+        }
+        let rounded = super::decimal::round_to_fx_rate_scale(amount)?;
+        Self::parse(&canonical_decimal(rounded))
+    }
+
+    pub fn from_ratio(numerator: Decimal, denominator: Decimal) -> Result<Self, AppError> {
+        Self::from_decimal(checked_div(numerator, denominator)?)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -108,6 +120,24 @@ mod tests {
         ));
         assert!(FxRate::parse("-1").is_err());
         assert!(FxRate::parse("100000000").is_err());
+        assert_eq!(
+            FxRate::from_ratio(
+                Decimal::from_str("186.9").expect("dest"),
+                Decimal::from_str("1000").expect("source"),
+            )
+            .expect("derived")
+            .canonical(),
+            "0.1869"
+        );
+        assert_eq!(
+            FxRate::from_ratio(
+                Decimal::from_str("1000").expect("source"),
+                Decimal::from_str("186.9").expect("dest"),
+            )
+            .expect("inverse")
+            .canonical(),
+            "5.350454788657"
+        );
     }
 
     #[test]

@@ -3,12 +3,13 @@ import { useTranslation } from "react-i18next";
 
 import type {
   ActivityDetailDto,
+  ActivityFxConversionDto,
   ActivityLegDto,
   ActivityPreviewDto,
   ReferenceCatalogDto,
   ResultingEndpointDto,
 } from "@/generated/tauri-bindings";
-import { formatReferenceMoney } from "@/lib/reference-catalog";
+import { formatReferenceMoney, referenceCurrencyCodeLabel } from "@/lib/reference-catalog";
 
 export function activityKindLabel(t: TFunction, kind: string): string {
   return t(`activity.kinds.${kind}`, { defaultValue: kind });
@@ -78,6 +79,7 @@ export function ActivityPreviewPanel({
         {classificationLabel(t, preview.activity.classification)}
       </p>
       <ActivityLegs catalog={catalog} legs={preview.activity.legs} />
+      <FxConversionPanel catalog={catalog} conversion={preview.activity.fxConversion} />
       {preview.resulting.length > 0 ? (
         <div>
           <h4 className="text-sm font-medium">{t("activity.resulting")}</h4>
@@ -139,6 +141,90 @@ export function ActivityLegs({
             {` · ${classificationLabel(t, leg.classification)}`}
           </li>
         ))}
+      </ul>
+    </div>
+  );
+}
+
+export function FxConversionPanel({
+  catalog,
+  conversion,
+}: {
+  catalog: ReferenceCatalogDto;
+  conversion: ActivityFxConversionDto | null;
+}) {
+  const { t } = useTranslation();
+  if (!conversion) {
+    return null;
+  }
+  const source = referenceCurrencyCodeLabel(t, catalog, conversion.sourceCurrency);
+  const destination = referenceCurrencyCodeLabel(t, catalog, conversion.destinationCurrency);
+  const base = referenceCurrencyCodeLabel(t, catalog, conversion.baseCurrency);
+  let spread: string | null = t("activity.fxConversion.unavailable");
+  if (conversion.status === "computed" && conversion.spreadAmount && conversion.spreadCurrency) {
+    const amount = formatReferenceMoney(
+      t,
+      catalog,
+      conversion.spreadAmount,
+      conversion.spreadCurrency,
+    );
+    spread =
+      conversion.spreadEffect === "gain"
+        ? t("activity.fxConversion.spreadGain", { amount })
+        : conversion.spreadEffect === "none"
+          ? t("activity.fxConversion.spreadNone")
+          : t("activity.fxConversion.spreadLoss", { amount });
+  }
+  return (
+    <div>
+      <h4 className="text-sm font-medium">{t("activity.fxConversion.title")}</h4>
+      <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+        <li>
+          {t("activity.fxConversion.transaction", {
+            source,
+            destination,
+            rate: conversion.transactionRate,
+          })}
+        </li>
+        <li>
+          {t("activity.fxConversion.inverse", {
+            source,
+            destination,
+            rate: conversion.transactionRateInverse,
+          })}
+        </li>
+        {conversion.marketRate && conversion.marketBaseCurrency && conversion.marketQuoteCurrency ? (
+          <li>
+            {t("activity.fxConversion.market", {
+              base: referenceCurrencyCodeLabel(t, catalog, conversion.marketBaseCurrency),
+              quote: referenceCurrencyCodeLabel(t, catalog, conversion.marketQuoteCurrency),
+              rate: conversion.marketRate,
+            })}
+          </li>
+        ) : null}
+        {conversion.sourceBase ? (
+          <li>
+            {t("activity.fxConversion.sourceBase", {
+              currency: base,
+              amount: formatReferenceMoney(t, catalog, conversion.sourceBase, conversion.baseCurrency),
+            })}
+          </li>
+        ) : null}
+        {conversion.destinationBase ? (
+          <li>
+            {t("activity.fxConversion.destinationBase", {
+              currency: base,
+              amount: formatReferenceMoney(
+                t,
+                catalog,
+                conversion.destinationBase,
+                conversion.baseCurrency,
+              ),
+            })}
+          </li>
+        ) : null}
+        <li>{spread}</li>
+        <li>{t("activity.fxConversion.externalFlow")}</li>
       </ul>
     </div>
   );
