@@ -835,6 +835,198 @@ mod tests {
     }
 
     #[test]
+    fn released_v013_fixture_loads_on_schema_003_without_v012_overview_goldens() {
+        tauri::async_runtime::block_on(async {
+            let fixture = include_str!("../../test-fixtures/v0.1.3.sql");
+            let goldens = include_str!("../../test-fixtures/v0.1.4-analytics-goldens.md");
+            for (label, source) in [
+                ("v0.1.3.sql", fixture),
+                ("v0.1.4-analytics-goldens.md", goldens),
+            ] {
+                for forbidden in ["/Users/", "/home/", "password", "api_key", "secret"] {
+                    assert!(
+                        !source.contains(forbidden),
+                        "{label} must not contain {forbidden}"
+                    );
+                }
+            }
+
+            let path = test_path("v013-released-fixture");
+            remove_database(&path);
+            let pool = connect_writable(&path, true)
+                .await
+                .expect("v0.1.3 fixture should open");
+            for version in [1_i64, 2, 3] {
+                let migration = super::MIGRATOR
+                    .iter()
+                    .find(|item| item.version == version)
+                    .expect("migrations 001, 002, and 003 should exist")
+                    .clone();
+                let mut conn = pool.acquire().await.expect("connection");
+                sqlx::migrate::Migrate::ensure_migrations_table(&mut *conn)
+                    .await
+                    .expect("migration metadata table should be created");
+                sqlx::migrate::Migrate::apply(&mut *conn, &migration)
+                    .await
+                    .expect("released schema should apply");
+            }
+            sqlx::raw_sql(fixture)
+                .execute(&pool)
+                .await
+                .expect("released v0.1.3 fixture should load");
+
+            let version: i64 = sqlx::query_scalar("SELECT MAX(version) FROM _sqlx_migrations")
+                .fetch_one(&pool)
+                .await
+                .expect("version");
+            assert_eq!(version, 3);
+
+            let origin: (i64, String, i64) = sqlx::query_as(
+                "SELECT COUNT(*), timezone, timezone_confirmed FROM history_origins",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("history origin");
+            assert_eq!(origin.0, 1);
+            assert_eq!(origin.1, "Asia/Singapore");
+            assert_eq!(origin.2, 1);
+
+            let kinds: Vec<String> =
+                sqlx::query_scalar("SELECT DISTINCT kind FROM activities ORDER BY kind")
+                    .fetch_all(&pool)
+                    .await
+                    .expect("activity kinds");
+            for required in [
+                "buy",
+                "deposit",
+                "fee",
+                "income",
+                "opening_adjustment",
+                "position_adjustment",
+                "reversal",
+                "sell",
+                "transfer",
+                "withdrawal",
+            ] {
+                assert!(
+                    kinds.iter().any(|kind| kind == required),
+                    "v0.1.3 fixture must include activity kind {required}"
+                );
+            }
+
+            let origin_qqq: String = sqlx::query_scalar(
+                "SELECT quantity FROM history_origin_holdings WHERE holding_id = '30303030-3030-4303-8303-303030303030'",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("origin QQQ holding");
+            assert_eq!(origin_qqq, "3");
+            let current_qqq: String = sqlx::query_scalar(
+                "SELECT quantity FROM holdings WHERE id = '30303030-3030-4303-8303-303030303030'",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("current QQQ holding");
+            assert_eq!(current_qqq, "3");
+
+            let reversal_pairs: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM activities original
+                 JOIN activities reversal
+                   ON reversal.reverses = original.id
+                  AND reversal.kind = 'reversal'",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("reversal pairs");
+            assert!(reversal_pairs >= 1, "fixture must include a reversal pair");
+
+            let correction_chains: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM activities original
+                 JOIN activities reversal
+                   ON reversal.reverses = original.id
+                  AND reversal.kind = 'reversal'
+                  AND reversal.correction_group IS NOT NULL
+                 JOIN activities replacement
+                   ON replacement.corrects = original.id
+                  AND replacement.correction_group = reversal.correction_group",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("correction chains");
+            assert!(
+                correction_chains >= 1,
+                "fixture must include a correction chain"
+            );
+
+            let revised_days: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM (
+                   SELECT snapshot_on FROM daily_valuation_snapshots
+                   GROUP BY snapshot_on HAVING COUNT(DISTINCT revision) >= 2
+                 )",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("snapshot revisions");
+            assert!(
+                revised_days >= 1,
+                "fixture must include two snapshot revisions for one local date"
+            );
+
+            let incomplete_days: i64 = sqlx::query_scalar(
+                "SELECT COUNT(DISTINCT snapshot_on) FROM daily_valuation_snapshots WHERE is_complete = 0",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("incomplete snapshot days");
+            assert!(
+                incomplete_days >= 1,
+                "fixture must include an incomplete snapshot day"
+            );
+
+            let zero_gross_settlement_legs: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM activity_legs
+                 WHERE activity_id = '01a0188f-8621-7a61-a206-bf5800173c36'
+                   AND role = 'settlement'",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("zero-gross settlement legs");
+            assert_eq!(zero_gross_settlement_legs, 0);
+
+            let fifo_trade_fee_kinds: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM activities
+                 WHERE id IN (
+                   '01a0188f-861c-7b20-8609-535e345b7c42',
+                   '01a0188f-861e-7e70-930b-5f4e2d6cda2d',
+                   '01a0188f-861f-7c20-83d1-4abb57f8ddc0'
+                 )
+                   AND fee_kind IS NOT NULL",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("FIFO trade fee_kind");
+            assert_eq!(fifo_trade_fee_kinds, 0);
+
+            let foreign_keys = sqlx::query("PRAGMA foreign_key_check")
+                .fetch_all(&pool)
+                .await
+                .expect("foreign key check");
+            assert!(foreign_keys.is_empty());
+            let integrity: String = sqlx::query_scalar("PRAGMA integrity_check")
+                .fetch_one(&pool)
+                .await
+                .expect("integrity check");
+            assert_eq!(integrity, "ok");
+            pool.close().await;
+
+            // Posted Activities after origin change current Overview/Portfolio.
+            // Do not assert v0.1.2 goldens 62190/63190 against v0.1.3.sql.
+
+            remove_database(&path);
+        });
+    }
+
+    #[test]
     fn schema_002_database_is_snapshotted_before_migrate_to_003() {
         tauri::async_runtime::block_on(async {
             let path = test_path("snapshot-002");
