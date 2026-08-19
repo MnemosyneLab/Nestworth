@@ -523,7 +523,7 @@ export function AttributionPanel({
   const { t } = useTranslation();
   if (attribution.kind === "unavailable") {
     return (
-      <section className="mt-10 space-y-4">
+      <section className="mt-10 space-y-4" id="attribution" tabIndex={-1}>
         <h2 className="text-lg font-medium">{t("analytics.attribution.title")}</h2>
         <UnavailableNotice
           blockingDates={attribution.blockingDates}
@@ -536,7 +536,7 @@ export function AttributionPanel({
   const value = attribution.value;
   const components = attributionComponents(value);
   return (
-    <section className="mt-10 space-y-4">
+    <section className="mt-10 space-y-4" id="attribution" tabIndex={-1}>
       <h2 className="text-lg font-medium">{t("analytics.attribution.title")}</h2>
       <p className="text-sm text-muted-foreground">
         {t("analytics.attribution.methodNote")}

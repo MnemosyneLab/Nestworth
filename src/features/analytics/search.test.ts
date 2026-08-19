@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   mergeAnalyticsSearch,
+  periodKindForTrendRange,
   toPeriodDto,
   toScopeDto,
   validateAnalyticsSearch,
@@ -65,6 +66,13 @@ describe("analytics search", () => {
       endLocalDate: "2026-02-01",
     });
     expect(toPeriodDto({ period: "custom", start: "2026-01-01" })).toBeNull();
+  });
+
+  it("maps overview trend ranges onto analytics period kinds", () => {
+    expect(periodKindForTrendRange("1m")).toBe("oneMonth");
+    expect(periodKindForTrendRange("3m")).toBe("threeMonths");
+    expect(periodKindForTrendRange("1y")).toBe("oneYear");
+    expect(periodKindForTrendRange("all")).toBe("all");
   });
 
   it("clears lot cursors when merging a scope change", () => {

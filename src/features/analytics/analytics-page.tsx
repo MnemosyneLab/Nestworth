@@ -152,6 +152,13 @@ export function AnalyticsPage() {
   }, [instrumentId]);
 
   useEffect(() => {
+    if (window.location.hash !== "#attribution") {
+      return;
+    }
+    document.getElementById("attribution")?.focus();
+  }, [attributionQuery.data]);
+
+  useEffect(() => {
     setWorklistItems([]);
     setDeclarationItems([]);
   }, [search.scope, search.accountId, search.instrumentId]);

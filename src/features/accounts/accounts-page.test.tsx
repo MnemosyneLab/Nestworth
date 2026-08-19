@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { router } from "@/app/router";
 import type {
   AccountRecordDto,
+  GainSummaryIpcDto,
   GroupRecordDto,
   InstitutionRecordDto,
 } from "@/generated/tauri-bindings";
@@ -13,6 +14,7 @@ import {
   accountRecord,
   commandError,
   deferred,
+  emptyGainSummary,
   emptyValuation,
   groupRecord,
   institutionRecord,
@@ -272,6 +274,130 @@ describe("accounts page", () => {
         defaultCurrency: "CNY",
       }),
     );
+  });
+
+  it("shows an account gain summary without changing valuation totals", async () => {
+    const user = userEvent.setup();
+    const accounts = [accountRecord("a-1", "DBS Savings")];
+    mockAccountStore(accounts);
+    vi.mocked(commands.getGainSummary).mockResolvedValue({
+      status: "ok",
+      data: {
+        ...emptyGainSummary(),
+        basisComplete: true,
+        inputComplete: true,
+        realizedNet: {
+          kind: "available",
+          value: { amount: "146.0000", currency: "USD" },
+        },
+        unrealizedGross: {
+          kind: "available",
+          value: { amount: "80.0000", currency: "USD" },
+        },
+      },
+    });
+    await renderReadyApp();
+    await user.click(screen.getByRole("link", { name: "Accounts" }));
+    await user.click(await screen.findByRole("link", { name: "Open" }));
+    expect(await screen.findByText("CNY 100,000")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Gain summary" })).toBeInTheDocument();
+    expect(screen.getByText("USD 146.0000")).toBeInTheDocument();
+    expect(screen.getByText("USD 80.0000")).toBeInTheDocument();
+    expect(commands.getGainSummary).toHaveBeenCalledWith({
+      scope: { kind: "account", accountId: "a-1" },
+    });
+    expect(commands.getAccount).toHaveBeenCalledWith({ id: "a-1" });
+  });
+
+  it("shows unknown-basis account gain as unknown rather than zero", async () => {
+    const user = userEvent.setup();
+    const accounts = [accountRecord("a-1", "Brokerage")];
+    mockAccountStore(accounts);
+    vi.mocked(commands.getGainSummary).mockResolvedValue({
+      status: "ok",
+      data: {
+        ...emptyGainSummary(),
+        basisComplete: false,
+        inputComplete: true,
+        unknownBasisQuantity: "3",
+        unrealizedGross: {
+          kind: "unavailable",
+          reason: "UNKNOWN_BASIS",
+          blockingDates: [],
+        },
+      },
+    });
+    await renderReadyApp();
+    await user.click(screen.getByRole("link", { name: "Accounts" }));
+    await user.click(await screen.findByRole("link", { name: "Open" }));
+    expect(await screen.findByText("CNY 100,000")).toBeInTheDocument();
+    expect(screen.getAllByText("Unknown").length).toBeGreaterThan(0);
+    expect(screen.queryByText("USD 0")).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Unknown-basis positions are excluded from gain totals. Their quantity and value are reported separately rather than treated as zero cost.",
+      ),
+    ).toHaveAttribute("role", "status");
+  });
+
+  it("links account detail into account-scoped analytics", async () => {
+    const user = userEvent.setup();
+    const accounts = [accountRecord("a-1", "DBS Savings")];
+    mockAccountStore(accounts);
+    await renderReadyApp();
+    await user.click(screen.getByRole("link", { name: "Accounts" }));
+    await user.click(await screen.findByRole("link", { name: "Open" }));
+    await user.click(
+      await screen.findByRole("link", { name: "View analytics for DBS Savings" }),
+    );
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/analytics");
+      expect(router.state.location.search).toEqual(
+        expect.objectContaining({
+          scope: "account",
+          accountId: "a-1",
+        }),
+      );
+    });
+    await router.navigate({ to: "/overview", replace: true });
+  });
+
+  it("shows loading and error gain states on account detail", async () => {
+    const user = userEvent.setup();
+    const pending = deferred<{
+      status: "ok";
+      data: GainSummaryIpcDto;
+    }>();
+    const accounts = [accountRecord("a-1", "DBS Savings")];
+    mockAccountStore(accounts);
+    vi.mocked(commands.getGainSummary).mockReturnValue(pending.promise);
+    await renderReadyApp();
+    await user.click(screen.getByRole("link", { name: "Accounts" }));
+    await user.click(await screen.findByRole("link", { name: "Open" }));
+    expect(await screen.findByRole("heading", { name: "Gain summary" })).toBeInTheDocument();
+    expect(screen.getAllByText("Loading…").length).toBeGreaterThan(0);
+    pending.resolve({ status: "ok", data: emptyGainSummary() });
+    expect(await screen.findByText("This result is incomplete.")).toHaveAttribute(
+      "role",
+      "status",
+    );
+  });
+
+  it("shows a gain command error on account detail", async () => {
+    const user = userEvent.setup();
+    const accounts = [accountRecord("a-1", "DBS Savings")];
+    mockAccountStore(accounts);
+    vi.mocked(commands.getGainSummary).mockResolvedValue({
+      status: "error",
+      error: commandError("DATABASE_UNAVAILABLE", "The database is unavailable."),
+    });
+    await renderReadyApp();
+    await user.click(screen.getByRole("link", { name: "Accounts" }));
+    await user.click(await screen.findByRole("link", { name: "Open" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The database is unavailable.",
+    );
+    expect(screen.getByText("CNY 100,000")).toBeInTheDocument();
   });
 });
 

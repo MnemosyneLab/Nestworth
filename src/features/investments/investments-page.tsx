@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -8,6 +8,10 @@ import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { translateAccountError } from "@/features/accounts/account-form";
+import {
+  GainSnippet,
+  InstrumentAnalyticsLink,
+} from "@/features/analytics/gain-snippet";
 import {
   basisPointsToPercent,
   clampShareBps,
@@ -315,6 +319,21 @@ function PositionList({
   portfolio: PortfolioDto;
 }) {
   const { t } = useTranslation();
+  const instrumentIds = uniqueInstrumentIds(portfolio.positions);
+  const gainQueries = useQueries({
+    queries: instrumentIds.map((instrumentId) => ({
+      queryKey: ["gain-summary", { kind: "instrument" as const, instrumentId }],
+      queryFn: () =>
+        unwrapResult(
+          commands.getGainSummary({
+            scope: { kind: "instrument", instrumentId },
+          }),
+        ),
+    })),
+  });
+  const gainByInstrument = new Map(
+    instrumentIds.map((instrumentId, index) => [instrumentId, gainQueries[index]]),
+  );
   if (portfolio.positions.length === 0 && portfolio.cash.length === 0) {
     return null;
   }
@@ -322,33 +341,46 @@ function PositionList({
     <section>
       <h2 className="text-lg font-medium">{t("investments.positions")}</h2>
       <ul className="mt-4 space-y-3">
-        {portfolio.positions.map((position) => (
-          <li
-            className="rounded-xl border border-border bg-card px-4 py-3"
-            key={position.holdingId}
-          >
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <span className="font-medium">{position.instrumentName}</span>
-              <span className="text-sm text-muted-foreground">
-                {position.base
-                  ? formatReferenceMoney(
-                      t,
-                      catalog,
-                      position.base.amount,
-                      position.base.currency,
-                    )
-                  : t("quotes.unavailable")}
-              </span>
-            </div>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {position.quantity}
-              {position.native
-                ? ` · ${formatReferenceMoney(t, catalog, position.native.amount, position.native.currency)}`
-                : ""}
-              {` · ${freshnessLabel(t, position.freshness)}`}
-            </p>
-          </li>
-        ))}
+        {portfolio.positions.map((position) => {
+          const gainQuery = gainByInstrument.get(position.instrumentId);
+          return (
+            <li
+              className="rounded-xl border border-border bg-card px-4 py-3"
+              key={position.holdingId}
+            >
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <span className="font-medium">{position.instrumentName}</span>
+                <span className="text-sm text-muted-foreground">
+                  {position.base
+                    ? formatReferenceMoney(
+                        t,
+                        catalog,
+                        position.base.amount,
+                        position.base.currency,
+                      )
+                    : t("quotes.unavailable")}
+                </span>
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {position.quantity}
+                {position.native
+                  ? ` · ${formatReferenceMoney(t, catalog, position.native.amount, position.native.currency)}`
+                  : ""}
+                {` · ${freshnessLabel(t, position.freshness)}`}
+              </p>
+              <GainSnippet
+                catalog={catalog}
+                error={gainQuery?.error}
+                gain={gainQuery?.data}
+                loading={gainQuery?.isPending ?? false}
+              />
+              <InstrumentAnalyticsLink
+                instrumentId={position.instrumentId}
+                name={position.instrumentName}
+              />
+            </li>
+          );
+        })}
         {portfolio.cash.map((cash) => (
           <li
             className="rounded-xl border border-border bg-card px-4 py-3"
@@ -365,6 +397,18 @@ function PositionList({
       </ul>
     </section>
   );
+}
+
+function uniqueInstrumentIds(
+  positions: PortfolioDto["positions"],
+): string[] {
+  const ids: string[] = [];
+  for (const position of positions) {
+    if (!ids.includes(position.instrumentId)) {
+      ids.push(position.instrumentId);
+    }
+  }
+  return ids;
 }
 
 function AllocationList({

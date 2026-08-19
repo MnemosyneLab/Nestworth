@@ -75,6 +75,7 @@
       "rebuildRemaining": "More closed days remain. Continue the local rebuild.",
       "lastCompleted": "Last completed {{date}}.",
       "pointLabel": "{{date}}, {{value}}, {{currency}}, {{completeness}}",
+      "explainChange": "Explain this change",
       "states": {
         "complete": "Complete",
         "incomplete": "Incomplete",
@@ -198,6 +199,8 @@
     "instrument": "Instrument",
     "noHoldings": "No holdings yet.",
     "noCash": "No cash balances yet.",
+    "gainSummary": "Gain summary",
+    "viewAnalytics": "View analytics for {{name}}",
     "category": "Category",
     "institution": "Institution",
     "group": "Group",
@@ -294,7 +297,8 @@
     "refreshing": "Refreshing",
     "refreshComplete": "Refresh completed.",
     "refreshPartial": "Some quotes could not be refreshed.",
-    "nothingToRefresh": "There is nothing to refresh."
+    "nothingToRefresh": "There is nothing to refresh.",
+    "viewAnalytics": "View analytics for {{name}}"
   },
   "activity": {
     "eyebrow": "Activity",

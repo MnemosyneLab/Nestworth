@@ -75,6 +75,7 @@
       "rebuildRemaining": "还有未完成的收盘日。请继续本地重建。",
       "lastCompleted": "最近完成 {{date}}。",
       "pointLabel": "{{date}}，{{value}}，{{currency}}，{{completeness}}",
+      "explainChange": "解释这项变化",
       "states": {
         "complete": "完整",
         "incomplete": "不完整",
@@ -198,6 +199,8 @@
     "instrument": "标的",
     "noHoldings": "还没有持仓。",
     "noCash": "还没有现金余额。",
+    "gainSummary": "损益摘要",
+    "viewAnalytics": "查看 {{name}} 分析",
     "category": "类别",
     "institution": "机构",
     "group": "分组",
@@ -294,7 +297,8 @@
     "refreshing": "正在刷新",
     "refreshComplete": "刷新完成。",
     "refreshPartial": "部分报价未能刷新。",
-    "nothingToRefresh": "没有需要刷新的项目。"
+    "nothingToRefresh": "没有需要刷新的项目。",
+    "viewAnalytics": "查看 {{name}} 分析"
   },
   "activity": {
     "eyebrow": "活动",

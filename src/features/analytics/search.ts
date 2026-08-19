@@ -18,8 +18,22 @@ export const ANALYTICS_PERIODS = [
   "custom",
 ] as const;
 
+export const TREND_RANGE_PERIODS = {
+  "1m": "oneMonth",
+  "3m": "threeMonths",
+  "1y": "oneYear",
+  all: "all",
+} as const;
+
 export type AnalyticsScopeKind = (typeof ANALYTICS_SCOPES)[number];
 export type AnalyticsPeriodKind = (typeof ANALYTICS_PERIODS)[number];
+export type TrendRangePeriod = keyof typeof TREND_RANGE_PERIODS;
+
+export function periodKindForTrendRange(
+  range: TrendRangePeriod,
+): (typeof TREND_RANGE_PERIODS)[TrendRangePeriod] {
+  return TREND_RANGE_PERIODS[range];
+}
 
 export type AnalyticsSearch = {
   scope?: AnalyticsScopeKind;
