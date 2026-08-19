@@ -387,7 +387,9 @@ mod tests {
     };
     use crate::{
         error::AppError,
-        test_support::{blocked_future_state, cleanup, file_hash, onboarded_state, UNKNOWN_UUID},
+        test_support::{
+            blocked_future_state, cleanup, onboarded_state, stable_sqlite_hash, UNKNOWN_UUID,
+        },
     };
 
     fn create_input(name: &str) -> CreateInstitutionInput {
@@ -625,7 +627,7 @@ mod tests {
                 error,
                 AppError::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 2
+                    supported: 3
                 }
             ));
             let error = update_institution(
@@ -650,7 +652,7 @@ mod tests {
                 .await
                 .expect_err("blocked database must not accept restores");
             assert!(matches!(error, AppError::UnsupportedNewerDatabase { .. }));
-            assert_eq!(file_hash(&path), before_hash);
+            assert_eq!(stable_sqlite_hash(&path).await, before_hash);
             cleanup(&path);
         });
     }

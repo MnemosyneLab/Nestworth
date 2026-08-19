@@ -4,7 +4,7 @@ use crate::error::AppError;
 
 macro_rules! typed_id {
     ($name:ident) => {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
         pub struct $name(Uuid);
 
         impl $name {
@@ -51,10 +51,21 @@ typed_id!(HoldingId);
 typed_id!(AccountCashValueId);
 typed_id!(InstrumentQuoteId);
 typed_id!(FxQuoteId);
+typed_id!(ActivityId);
+typed_id!(ActivityLegId);
+typed_id!(HistoryOriginId);
+typed_id!(HistoryOriginItemId);
+typed_id!(AccountStateObservationId);
+typed_id!(HoldingStateObservationId);
+typed_id!(HoldingQuantityValueId);
+typed_id!(QuotePreferenceObservationId);
+typed_id!(ValuationSnapshotId);
+typed_id!(ValuationSnapshotItemId);
 
 #[cfg(test)]
 mod tests {
-    use super::{AccountId, HoldingId, HouseholdId, InstrumentId, MemberId};
+    use super::{AccountId, ActivityId, HoldingId, HouseholdId, InstrumentId, MemberId};
+    use std::any::TypeId;
 
     #[test]
     fn generated_ids_use_uuid_v7() {
@@ -63,12 +74,16 @@ mod tests {
         assert_eq!(AccountId::new().as_uuid().get_version_num(), 7);
         assert_eq!(InstrumentId::new().as_uuid().get_version_num(), 7);
         assert_eq!(HoldingId::new().as_uuid().get_version_num(), 7);
+        assert_eq!(ActivityId::new().as_uuid().get_version_num(), 7);
     }
 
     #[test]
     fn parse_rejects_invalid_uuid() {
         assert!(HouseholdId::parse("not-a-uuid").is_err());
         assert!(MemberId::parse("").is_err());
+        assert!(ActivityId::parse("not-a-uuid").is_err());
+        assert!(ActivityId::parse("").is_err());
+        assert!(ActivityId::parse("g1111111-1111-1111-1111-111111111111").is_err());
     }
 
     #[test]
@@ -76,6 +91,10 @@ mod tests {
         let id = AccountId::new();
         let parsed = AccountId::parse(&id.to_string()).expect("generated id should parse");
         assert_eq!(parsed, id);
+        let activity = ActivityId::new();
+        let parsed = ActivityId::parse(&activity.to_string()).expect("activity id should parse");
+        assert_eq!(parsed, activity);
+        assert_eq!(parsed.to_string(), activity.as_uuid().to_string());
     }
 
     #[test]
@@ -84,5 +103,13 @@ mod tests {
         let member = MemberId::from_uuid(household.as_uuid());
         assert_eq!(household.as_uuid(), member.as_uuid());
         assert_ne!(household.to_string(), "invalid");
+        assert_ne!(TypeId::of::<ActivityId>(), TypeId::of::<HoldingId>());
+        assert_ne!(TypeId::of::<ActivityId>(), TypeId::of::<AccountId>());
+        let activity = ActivityId::new();
+        let holding = HoldingId::from_uuid(activity.as_uuid());
+        assert_eq!(activity.as_uuid(), holding.as_uuid());
+        let parsed_as_activity =
+            ActivityId::parse(&holding.to_string()).expect("same uuid text parses as ActivityId");
+        assert_eq!(parsed_as_activity.as_uuid(), holding.as_uuid());
     }
 }

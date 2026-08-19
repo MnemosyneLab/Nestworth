@@ -3,6 +3,12 @@ use specta::Type;
 use sqlx::{Row, Sqlite, Transaction};
 
 use super::{
+    activity_service::{self, PostCommand},
+    history_origin::ensure_activity_writes_allowed,
+    history_repositories::{
+        insert_holding_quantity, insert_holding_state_observation, HoldingQuantityRecord,
+        HoldingStateObservationRecord,
+    },
     instrument_service,
     reference::{
         begin_write_tx, finish_write_tx, map_read_error, map_unique_or_write, map_write_error,
@@ -11,7 +17,8 @@ use super::{
 };
 use crate::{
     domain::{
-        AccountId, Holding, HoldingId, InstrumentId, PersistedHolding, PrimaryCategory, Quantity,
+        AccountId, ComponentOpening, Holding, HoldingId, HoldingQuantityValueId,
+        HoldingStateObservationId, InstrumentId, PersistedHolding, PrimaryCategory, Quantity,
         Timestamp, TrackingMode,
     },
     error::AppError,
@@ -110,6 +117,36 @@ pub(crate) async fn list_active_holdings_for_household(
     .collect()
 }
 
+pub(crate) async fn list_holdings_for_household(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    include_archived: bool,
+) -> Result<Vec<HoldingRecordDto>, AppError> {
+    let sql = if include_archived {
+        "SELECT h.id, h.account_id, h.instrument_id, i.name AS instrument_name, i.symbol AS instrument_symbol, i.quote_currency, h.quantity, h.note, h.sort_order, h.created_at, h.updated_at, h.archived_at
+         FROM holdings h
+         JOIN instruments i ON i.id = h.instrument_id
+         JOIN accounts a ON a.id = h.account_id
+         WHERE a.household_id = ?
+         ORDER BY a.sort_order ASC, a.name COLLATE NOCASE ASC, a.id ASC, h.sort_order ASC, i.name COLLATE NOCASE ASC, h.id ASC"
+    } else {
+        "SELECT h.id, h.account_id, h.instrument_id, i.name AS instrument_name, i.symbol AS instrument_symbol, i.quote_currency, h.quantity, h.note, h.sort_order, h.created_at, h.updated_at, h.archived_at
+         FROM holdings h
+         JOIN instruments i ON i.id = h.instrument_id
+         JOIN accounts a ON a.id = h.account_id
+         WHERE a.household_id = ? AND h.archived_at IS NULL AND a.archived_at IS NULL
+         ORDER BY a.sort_order ASC, a.name COLLATE NOCASE ASC, a.id ASC, h.sort_order ASC, i.name COLLATE NOCASE ASC, h.id ASC"
+    };
+    sqlx::query(sql)
+        .bind(household_id)
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(|error| map_read_error("holding.household_list_failed", error))?
+        .into_iter()
+        .map(holding_from_row)
+        .collect()
+}
+
 fn list_sql(include_archived: bool) -> &'static str {
     if include_archived {
         "SELECT h.id, h.account_id, h.instrument_id, i.name AS instrument_name, i.symbol AS instrument_symbol, i.quote_currency, h.quantity, h.note, h.sort_order, h.created_at, h.updated_at, h.archived_at
@@ -164,7 +201,8 @@ async fn create_holding_in_tx(
     tx: &mut Transaction<'_, Sqlite>,
     input: CreateHoldingInput,
 ) -> Result<HoldingRecordDto, AppError> {
-    let household_id = require_household_id_tx(tx).await?;
+    let origin = ensure_activity_writes_allowed(tx).await?;
+    let household_id = origin.household_id.clone();
     let account = require_account(tx, &household_id, &input.account_id).await?;
     if account.0 != TrackingMode::Holdings || account.1 != PrimaryCategory::Investment {
         return Err(AppError::invalid_category(
@@ -215,6 +253,48 @@ async fn create_holding_in_tx(
     .execute(&mut **tx)
     .await
     .map_err(|error| map_unique_or_write("holding.create_failed", error, AppError::DuplicateHolding))?;
+    if holding.quantity().is_zero() {
+        let now = holding.created_at().clone();
+        insert_holding_quantity(
+            tx,
+            &HoldingQuantityRecord {
+                id: HoldingQuantityValueId::new().to_string(),
+                holding_id: holding.id().to_string(),
+                quantity: holding.quantity().canonical(),
+                effective_at: now.to_rfc3339(),
+                created_at: now.to_rfc3339(),
+                activity_id: None,
+            },
+        )
+        .await?;
+    } else {
+        activity_service::post_in_tx(
+            tx,
+            PostCommand::Opening(ComponentOpening::HoldingQuantity {
+                account_id: holding.account_id(),
+                holding_id: holding.id(),
+                instrument_id: holding.instrument_id(),
+                quantity: holding.quantity(),
+            }),
+            None,
+            None,
+        )
+        .await?;
+    }
+    let now = Timestamp::now();
+    insert_holding_state_observation(
+        tx,
+        &HoldingStateObservationRecord {
+            id: HoldingStateObservationId::new().to_string(),
+            holding_id: holding.id().to_string(),
+            active: true,
+            archived_at: None,
+            effective_at: now.to_rfc3339(),
+            created_at: now.to_rfc3339(),
+        },
+    )
+    .await?;
+    activity_service::mark_dirty_at(tx, &origin, &now).await?;
     tracing::info!(event = "holding.create", holding_id = %holding.id(), "holding created");
     load_holding(tx, &household_id, &holding.id().to_string()).await
 }
@@ -223,13 +303,29 @@ async fn update_holding_in_tx(
     tx: &mut Transaction<'_, Sqlite>,
     input: UpdateHoldingInput,
 ) -> Result<HoldingRecordDto, AppError> {
-    let household_id = require_household_id_tx(tx).await?;
+    let origin = ensure_activity_writes_allowed(tx).await?;
+    let household_id = origin.household_id.clone();
     let mut holding = load_holding_domain(tx, &household_id, &input.id).await?;
-    holding.update_current_state(
-        Quantity::parse(&input.quantity)?,
-        input.note.as_deref(),
-        Timestamp::now(),
-    )?;
+    let quantity = Quantity::parse(&input.quantity)?;
+    if quantity != holding.quantity() {
+        if holding.is_archived() {
+            return Err(AppError::validation(
+                "holdingId",
+                "Quantity cannot be updated on an archived holding.",
+            ));
+        }
+        activity_service::post_in_tx(
+            tx,
+            PostCommand::PositionAdjustment {
+                holding_id: holding.id(),
+                target: quantity,
+            },
+            None,
+            None,
+        )
+        .await?;
+    }
+    holding.update_current_state(quantity, input.note.as_deref(), Timestamp::now())?;
     sqlx::query("UPDATE holdings SET quantity = ?, note = ?, updated_at = ? WHERE id = ?")
         .bind(holding.quantity().canonical())
         .bind(holding.note())
@@ -275,6 +371,19 @@ async fn mutate_archive_in_tx(
                 map_unique_or_write("holding.restore_failed", error, AppError::DuplicateHolding)
             })?;
     }
+    insert_holding_state_observation(
+        tx,
+        &HoldingStateObservationRecord {
+            id: HoldingStateObservationId::new().to_string(),
+            holding_id: holding.id().to_string(),
+            active: !archive,
+            archived_at: holding.archived_at().map(Timestamp::to_rfc3339),
+            effective_at: holding.updated_at().to_rfc3339(),
+            created_at: holding.updated_at().to_rfc3339(),
+        },
+    )
+    .await?;
+    activity_service::mark_dirty_for_household(tx, &household_id, holding.updated_at()).await?;
     load_holding(tx, &household_id, &holding.id().to_string()).await
 }
 

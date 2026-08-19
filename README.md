@@ -1,10 +1,10 @@
 # Nestworth
 
-Nestworth is a local-first macOS application for building and maintaining a personal or household balance sheet. It tracks material assets and liabilities, exact member ownership, institutions, groups, instruments, holdings, and current values without requiring an account or an internet connection.
+Nestworth is a local-first macOS application for building and maintaining a personal or household balance sheet. It tracks material assets and liabilities, exact member ownership, institutions, groups, instruments, holdings, current values, an Activity ledger, and a trustworthy history boundary without requiring an account or an internet connection.
 
 ## Status
 
-v0.1.2 development is complete and the project is in release-candidate validation.
+v0.1.3 is development-complete and is in release-candidate validation. Package, Cargo, and Tauri versions are `0.1.3`. Isolated-data launch, keyboard/VoiceOver smoke testing, arm64 `.app`/`.dmg` packaging, and the chosen signing/notarization policy remain named macOS release checks.
 
 - Platform: macOS 26.0 or later
 - Architecture: Apple Silicon `arm64` only
@@ -14,27 +14,27 @@ v0.1.2 development is complete and the project is in release-candidate validatio
 
 The current pull request is not itself a public release. Use an isolated test database when launching locally built artifacts.
 
-## v0.1.2 Features
+## v0.1.3 Features
 
-- Everything in v0.1.1: onboarding, Members, Institutions, Groups, Accounts, Ownership, Overview, media, language, and appearance
-- Holdings-tracked Investment Accounts with current quantities and multi-currency cash
-- Instruments with type, quote currency, optional market metadata, and logos
-- Manual instrument prices and FX rates, including inverse conversion against the Household base currency
-- Native and base-currency values with quote provenance, freshness, and incomplete-total diagnostics
-- Investments page with portfolio total and allocation by currency, country, and instrument type, including legacy manual-account buckets
-- Checked Rust Decimal valuation at full precision, with midpoint-nearest-even rounding only at Money DTO boundaries
-- Provider refresh plumbing with partial-success reporting that targets only explicitly Provider-selected Instruments and FX pairs
+- Everything in v0.1.2: onboarding, Members, Institutions, Groups, Accounts, Ownership, Instruments, Holdings, manual quotes and FX, Overview, Investments, media, language, and appearance
+- Immutable Activity ledger for Opening, Balance, and Position Adjustments, Deposit, Withdrawal, Transfer, Buy, Sell, Income, Fee, Debt Draw, Debt Payment, Debt Adjustment, and Manual Valuation
+- Atomic current-state projection so post-origin value, cash, and Quantity mutations cannot bypass Activity
+- Reversal and correction without editing or deleting posted evidence
+- History Origin cutover for migrated v0.1.2 state and fresh onboarding, with no fabricated deposits or trades
+- Account timeline and a top-level `/activity` route with URL-backed filters and cursor pagination
+- Closed-day snapshot revisions, bounded rebuild, and Overview net-worth trend with an accessible table and a live current point
+- English and Simplified Chinese copy for Activity, timeline, origin, and trend workflows
 - Manual-only operation when no market-data provider is configured; production provider controls remain unavailable
 
 ## Current Boundaries
 
 The Household name and base currency remain fixed after onboarding. Avatars and logos can be set or replaced but not cleared.
 
-v0.1.2 does not include a live market-data vendor, Activity ledger, cost basis, performance analytics, historical charts, automation, import/export, or user-managed backup. Holding quantity is current state, not a trade. FX conversion is direct or inverse against the base currency only.
+v0.1.3 does not include cost basis, tax lots, realized or unrealized gain, TWR, XIRR, benchmarks, return attribution, a live market-data vendor, automation, import/export, or user-managed backup. Origin and adjustment quantities have unknown acquisition history and must not be treated as lots. FX conversion is direct or inverse against the base currency only.
 
-All financial totals and allocations are calculated by Rust. Complete active included investment Accounts contribute their authoritative base values, including legacy Balance and Manual Value Accounts; incomplete values remain visible as diagnostics and are never treated as zero. Manual prices and FX rates are the complete offline workflow. The frontend formats returned DTOs and performs no financial arithmetic.
+All financial totals, Activity effects, and historical snapshots are calculated by Rust. Complete active included investment Accounts contribute their authoritative base values, including legacy Balance and Manual Value Accounts; incomplete values remain visible as diagnostics and are never treated as zero. Manual prices and FX rates are the complete offline workflow. The frontend formats returned DTOs and performs no financial arithmetic.
 
-See the [v0.1.2 release contract](docs/releases/v0.1.2.md) for the exact delivered scope and accepted limitations.
+See the [v0.1.3 release contract](docs/releases/v0.1.3.md) for the exact delivered scope and accepted limitations.
 
 ## Privacy and Data Ownership
 
@@ -85,6 +85,9 @@ Start with the [documentation index](docs/README.md):
 - [v0.1.2 release contract](docs/releases/v0.1.2.md)
 - [v0.1.2 technical design](docs/releases/v0.1.2-technical-design.md)
 - [v0.1.2 implementation plan](docs/releases/v0.1.2-implementation-plan.md)
+- [v0.1.3 release contract](docs/releases/v0.1.3.md)
+- [v0.1.3 technical design](docs/releases/v0.1.3-technical-design.md)
+- [v0.1.3 implementation plan](docs/releases/v0.1.3-implementation-plan.md)
 
 ## License
 

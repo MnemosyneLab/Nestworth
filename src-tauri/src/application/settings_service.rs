@@ -192,8 +192,14 @@ mod tests {
     };
     use crate::{
         error::AppError,
-        infrastructure::database_bootstrap::pre_migration_snapshot_path,
-        test_support::{blocked_future_state, cleanup, file_hash, initialize_state, test_path},
+        infrastructure::{
+            database::connect_writable,
+            database_bootstrap::{pre_migration_snapshot_path, MIGRATOR},
+        },
+        state::AppState,
+        test_support::{
+            blocked_future_state, cleanup, initialize_state, stable_sqlite_hash, test_path,
+        },
     };
 
     #[test]
@@ -273,7 +279,7 @@ mod tests {
                 .await
                 .expect_err("blocked delete");
             assert!(matches!(error, AppError::UnsupportedNewerDatabase { .. }));
-            assert_eq!(file_hash(&path), before_hash);
+            assert_eq!(stable_sqlite_hash(&path).await, before_hash);
             cleanup(&path);
         });
     }
@@ -296,9 +302,38 @@ mod tests {
     fn delete_all_data_removes_database_and_sidecars() {
         tauri::async_runtime::block_on(async {
             let path = test_path("settings", "delete-confirmed");
-            let state = initialize_state(path.clone()).await;
-            let snapshot = pre_migration_snapshot_path(&path, 1);
-            std::fs::write(&snapshot, b"test snapshot").expect("snapshot fixture");
+            let _ = std::fs::remove_file(&path);
+            let pool = connect_writable(&path, true)
+                .await
+                .expect("schema 002 fixture should open");
+            for version in [1_i64, 2] {
+                let migration = MIGRATOR
+                    .iter()
+                    .find(|item| item.version == version)
+                    .expect("migration 001 and 002 should exist")
+                    .clone();
+                let mut conn = pool.acquire().await.expect("connection");
+                sqlx::migrate::Migrate::ensure_migrations_table(&mut *conn)
+                    .await
+                    .expect("migration metadata table should be created");
+                sqlx::migrate::Migrate::apply(&mut *conn, &migration)
+                    .await
+                    .expect("released schema should apply");
+            }
+            sqlx::raw_sql(include_str!("../../test-fixtures/v0.1.2.sql"))
+                .execute(&pool)
+                .await
+                .expect("released fixture should load");
+            pool.close().await;
+
+            let snapshot = pre_migration_snapshot_path(&path, 2);
+            let stray = pre_migration_snapshot_path(&path, 1);
+            let state = AppState::initialize(path.clone()).await;
+            assert!(
+                snapshot.exists(),
+                "002→003 must create a recoverable pre-migration snapshot"
+            );
+            std::fs::write(&stray, b"stray pre-migrate snapshot").expect("stray snapshot");
             assert!(path.exists());
 
             delete_all_data(&state, DeleteAllDataInput { confirmed: true })
@@ -307,6 +342,7 @@ mod tests {
 
             assert!(!path.exists());
             assert!(!snapshot.exists());
+            assert!(!stray.exists());
             assert!(!super::sidecar_path(&path, "-wal").exists());
             assert!(!super::sidecar_path(&path, "-shm").exists());
         });

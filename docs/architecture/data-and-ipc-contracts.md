@@ -44,17 +44,36 @@ The migration version is inspected through a read-only connection before any wri
 | `account_groups` | User-defined organization | Household FK, archive state, optional logo reference |
 | `accounts` | Account metadata and financial classification | Household and optional reference FKs, category and tracking checks, boolean checks |
 | `account_ownership` | Member shares for Accounts | Composite identity, positive bounded shares, restricted Member deletion |
-| `account_values` | Append-only balance or manual-value observations | Account FK, value-kind and currency checks, latest-value index |
+| `account_values` | Append-only balance or manual-value observations | Account FK, value-kind and currency checks, latest-value index, nullable Activity FK after schema 003 |
 | `instruments` | Household-scoped tradable or valued assets | Household FK, quote currency, quote preference, optional unique provider identity |
 | `holdings` | Current Instrument quantity in a Holdings Account | Account and Instrument FKs, unique active Instrument per Account |
-| `account_cash_values` | Append-only cash-by-currency observations | Account FK, currency checks, latest-value index |
+| `account_cash_values` | Append-only cash-by-currency observations | Account FK, currency checks, latest-value index, nullable Activity FK after schema 003 |
 | `instrument_quotes` | Append-only Instrument prices | Instrument FK, source, quote time, latest-quote index |
 | `fx_quote_preferences` | Manual or provider preference per unordered pair | Household FK and canonical currency pair |
 | `fx_quotes` | Append-only FX observations | Household FK, distinct currencies, source, quote time |
 | `media_assets` | Household-scoped binary images | Household FK and cascading Household deletion |
 | `app_settings` | Singleton language, appearance, and last Household pointer | Fixed row ID and enumerated settings values |
+| `history_origins` | One History Origin per Household, timezone confirmation, and cutover metadata | Unique Household, immutable financial baseline, unconfirmed timezone mutable only before the first Activity or snapshot |
+| `history_origin_account_values` | Baseline Balance and Manual Value amounts | Origin and Account FKs |
+| `history_origin_cash_values` | Baseline Holdings cash by Account and currency | Origin and Account FKs |
+| `history_origin_holdings` | Baseline Holding Quantity and active state | Origin, Holding, Account, and Instrument FKs; not an Activity |
+| `history_origin_account_states` | Baseline Category, inclusion, archive, Institution, and Group | Origin and Account FKs |
+| `history_origin_ownership` | Exact baseline Ownership rows | Origin, Account, and Member FKs |
+| `activities` | Immutable Activity headers and correction links | Household FK, unique reversal target, RESTRICT correction links |
+| `activity_legs` | Immutable additive typed Account, cash, or Quantity effects | Exactly one component shape, RESTRICT Account/Holding/Instrument evidence |
+| `holding_quantity_values` | Append-only Quantity observations | Holding FK, nullable Activity FK |
+| `account_state_observations` | Append-only valuation-relevant Account state | Account FK, latest-at-cutoff index |
+| `account_state_ownership` | Ownership snapshot for an Account state observation | Observation and Member FKs |
+| `holding_state_observations` | Append-only Holding active or archive state | Holding FK |
+| `instrument_preference_observations` | Effective-dated Manual or provider Instrument preference | Instrument FK |
+| `fx_preference_observations` | Effective-dated normalized-pair FX preference | Household FK and canonical pair |
+| `daily_valuation_snapshots` | Append-only daily snapshot revisions | Household FK, date and revision selection |
+| `daily_valuation_snapshot_items` | Component values, provenance, and missing diagnostics | Snapshot FK, Account and Instrument lookup |
+| `history_snapshot_state` | Earliest dirty local date and rebuild progress | One row per Household |
 
 SQLite constraints provide structural integrity. Rules requiring sums, comparisons with current state, retained archived references, last-active-member checks, quote selection, or valuation remain application-service responsibilities. Database triggers are not used.
+
+Schema 003 creates tables only. History Origin capture and first opening observations (quantity, Account/Holding state, and preferences with `activity_id` NULL and timestamps equal to `origin_at`) are written in a later `BEGIN IMMEDIATE` transaction after migrate, verify, and settings. Empty databases defer that origin to onboarding. Migration SQL does not rewrite v0.1.2 business rows.
 
 ## Transactions and Query Guarantees
 
@@ -92,7 +111,9 @@ quoted_at DESC, created_at DESC, id DESC
 - New Account references must be active and belong to the current Household.
 - Account updates may retain, but may not newly select, an archived reference.
 - TrackingMode cannot change after Account creation.
-- Account Value and Account Cash updates append a new observation; they do not overwrite prior observations.
+- Account Value, Account Cash, and Holding Quantity updates append a new observation; they do not overwrite prior observations. After History Origin, those user-facing mutations post through ActivityService and cannot bypass the ledger.
+- Posted Activities are immutable. Reversal and correction append linked records; there is no edit or delete command.
+- Daily snapshots are append-only revisions. Rebuild never mutates or deletes a previous revision.
 - Instrument Quote and FX Quote writes are append-only.
 - Refresh performs provider I/O without a SQLite write transaction and persists each successful normalized quote in its own short write transaction. A failed item does not remove manual data or previous successful quotes.
 
@@ -121,8 +142,12 @@ The command surface is grouped by use case:
 | Refresh | search provider instruments, refresh instrument, refresh required FX, refresh all |
 | Media | `get_media` |
 | Settings | `get_settings`, `update_settings`, `delete_all_data` |
+| Origin | `get_history_origin`, `confirm_history_timezone` |
+| Activities | `preview_activity`, `list_activities`, `get_activity`, `create_activity`, `reverse_activity`, `correct_activity` |
+| Timeline | `get_account_timeline` |
+| History | `get_history_status`, `rebuild_history_snapshots`, `get_net_worth_trend` |
 
-The application does not expose `get_household`, `update_household`, or media-clear commands. Household name and base currency are displayed from bootstrap; language and appearance are the mutable settings. `delete_all_data` is an explicitly confirmed destructive reset: it is available only for a writable supported database, closes SQLite, removes the database, WAL/SHM sidecars, and pre-migration snapshots, and restarts into onboarding. It cannot delete an unsupported future-version database. Production quote adapters are unconfigured, so production UI does not offer provider preference, provider search, or automatic refresh controls. Backend search and refresh remain available for deterministic fake-adapter tests and future integration, returning safe provider-unavailable errors with the production adapters.
+The application does not expose `get_household`, `update_household`, or media-clear commands. Household name and base currency are displayed from bootstrap; language and appearance are the mutable settings. `delete_all_data` is an explicitly confirmed destructive reset: it is available only for a writable supported database, closes SQLite, removes the database, WAL/SHM sidecars, and pre-migration snapshots including schema-3 `.pre-migrate-*` files, and restarts into onboarding. It cannot delete an unsupported future-version database. Activity commands accept tagged kind-specific inputs only; `preview_activity` performs no writes. Production quote adapters are unconfigured, so production UI does not offer provider preference, provider search, or automatic refresh controls. Backend search and refresh remain available for deterministic fake-adapter tests and future integration, returning safe provider-unavailable errors with the production adapters.
 
 Command adapters remain thin. Application services own transactions and domain conversion. Frontend code calls the generated `commands` client rather than using raw Tauri invoke names.
 
@@ -141,7 +166,7 @@ Run binding generation after any command or DTO change, then run the binding che
 
 ## Compatibility Evidence
 
-The repository contains a deterministic sanitized released v0.1.1 fixture at `src-tauri/test-fixtures/v0.1.1.sql`. Migration tests capture its pre-migration Overview, apply schema version 2, verify representative rows and retained archived references, close and reopen idempotently, and pass `foreign_key_check` and `integrity_check`. Unsupported future-version tests verify zero application writes.
+The repository contains a deterministic sanitized released v0.1.1 fixture at `src-tauri/test-fixtures/v0.1.1.sql` and a v0.1.2 fixture at `src-tauri/test-fixtures/v0.1.2.sql`. Migration tests capture pre-migration Overview, apply schema version 3, verify representative rows, retained archived references, History Origin baseline capture, close and reopen idempotently, and pass `foreign_key_check` and `integrity_check`. Unsupported future-version tests verify zero application writes, including no origin or snapshot write.
 
 ## Error Contract
 
@@ -151,7 +176,7 @@ Every command returns either its typed result or a `CommandError` containing:
 - `message`: safe user-facing English text
 - `fields`: optional structured context for forms or diagnostics
 
-Current error categories include validation, not found, conflict, already onboarded, invalid Ownership total, base-currency change restriction, invalid Category, invalid Money, invalid Quantity, invalid UnitPrice, invalid FxRate, decimal overflow, duplicate Holding, quote unavailable, incomplete valuation, unsupported provider symbol, provider authentication, rate limit, provider unavailable, malformed provider response, invalid Media, database error or unavailability, unsupported future database, migration failure, and internal error.
+Current error categories include validation, not found, conflict, already onboarded, invalid Ownership total, base-currency change restriction, invalid Category, invalid Money, invalid Quantity, invalid UnitPrice, invalid FxRate, decimal overflow, duplicate Holding, quote unavailable, incomplete valuation, unsupported provider symbol, provider authentication, rate limit, provider unavailable, malformed provider response, invalid Media, database error or unavailability, unsupported future database, migration failure, history origin initialization failure, history timezone confirmation required, invalid Activity, insufficient balance or Quantity, transfer or trade mismatch, already reversed, not correctable, snapshot rebuild required or failed, and internal error.
 
 Raw SQL, filenames other than the explicit blocked-startup database path, query text, driver details, credentials, raw provider payloads, and sensitive values must not appear in frontend errors. Detailed failures are logged locally with stable event names.
 

@@ -124,6 +124,8 @@ Rust is authoritative for:
 - Household scoping and reference validation
 - Transactions and persistence
 - Financial calculations, quote selection, FX conversion, and breakdowns through ValuationService
+- Activity posting, preview, reversal, correction, and current-state projection through ActivityService
+- Historical reconstruction, snapshot rebuild, and net-worth trend through HistoricalValuationService and history services
 - Database compatibility and integrity checks
 - Media validation and normalization
 - Stable command errors
@@ -148,9 +150,9 @@ Use generated commands for business operations. Do not duplicate financial formu
 ## Query and Mutation Conventions
 
 - Query keys identify the entity and any list options such as archived visibility.
-- Successful mutations invalidate every affected list, detail, bootstrap, Overview, portfolio, or quote query.
+- Successful mutations invalidate every affected list, detail, bootstrap, Overview, portfolio, Activity, timeline, history-status, or quote query.
 - Failed mutations preserve the current UI data and display the mapped CommandError.
-- Do not use optimistic updates for balances, Ownership, quotes, or Overview totals.
+- Do not use optimistic updates for balances, Ownership, quotes, Activities, snapshots, or Overview totals.
 - Prevent duplicate submission while a mutation is pending.
 - Keep account filters in URL state and preserve them through list-detail navigation.
 
@@ -185,8 +187,9 @@ Use React Hook Form with a feature-owned Zod schema for immediate user feedback.
 | Transaction | Invalid or conflicting requests produce zero partial writes; concurrency-sensitive invariants remain valid |
 | Command and binding | Command errors are safe and the generated TypeScript surface matches Rust |
 | Frontend | User flows, forms, pending state, errors, empty states, URL restoration, navigation context, and accessibility semantics |
-| Golden | Complete Household fixtures produce exact Overview and portfolio totals, including the CNY/SGD/USD `62190` holdings case |
-| Compatibility | Unsupported future databases remain byte-for-byte unchanged by application startup and commands |
+| Golden | Complete Household fixtures produce exact Overview and portfolio totals, including the CNY/SGD/USD `62190` holdings case after migrate to schema 3 |
+| Compatibility | Unsupported future databases remain byte-for-byte unchanged by application startup and by Activity/history commands; `delete_all_data` removes schema-3 databases, WAL/SHM, and `.pre-migrate-*` snapshots |
+| Activity and history | Kind-specific posting, atomic projections, origin baseline with zero fabricated Activities, quote cutoff, snapshot revisions, current ValuationService versus historical current-point agreement, and locale key identity |
 
 Prefer behavior assertions over implementation snapshots. Tests that claim atomicity must inspect all affected rows before and after failure.
 
@@ -214,8 +217,8 @@ Before publishing a release:
 2. Require a green CI check or explicitly record that the repository has no CI and who performed the equivalent clean-machine verification.
 3. Run `bun install --frozen-lockfile` and `bun run check`.
 4. Audit the generated command list, capabilities, CSP, native plugins, and log output.
-5. Exercise onboarding, CRUD, archive and restore, Account value updates, filters, media, Settings, and Overview on a fresh isolated database.
-6. Exercise blocked startup with a future database and verify zero writes.
+5. Exercise onboarding, CRUD, archive and restore, Account value updates, Activity posting, Account timeline, Overview trend, filters, media, Settings, and Overview on a fresh isolated database.
+6. Exercise blocked startup with a future database and verify zero writes from bootstrap and Activity/history commands.
 7. Verify migration and pre-migration snapshot behavior from every supported prior schema.
 8. Build with `bun run tauri:build`, verify the DMG checksum, and confirm the embedded executable is arm64 with the intended version and minimum macOS value.
 9. Mount the DMG read-only and smoke-test the copied application without using the real user database.
@@ -226,7 +229,7 @@ Before publishing a release:
 Useful local artifact checks include:
 
 ```bash
-hdiutil verify src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/Nestworth_0.1.2_aarch64.dmg
+hdiutil verify src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/Nestworth_0.1.3_aarch64.dmg
 lipo -archs src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Nestworth.app/Contents/MacOS/nestworth
 codesign --verify --deep --strict --verbose=4 src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Nestworth.app
 ```

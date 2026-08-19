@@ -1,8 +1,8 @@
 use rust_decimal::Decimal;
 
 use super::decimal::{
-    canonical_decimal, parse_canonical_decimal, DecimalSyntax, QUANTITY_MAX_FRACTIONAL_DIGITS,
-    QUANTITY_MAX_INTEGER_DIGITS,
+    canonical_decimal, parse_canonical_decimal, round_to_quantity_scale, DecimalSyntax,
+    QUANTITY_MAX_FRACTIONAL_DIGITS, QUANTITY_MAX_INTEGER_DIGITS,
 };
 use crate::error::AppError;
 
@@ -21,6 +21,14 @@ impl Quantity {
         )
         .map(Self)
         .map_err(|_| invalid_quantity())
+    }
+
+    pub fn from_canonical(amount: Decimal) -> Result<Self, AppError> {
+        if amount.is_sign_negative() {
+            return Err(invalid_quantity());
+        }
+        let rounded = round_to_quantity_scale(amount)?.normalize();
+        Ok(Self(rounded))
     }
 
     #[must_use]

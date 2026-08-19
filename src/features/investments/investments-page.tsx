@@ -21,6 +21,7 @@ import {
   type AllocationRowDto,
   type CommandError,
   type FxPairStatusDto,
+  type FxQuoteRecordDto,
   type PortfolioDto,
   type ReferenceCatalogDto,
 } from "@/generated/tauri-bindings";
@@ -93,6 +94,16 @@ function FxPairCard({
   const formId = useId();
   const [serverError, setServerError] = useState<CommandError | null>(null);
   const form = useForm<FxRateFormValues>({ defaultValues: { rate: "" } });
+  const quotes = useQuery({
+    queryKey: ["fx-quotes", pair.currencyB, pair.currencyA],
+    queryFn: () =>
+      unwrapResult(
+        commands.listFxQuotes({
+          baseCurrency: pair.currencyB,
+          quoteCurrency: pair.currencyA,
+        }),
+      ),
+  });
   const mutation = useMutation({
     mutationFn: async (values: FxRateFormValues) =>
       unwrapResult(
@@ -106,6 +117,9 @@ function FxPairCard({
     onSuccess: async () => {
       form.reset({ rate: "" });
       await invalidateValuation(queryClient);
+      await queryClient.invalidateQueries({
+        queryKey: ["fx-quotes", pair.currencyB, pair.currencyA],
+      });
     },
     onError: (error) => setServerError(commandErrorFromUnknown(error)),
   });
@@ -179,7 +193,40 @@ function FxPairCard({
           {mutation.isPending ? t("references.saving") : t("references.save")}
         </Button>
       </form>
+      <FxQuoteHistory catalog={catalog} quotes={quotes.data ?? []} />
     </article>
+  );
+}
+
+function FxQuoteHistory({
+  catalog,
+  quotes,
+}: {
+  catalog: ReferenceCatalogDto;
+  quotes: FxQuoteRecordDto[];
+}) {
+  const { t } = useTranslation();
+  return (
+    <div className="space-y-2">
+      <h4 className="text-sm font-medium">{t("fx.historyTitle")}</h4>
+      <p className="text-sm text-muted-foreground">{t("fx.historyHelp")}</p>
+      {quotes.length === 0 ? (
+        <p className="text-sm text-muted-foreground">{t("fx.historyEmpty")}</p>
+      ) : (
+        <ul className="space-y-1 text-sm text-muted-foreground">
+          {quotes.map((quote) => (
+            <li key={quote.id}>
+              {t("fx.historyItem", {
+                quotedAt: quote.quotedAt,
+                baseCurrency: referenceCurrencyCodeLabel(t, catalog, quote.baseCurrency),
+                quoteCurrency: referenceCurrencyCodeLabel(t, catalog, quote.quoteCurrency),
+                rate: quote.rate,
+              })}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

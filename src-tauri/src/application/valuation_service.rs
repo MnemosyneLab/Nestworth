@@ -60,6 +60,7 @@ pub struct HoldingValuationDto {
     pub missing_reason: Option<String>,
 }
 
+#[derive(Clone)]
 pub struct ValuationSnapshot {
     #[allow(dead_code)]
     household_id: String,
@@ -118,6 +119,29 @@ impl ValuationSnapshot {
             fx_quotes,
             fx_preferences,
         })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn from_parts(
+        household_id: String,
+        base_currency: CurrencyCode,
+        instruments: HashMap<String, InstrumentRecordDto>,
+        holdings: Vec<HoldingRecordDto>,
+        cash: Vec<AccountCashRecordDto>,
+        instrument_quotes: HashMap<(String, String), InstrumentQuoteRecordDto>,
+        fx_quotes: HashMap<(String, String, String), FxQuoteRecordDto>,
+        fx_preferences: HashMap<FxPair, QuoteSourceKind>,
+    ) -> Self {
+        Self {
+            household_id,
+            base_currency,
+            instruments,
+            holdings,
+            cash,
+            instrument_quotes,
+            fx_quotes,
+            fx_preferences,
+        }
     }
 }
 
@@ -452,14 +476,14 @@ fn holding_dto(
     })
 }
 
-struct Converted {
-    base: Option<Money>,
-    freshness: Option<Freshness>,
-    complete: bool,
-    missing_reason: Option<String>,
+pub(crate) struct Converted {
+    pub(crate) base: Option<Money>,
+    pub(crate) freshness: Option<Freshness>,
+    pub(crate) complete: bool,
+    pub(crate) missing_reason: Option<String>,
 }
 
-fn convert_amount(
+pub(crate) fn convert_amount(
     snapshot: &ValuationSnapshot,
     native: Money,
     now: &Timestamp,
@@ -521,6 +545,24 @@ fn selected_fx(
         FxRate::parse(&dto.rate)?,
         freshness,
     )))
+}
+
+pub(crate) fn instrument_quote_id(
+    snapshot: &ValuationSnapshot,
+    instrument: &InstrumentRecordDto,
+) -> Option<String> {
+    selected_instrument_quote(snapshot, instrument).map(|quote| quote.id.clone())
+}
+
+pub(crate) fn fx_quote_id(
+    snapshot: &ValuationSnapshot,
+    native: CurrencyCode,
+    now: &Timestamp,
+) -> Result<Option<String>, AppError> {
+    Ok(
+        selected_fx(snapshot, native, snapshot.base_currency, now)?
+            .map(|(id, _, _)| id.to_string()),
+    )
 }
 
 fn merge_freshness(left: Freshness, right: Freshness) -> Freshness {
@@ -666,6 +708,66 @@ pub fn snapshot_instruments(snapshot: &ValuationSnapshot) -> &HashMap<String, In
 
 pub fn snapshot_base(snapshot: &ValuationSnapshot) -> CurrencyCode {
     snapshot.base_currency
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HouseholdTotals {
+    pub assets: Decimal,
+    pub liabilities: Decimal,
+    pub net_worth: Decimal,
+    pub complete: bool,
+    pub unvalued_items: Vec<UnvaluedItemDto>,
+}
+
+impl HouseholdTotals {
+    pub fn rounded_assets(&self, currency: CurrencyCode) -> Result<MoneyDto, AppError> {
+        money_dto(Money::from_unrounded(self.assets, currency))
+    }
+
+    pub fn rounded_liabilities(&self, currency: CurrencyCode) -> Result<MoneyDto, AppError> {
+        money_dto(Money::from_unrounded(self.liabilities, currency))
+    }
+
+    pub fn rounded_net_worth(&self, currency: CurrencyCode) -> Result<MoneyDto, AppError> {
+        money_dto(Money::from_unrounded(self.net_worth, currency))
+    }
+}
+
+pub fn household_totals(
+    snapshot: &ValuationSnapshot,
+    accounts: &[AccountRecordDto],
+    now: &Timestamp,
+) -> Result<HouseholdTotals, AppError> {
+    let mut assets = Decimal::ZERO;
+    let mut liabilities = Decimal::ZERO;
+    let mut complete = true;
+    let mut unvalued_items = Vec::new();
+    for account in accounts {
+        if account.archived_at.is_some() || !account.include_in_net_worth {
+            continue;
+        }
+        let calculation = value_account_calculation(snapshot, account, now)?;
+        let value = calculation
+            .base
+            .map(|money| money.amount())
+            .unwrap_or(Decimal::ZERO);
+        if !calculation.complete {
+            complete = false;
+            unvalued_items.extend(calculation.unvalued_items);
+        }
+        if account_is_liability(account)? {
+            liabilities = checked_add(liabilities, value)?;
+        } else {
+            assets = checked_add(assets, value)?;
+        }
+    }
+    Ok(HouseholdTotals {
+        assets,
+        liabilities,
+        net_worth: checked_add(assets, -liabilities)?,
+        complete,
+        unvalued_items,
+    })
 }
 
 pub fn account_is_liability(account: &AccountRecordDto) -> Result<bool, AppError> {

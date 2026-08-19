@@ -26,6 +26,24 @@ pub enum AppError {
     InvalidFxRate { message: String },
     #[error("decimal overflow")]
     DecimalOverflow,
+    #[error("the activity is invalid")]
+    InvalidActivity { message: String },
+    #[error("the activity time is invalid")]
+    InvalidActivityTime { message: String },
+    #[error("the activity legs are invalid")]
+    InvalidActivityLegs { message: String },
+    #[error("insufficient balance")]
+    InsufficientBalance,
+    #[error("insufficient quantity")]
+    InsufficientQuantity,
+    #[error("transfer amounts do not match")]
+    TransferMismatch { message: String },
+    #[error("trade totals do not match")]
+    TradeTotalMismatch { message: String },
+    #[error("the activity has already been reversed")]
+    ActivityAlreadyReversed,
+    #[error("the activity cannot be reversed or corrected")]
+    ActivityNotCorrectable { message: String },
     #[error("the selected image is invalid")]
     MediaInvalid { message: String },
     #[error("household is already onboarded")]
@@ -58,6 +76,14 @@ pub enum AppError {
     CorruptDatabase,
     #[error("all application data could not be deleted")]
     DataResetFailed,
+    #[error("history origin initialization failed")]
+    HistoryInitializationFailed,
+    #[error("history timezone confirmation is required")]
+    HistoryTimezoneConfirmationRequired,
+    #[error("history snapshots need to be rebuilt")]
+    SnapshotRebuildRequired,
+    #[error("history snapshots could not be rebuilt")]
+    SnapshotRebuildFailed,
     #[error("internal application error")]
     Internal,
 }
@@ -119,6 +145,42 @@ impl AppError {
         }
     }
 
+    pub fn invalid_activity(message: &str) -> Self {
+        Self::InvalidActivity {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn invalid_activity_time(message: &str) -> Self {
+        Self::InvalidActivityTime {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn invalid_activity_legs(message: &str) -> Self {
+        Self::InvalidActivityLegs {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn transfer_mismatch(message: &str) -> Self {
+        Self::TransferMismatch {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn trade_total_mismatch(message: &str) -> Self {
+        Self::TradeTotalMismatch {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn activity_not_correctable(message: &str) -> Self {
+        Self::ActivityNotCorrectable {
+            message: message.to_owned(),
+        }
+    }
+
     pub fn media_invalid(message: &str) -> Self {
         Self::MediaInvalid {
             message: message.to_owned(),
@@ -135,6 +197,9 @@ impl AppError {
                 }
             }
             DatabaseBootstrapStatus::MigrationFailed => Self::MigrationFailed,
+            DatabaseBootstrapStatus::HistoryInitializationFailed => {
+                Self::HistoryInitializationFailed
+            }
             DatabaseBootstrapStatus::Unavailable => Self::DatabaseUnavailable,
             DatabaseBootstrapStatus::Corrupt => Self::CorruptDatabase,
         }
@@ -210,6 +275,48 @@ impl AppError {
                 ErrorCode::DecimalOverflow,
                 "The calculated amount is too large to store.",
             ),
+            Self::InvalidActivity { message } => CommandError {
+                code: ErrorCode::InvalidActivity,
+                message,
+                fields: None,
+            },
+            Self::InvalidActivityTime { message } => CommandError {
+                code: ErrorCode::InvalidActivityTime,
+                message,
+                fields: None,
+            },
+            Self::InvalidActivityLegs { message } => CommandError {
+                code: ErrorCode::InvalidActivityLegs,
+                message,
+                fields: None,
+            },
+            Self::InsufficientBalance => CommandError::new(
+                ErrorCode::InsufficientBalance,
+                "This activity would make the balance negative.",
+            ),
+            Self::InsufficientQuantity => CommandError::new(
+                ErrorCode::InsufficientQuantity,
+                "This activity would make the holding quantity negative.",
+            ),
+            Self::TransferMismatch { message } => CommandError {
+                code: ErrorCode::TransferMismatch,
+                message,
+                fields: None,
+            },
+            Self::TradeTotalMismatch { message } => CommandError {
+                code: ErrorCode::TradeTotalMismatch,
+                message,
+                fields: None,
+            },
+            Self::ActivityAlreadyReversed => CommandError::new(
+                ErrorCode::ActivityAlreadyReversed,
+                "This activity has already been reversed.",
+            ),
+            Self::ActivityNotCorrectable { message } => CommandError {
+                code: ErrorCode::ActivityNotCorrectable,
+                message,
+                fields: None,
+            },
             Self::MediaInvalid { message } => {
                 let mut fields = HashMap::new();
                 fields.insert("image".to_owned(), message.clone());
@@ -302,6 +409,22 @@ impl AppError {
                 ErrorCode::DataResetFailed,
                 "All application data could not be deleted.",
             ),
+            Self::HistoryInitializationFailed => CommandError::new(
+                ErrorCode::HistoryInitializationFailed,
+                "History origin could not be initialized.",
+            ),
+            Self::HistoryTimezoneConfirmationRequired => CommandError::new(
+                ErrorCode::HistoryTimezoneConfirmationRequired,
+                "Confirm the history timezone before recording activity or snapshots.",
+            ),
+            Self::SnapshotRebuildRequired => CommandError::new(
+                ErrorCode::SnapshotRebuildRequired,
+                "History snapshots need to be rebuilt.",
+            ),
+            Self::SnapshotRebuildFailed => CommandError::new(
+                ErrorCode::SnapshotRebuildFailed,
+                "History snapshots could not be rebuilt.",
+            ),
             Self::Internal => CommandError::new(
                 ErrorCode::InternalError,
                 "An internal application error occurred.",
@@ -331,6 +454,15 @@ pub enum ErrorCode {
     InvalidUnitPrice,
     InvalidFxRate,
     DecimalOverflow,
+    InvalidActivity,
+    InvalidActivityTime,
+    InvalidActivityLegs,
+    InsufficientBalance,
+    InsufficientQuantity,
+    TransferMismatch,
+    TradeTotalMismatch,
+    ActivityAlreadyReversed,
+    ActivityNotCorrectable,
     QuoteUnavailable,
     IncompleteValuation,
     DuplicateHolding,
@@ -345,6 +477,10 @@ pub enum ErrorCode {
     UnsupportedNewerDatabase,
     MigrationFailed,
     DataResetFailed,
+    HistoryInitializationFailed,
+    HistoryTimezoneConfirmationRequired,
+    SnapshotRebuildRequired,
+    SnapshotRebuildFailed,
     InternalError,
 }
 

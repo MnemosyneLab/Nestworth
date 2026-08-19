@@ -150,6 +150,14 @@ async fn persist_onboarding_in_transaction(
         return Err(AppError::Internal);
     }
 
+    crate::application::history_origin::insert_fresh_origin_in_tx(
+        tx,
+        prepared.household.id(),
+        &prepared.now,
+        crate::infrastructure::database_bootstrap::max_supported_migration(),
+    )
+    .await?;
+
     tracing::info!(
         event = "onboarding.complete",
         household_id = %prepared.household.id(),
@@ -189,12 +197,7 @@ fn is_household_unique_conflict(error: &sqlx::Error) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        fs,
-        hash::{Hash, Hasher},
-        path::{Path, PathBuf},
-        time::SystemTime,
-    };
+    use std::{fs, path::PathBuf, time::SystemTime};
 
     use sqlx::Row;
 
@@ -233,13 +236,6 @@ mod tests {
                 },
             ],
         }
-    }
-
-    fn file_hash(path: &Path) -> u64 {
-        let bytes = fs::read(path).expect("database fixture should exist");
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        bytes.hash(&mut hasher);
-        hasher.finish()
     }
 
     async fn snapshot(
@@ -344,14 +340,17 @@ mod tests {
                 .expect("first onboarding should succeed");
 
             let before = snapshot(&state).await;
-            let before_hash = file_hash(&path);
+            let before_hash = crate::test_support::stable_sqlite_hash(&path).await;
             let error = complete_onboarding(&state, valid_input())
                 .await
                 .expect_err("second onboarding should fail");
             assert!(matches!(error, AppError::AlreadyOnboarded));
             assert_eq!(error.into_command_error().code, ErrorCode::AlreadyOnboarded);
             assert_eq!(snapshot(&state).await, before);
-            assert_eq!(file_hash(&path), before_hash);
+            assert_eq!(
+                crate::test_support::stable_sqlite_hash(&path).await,
+                before_hash
+            );
 
             fs::remove_file(path).expect("test database should be removable");
         });
@@ -446,16 +445,16 @@ mod tests {
             .expect("future migration row should be inserted");
             pool.close().await;
 
-            let before_hash = file_hash(&path);
             let state = AppState::initialize(path.clone()).await;
             assert!(!state.is_writable());
             assert!(matches!(
                 state.bootstrap_status(),
                 DatabaseBootstrapStatus::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 2
+                    supported: 3
                 }
             ));
+            let before_hash = crate::test_support::stable_sqlite_hash(&path).await;
 
             let error = complete_onboarding(&state, valid_input())
                 .await
@@ -464,10 +463,13 @@ mod tests {
                 error,
                 AppError::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 2
+                    supported: 3
                 }
             ));
-            assert_eq!(file_hash(&path), before_hash);
+            assert_eq!(
+                crate::test_support::stable_sqlite_hash(&path).await,
+                before_hash
+            );
 
             fs::remove_file(path).expect("test database should be removable");
         });

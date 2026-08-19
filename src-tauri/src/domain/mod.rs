@@ -1,5 +1,7 @@
 mod account;
 mod account_cash;
+mod activity;
+mod activity_leg;
 mod category;
 mod currency;
 mod decimal;
@@ -25,16 +27,28 @@ pub use account::{
     Account, AccountValue, NewAccount, PersistedAccount, PersistedAccountValue, ValueKind,
 };
 pub use account_cash::AccountCashValue;
+pub use activity::{
+    classify, inverse_legs, Activity, ActivityKind, ActivityRecordParams, Classification,
+    ComponentOpening, ConstructActivity, DebtCashLink, DebtDrawSpec, DebtPaymentSpec, FeeKind,
+    IncomeKind, TradeSpec,
+};
+pub use activity_leg::{
+    apply_money_legs, apply_quantity_legs, ActivityLeg, ComponentKind, Direction, LegComponent,
+    LegRole, MonetaryComponent, MonetaryEndpoint, QuantityEndpoint,
+};
 pub use category::{PrimaryCategory, SecondaryCategory, TrackingMode};
 pub use currency::CurrencyCode;
-pub use decimal::{canonical_decimal, checked_add, round_to_money_scale};
+pub use decimal::{canonical_decimal, checked_add, checked_sub, round_to_money_scale};
 pub use fx::{convert_with_direct_rate, convert_with_inverse_rate, FxPair, FxRate};
 pub use group::{AccountGroup, NewAccountGroup, PersistedAccountGroup};
 pub use holding::{Holding, PersistedHolding};
 pub use household::Household;
 pub use ids::{
-    AccountCashValueId, AccountGroupId, AccountId, AccountValueId, FxQuoteId, HoldingId,
-    HouseholdId, InstitutionId, InstrumentId, InstrumentQuoteId, MediaAssetId, MemberId,
+    AccountCashValueId, AccountGroupId, AccountId, AccountStateObservationId, AccountValueId,
+    ActivityId, ActivityLegId, FxQuoteId, HistoryOriginId, HistoryOriginItemId, HoldingId,
+    HoldingQuantityValueId, HoldingStateObservationId, HouseholdId, InstitutionId, InstrumentId,
+    InstrumentQuoteId, MediaAssetId, MemberId, QuotePreferenceObservationId, ValuationSnapshotId,
+    ValuationSnapshotItemId,
 };
 pub use institution::{Institution, NewInstitution, PersistedInstitution};
 pub use instrument::{Instrument, InstrumentType, NewInstrument, PersistedInstrument};
@@ -48,7 +62,11 @@ pub use reference_catalog::{
     is_supported_group_icon, is_supported_institution_type, is_supported_language, APPEARANCES,
     COUNTRIES, CURRENCIES, GROUP_COLORS, GROUP_ICONS, INSTITUTION_TYPES, LANGUAGES,
 };
-pub use time::{CalendarDate, Timestamp};
+pub use time::{
+    closed_day_cutoff, inclusive_closed_day_instant, origin_timezone_from_iana_name,
+    resolve_activity_time, resolve_host_origin_timezone, resolve_local_datetime,
+    validate_activity_time, AmbiguousOffset, CalendarDate, HistoryTimezone, Timestamp,
+};
 pub use unit_price::UnitPrice;
 pub use valuation::{
     convert_native_to_base, holding_native_value, unavailable_holding, ConvertedValue, HoldingValue,

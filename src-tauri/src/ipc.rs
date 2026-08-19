@@ -8,6 +8,16 @@ use crate::{
         },
         cash_service::{AccountCashRecordDto, AppendAccountCashInput, ListAccountCashInput},
         group_service::{CreateGroupInput, GroupRecordDto, UpdateGroupInput},
+        history_query_service::{
+            AccountTimelinePageDto, ActivityDetailDto, ActivityPageDto, ActivityPreviewDto,
+            ConfirmHistoryTimezoneInput, CorrectActivityInput, CreateActivityInput,
+            GetAccountTimelineInput, HistoryOriginDto, ListActivitiesInput, PostedCorrectionDto,
+            ReverseActivityInput,
+        },
+        history_snapshot_service::{
+            GetNetWorthTrendInput, HistoryStatusDto, NetWorthTrendDto,
+            RebuildHistorySnapshotsInput, RebuildHistorySnapshotsResultDto,
+        },
         holding_service::{
             CreateHoldingInput, HoldingRecordDto, ListHoldingsInput, UpdateHoldingInput,
         },
@@ -43,6 +53,12 @@ use crate::{
         groups::{
             archive_group_impl, create_group_impl, list_groups_impl, restore_group_impl,
             update_group_impl,
+        },
+        history::{
+            confirm_history_timezone_impl, correct_activity_impl, create_activity_impl,
+            get_account_timeline_impl, get_activity_impl, get_history_origin_impl,
+            get_history_status_impl, get_net_worth_trend_impl, list_activities_impl,
+            preview_activity_impl, rebuild_history_snapshots_impl, reverse_activity_impl,
         },
         holdings::{
             archive_holding_impl, create_holding_impl, list_holdings_impl, restore_holding_impl,
@@ -607,6 +623,112 @@ pub async fn delete_all_data(
     app.restart()
 }
 
+#[tauri::command]
+#[specta::specta]
+pub async fn get_history_origin(
+    state: State<'_, AppState>,
+) -> Result<HistoryOriginDto, crate::error::CommandError> {
+    get_history_origin_impl(&state).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn confirm_history_timezone(
+    state: State<'_, AppState>,
+    input: ConfirmHistoryTimezoneInput,
+) -> Result<HistoryOriginDto, crate::error::CommandError> {
+    confirm_history_timezone_impl(&state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn preview_activity(
+    state: State<'_, AppState>,
+    input: CreateActivityInput,
+) -> Result<ActivityPreviewDto, crate::error::CommandError> {
+    preview_activity_impl(&state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_activities(
+    state: State<'_, AppState>,
+    input: ListActivitiesInput,
+) -> Result<ActivityPageDto, crate::error::CommandError> {
+    list_activities_impl(&state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn get_activity(
+    state: State<'_, AppState>,
+    input: IdInput,
+) -> Result<ActivityDetailDto, crate::error::CommandError> {
+    get_activity_impl(&state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn create_activity(
+    state: State<'_, AppState>,
+    input: CreateActivityInput,
+) -> Result<ActivityDetailDto, crate::error::CommandError> {
+    create_activity_impl(&state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn reverse_activity(
+    state: State<'_, AppState>,
+    input: ReverseActivityInput,
+) -> Result<ActivityDetailDto, crate::error::CommandError> {
+    reverse_activity_impl(&state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn correct_activity(
+    state: State<'_, AppState>,
+    input: CorrectActivityInput,
+) -> Result<PostedCorrectionDto, crate::error::CommandError> {
+    correct_activity_impl(&state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn get_account_timeline(
+    state: State<'_, AppState>,
+    input: GetAccountTimelineInput,
+) -> Result<AccountTimelinePageDto, crate::error::CommandError> {
+    get_account_timeline_impl(&state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn get_history_status(
+    state: State<'_, AppState>,
+) -> Result<HistoryStatusDto, crate::error::CommandError> {
+    get_history_status_impl(&state).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn rebuild_history_snapshots(
+    state: State<'_, AppState>,
+    input: RebuildHistorySnapshotsInput,
+) -> Result<RebuildHistorySnapshotsResultDto, crate::error::CommandError> {
+    rebuild_history_snapshots_impl(&state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn get_net_worth_trend(
+    state: State<'_, AppState>,
+    input: GetNetWorthTrendInput,
+) -> Result<NetWorthTrendDto, crate::error::CommandError> {
+    get_net_worth_trend_impl(&state, input).await
+}
+
 pub fn command_builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new().commands(collect_commands![
         bootstrap,
@@ -667,6 +789,18 @@ pub fn command_builder() -> Builder<tauri::Wry> {
         get_media,
         get_settings,
         update_settings,
-        delete_all_data
+        delete_all_data,
+        get_history_origin,
+        confirm_history_timezone,
+        preview_activity,
+        list_activities,
+        get_activity,
+        create_activity,
+        reverse_activity,
+        correct_activity,
+        get_account_timeline,
+        get_history_status,
+        rebuild_history_snapshots,
+        get_net_worth_trend
     ])
 }

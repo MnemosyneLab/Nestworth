@@ -4,6 +4,12 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use sqlx::{Row, Sqlite, Transaction};
 
+use super::activity_service::{self, PostCommand};
+use super::history_origin::ensure_activity_writes_allowed;
+use super::history_repositories::{
+    insert_account_state_observation, insert_account_state_ownership,
+    AccountStateObservationRecord, AccountStateOwnershipRecord,
+};
 use super::reference::{
     begin_read_tx, begin_write_tx, finish_read_tx, finish_write_tx, map_read_error,
     map_write_error, next_sort_order, require_household_id_tx, require_household_tx,
@@ -12,10 +18,10 @@ use super::reference::{
 use super::valuation_service::{self, AccountValuationDto, ValuationSnapshot};
 use crate::{
     domain::{
-        percent_to_basis_points, Account, AccountGroupId, AccountId, AccountValue, CurrencyCode,
-        HouseholdId, InstitutionId, MediaAssetId, MemberId, Money, NewAccount, Ownership,
-        OwnershipShare, PersistedAccount, PrimaryCategory, SecondaryCategory, Timestamp,
-        TrackingMode,
+        percent_to_basis_points, Account, AccountGroupId, AccountId, AccountStateObservationId,
+        AccountValue, ComponentOpening, CurrencyCode, HouseholdId, InstitutionId, MediaAssetId,
+        MemberId, Money, NewAccount, Ownership, OwnershipShare, PersistedAccount, PrimaryCategory,
+        SecondaryCategory, Timestamp, TrackingMode,
     },
     error::AppError,
     state::AppState,
@@ -136,6 +142,21 @@ pub(crate) async fn list_accounts_in_tx(
     household_id: &str,
     include_archived: bool,
 ) -> Result<Vec<AccountRecordDto>, AppError> {
+    let mut accounts = list_account_records_in_tx(tx, household_id, include_archived).await?;
+    if accounts.is_empty() {
+        return Ok(accounts);
+    }
+    let household = require_household_tx(tx).await?;
+    let snapshot = ValuationSnapshot::load(tx, &household.id, &household.base_currency).await?;
+    valuation_service::enrich_accounts(&snapshot, &mut accounts, &Timestamp::now())?;
+    Ok(accounts)
+}
+
+pub(crate) async fn list_account_records_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    include_archived: bool,
+) -> Result<Vec<AccountRecordDto>, AppError> {
     let rows = sqlx::query(list_accounts_sql(include_archived))
         .bind(household_id)
         .fetch_all(&mut **tx)
@@ -164,9 +185,6 @@ pub(crate) async fn list_accounts_in_tx(
             accounts[index].owners.push(owner_from_row(row)?);
         }
     }
-    let household = require_household_tx(tx).await?;
-    let snapshot = ValuationSnapshot::load(tx, &household.id, &household.base_currency).await?;
-    valuation_service::enrich_accounts(&snapshot, &mut accounts, &Timestamp::now())?;
     Ok(accounts)
 }
 
@@ -279,6 +297,7 @@ async fn create_account_in_tx(
     tx: &mut Transaction<'_, Sqlite>,
     input: CreateAccountInput,
 ) -> Result<AccountRecordDto, AppError> {
+    let origin = ensure_activity_writes_allowed(tx).await?;
     let household = require_household_tx(tx).await?;
     let sort_order = next_sort_order(tx, SortTable::Accounts, &household.id).await?;
     let mut new_account = new_account_from_input(
@@ -326,15 +345,31 @@ async fn create_account_in_tx(
                 AppError::validation("initialAmount", "An initial amount is required.")
             })?;
             let money = Money::parse(amount, account.default_currency())?;
-            let value = AccountValue::initial(
-                account.id(),
-                account.tracking_mode(),
-                money,
-                Timestamp::now(),
-            )?;
-            insert_value(tx, &value).await?;
+            if money.is_zero() {
+                let value = AccountValue::initial(
+                    account.id(),
+                    account.tracking_mode(),
+                    money,
+                    Timestamp::now(),
+                )?;
+                insert_value(tx, &value, None).await?;
+            } else {
+                activity_service::post_in_tx(
+                    tx,
+                    PostCommand::Opening(ComponentOpening::AccountValue {
+                        account_id: account.id(),
+                        amount: money,
+                    }),
+                    None,
+                    None,
+                )
+                .await?;
+            }
         }
     }
+    let now = Timestamp::now();
+    insert_created_account_observations(tx, &account, &ownership, &now).await?;
+    activity_service::mark_dirty_at(tx, &origin, &now).await?;
     tracing::info!(event = "account.create", account_id = %account.id(), "account created");
     load_account_detail(tx, &household.id, &account.id().to_string()).await
 }
@@ -353,6 +388,7 @@ async fn update_account_in_tx(
         .collect();
     let retained_institution = current.institution_id.clone();
     let retained_group = current.group_id.clone();
+    let previous = current.clone();
     let mut account = account_from_dto(&household.id, current)?;
     let update = new_account_from_input(
         &household.id,
@@ -388,6 +424,8 @@ async fn update_account_in_tx(
     )
     .await?;
     account.update(update, Timestamp::now())?;
+    let now = account.updated_at().clone();
+    let state_changed = valuation_relevant_account_change(&previous, &account, &ownership);
     let updated = sqlx::query(
         "UPDATE accounts
          SET name = ?, primary_category = ?, secondary_category = ?, tracking_mode = ?, institution_id = ?, group_id = ?, note = ?, include_in_net_worth = ?, include_in_investment = ?, include_in_liquid_assets = ?, opened_on = ?, closed_on = ?, updated_at = ?
@@ -415,6 +453,10 @@ async fn update_account_in_tx(
         return Err(AppError::not_found("account", &account.id().to_string()));
     }
     replace_ownership(tx, &account.id().to_string(), &ownership).await?;
+    if state_changed {
+        insert_created_account_observations(tx, &account, &ownership, &now).await?;
+        activity_service::mark_dirty_for_household(tx, &household.id, &now).await?;
+    }
     load_account_detail(tx, &household.id, &account.id().to_string()).await
 }
 
@@ -425,21 +467,33 @@ async fn update_account_value_in_tx(
     let household = require_household_tx(tx).await?;
     let account_id = AccountId::parse(&input.id)?;
     let account = load_account_domain(tx, &household.id, &account_id.to_string()).await?;
-    let money = Money::parse(&input.amount, account.default_currency())?;
-    let value = AccountValue::initial(
-        account.id(),
-        account.tracking_mode(),
-        money,
-        Timestamp::now(),
-    )?;
-    insert_value(tx, &value).await?;
-    sqlx::query("UPDATE accounts SET updated_at = ? WHERE id = ? AND household_id = ?")
-        .bind(Timestamp::now().to_rfc3339())
-        .bind(account.id().to_string())
-        .bind(&household.id)
-        .execute(&mut **tx)
-        .await
-        .map_err(|error| map_write_error("account.value_touch_failed", error))?;
+    if account.is_archived() {
+        return Err(AppError::validation(
+            "accountId",
+            "Activities cannot be posted against an archived account.",
+        ));
+    }
+    let target = Money::parse(&input.amount, account.default_currency())?;
+    let command = match (account.tracking_mode(), account.primary_category()) {
+        (TrackingMode::Holdings, _) => {
+            return Err(AppError::invalid_category(
+                "Holdings accounts cannot record a simple account value.",
+            ));
+        }
+        (TrackingMode::Balance, PrimaryCategory::Liability) => PostCommand::DebtAdjustment {
+            account_id: account.id(),
+            target,
+        },
+        (TrackingMode::ManualValue, _) => PostCommand::ManualValuation {
+            account_id: account.id(),
+            target,
+        },
+        (TrackingMode::Balance, _) => PostCommand::BalanceAdjustment {
+            account_id: account.id(),
+            target,
+        },
+    };
+    activity_service::post_in_tx(tx, command, None, None).await?;
     load_account_detail(tx, &household.id, &account.id().to_string()).await
 }
 
@@ -457,6 +511,7 @@ async fn mutate_archive_in_tx(
     if !archive && current.archived_at.is_none() {
         return Ok(current);
     }
+    let owners = current.owners.clone();
     let mut account = account_from_dto(&household.id, current)?;
     if archive {
         account.archive(Timestamp::now());
@@ -496,6 +551,9 @@ async fn mutate_archive_in_tx(
             return Err(AppError::not_found("account", &account.id().to_string()));
         }
     }
+    let ownership = ownership_from_owners(&owners)?;
+    insert_created_account_observations(tx, &account, &ownership, account.updated_at()).await?;
+    activity_service::mark_dirty_for_household(tx, &household.id, account.updated_at()).await?;
     load_account_detail(tx, &household.id, &account.id().to_string()).await
 }
 
@@ -715,13 +773,19 @@ async fn replace_ownership(
     Ok(())
 }
 
-async fn insert_value(
+pub(crate) async fn insert_value(
     tx: &mut Transaction<'_, Sqlite>,
     value: &AccountValue,
+    activity_id: Option<&str>,
 ) -> Result<(), AppError> {
+    if activity_id.is_none() && !value.money().is_zero() {
+        return Err(AppError::invalid_activity(
+            "Post-origin account value mutations must be posted as activities.",
+        ));
+    }
     sqlx::query(
-        "INSERT INTO account_values (id, account_id, value_kind, amount, currency, effective_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO account_values (id, account_id, value_kind, amount, currency, effective_at, created_at, activity_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(value.id().to_string())
     .bind(value.account_id().to_string())
@@ -730,9 +794,91 @@ async fn insert_value(
     .bind(value.money().currency().as_str())
     .bind(value.effective_at().to_rfc3339())
     .bind(value.created_at().to_rfc3339())
+    .bind(activity_id)
     .execute(&mut **tx)
     .await
     .map_err(|error| map_write_error("account.value_insert_failed", error))?;
+    Ok(())
+}
+
+fn valuation_relevant_account_change(
+    current: &AccountRecordDto,
+    account: &Account,
+    ownership: &Ownership,
+) -> bool {
+    current.primary_category != account.primary_category().as_str()
+        || current.secondary_category != account.secondary_category().as_str()
+        || current.tracking_mode != account.tracking_mode().as_str()
+        || current.include_in_net_worth != account.include_in_net_worth()
+        || current.include_in_investment != account.include_in_investment()
+        || current.include_in_liquid_assets != account.include_in_liquid_assets()
+        || current.institution_id != account.institution_id().map(|id| id.to_string())
+        || current.group_id != account.group_id().map(|id| id.to_string())
+        || ownership_changed(current, ownership)
+}
+
+fn ownership_changed(current: &AccountRecordDto, ownership: &Ownership) -> bool {
+    let mut current_shares: Vec<(String, i32)> = current
+        .owners
+        .iter()
+        .map(|owner| (owner.member_id.clone(), owner.share_bps))
+        .collect();
+    let mut next_shares: Vec<(String, i32)> = ownership
+        .shares()
+        .iter()
+        .map(|share| (share.member_id().to_string(), share.share_bps()))
+        .collect();
+    current_shares.sort();
+    next_shares.sort();
+    current_shares != next_shares
+}
+
+fn ownership_from_owners(owners: &[AccountOwnerDto]) -> Result<Ownership, AppError> {
+    Ownership::parse(
+        owners
+            .iter()
+            .map(|owner| OwnershipShare::new(MemberId::parse(&owner.member_id)?, owner.share_bps))
+            .collect::<Result<Vec<_>, _>>()?,
+    )
+}
+
+async fn insert_created_account_observations(
+    tx: &mut Transaction<'_, Sqlite>,
+    account: &Account,
+    ownership: &Ownership,
+    at: &Timestamp,
+) -> Result<(), AppError> {
+    let observation_id = AccountStateObservationId::new().to_string();
+    insert_account_state_observation(
+        tx,
+        &AccountStateObservationRecord {
+            id: observation_id.clone(),
+            account_id: account.id().to_string(),
+            primary_category: account.primary_category().as_str().to_owned(),
+            secondary_category: account.secondary_category().as_str().to_owned(),
+            tracking_mode: account.tracking_mode().as_str().to_owned(),
+            include_in_net_worth: account.include_in_net_worth(),
+            include_in_investment: account.include_in_investment(),
+            include_in_liquid_assets: account.include_in_liquid_assets(),
+            archived_at: account.archived_at().map(Timestamp::to_rfc3339),
+            institution_id: account.institution_id().map(|id| id.to_string()),
+            group_id: account.group_id().map(|id| id.to_string()),
+            effective_at: at.to_rfc3339(),
+            created_at: at.to_rfc3339(),
+        },
+    )
+    .await?;
+    for share in ownership.shares() {
+        insert_account_state_ownership(
+            tx,
+            &AccountStateOwnershipRecord {
+                observation_id: observation_id.clone(),
+                member_id: share.member_id().to_string(),
+                share_bps: i64::from(share.share_bps()),
+            },
+        )
+        .await?;
+    }
     Ok(())
 }
 
@@ -1005,7 +1151,9 @@ mod tests {
             member_service::{archive_member, list_members},
         },
         error::AppError,
-        test_support::{blocked_future_state, cleanup, file_hash, onboarded_state, UNKNOWN_UUID},
+        test_support::{
+            blocked_future_state, cleanup, onboarded_state, stable_sqlite_hash, UNKNOWN_UUID,
+        },
     };
 
     fn owner(member_id: &str, percent: &str) -> OwnershipShareInput {
@@ -1294,11 +1442,11 @@ mod tests {
                     error,
                     AppError::UnsupportedNewerDatabase {
                         found: 999,
-                        supported: 2
+                        supported: 3
                     }
                 ));
             }
-            assert_eq!(file_hash(&path), before_hash);
+            assert_eq!(stable_sqlite_hash(&path).await, before_hash);
             cleanup(&path);
         });
     }

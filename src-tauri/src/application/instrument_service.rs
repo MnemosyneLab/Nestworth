@@ -2,14 +2,21 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use sqlx::{Row, Sqlite, Transaction};
 
-use super::reference::{
-    begin_write_tx, finish_write_tx, map_read_error, map_unique_or_write, map_write_error,
-    next_sort_order, require_household_id, require_household_id_tx, sort_order_i32, SortTable,
+use super::{
+    activity_service,
+    history_repositories::{
+        insert_instrument_preference_observation, InstrumentPreferenceObservationRecord,
+    },
+    reference::{
+        begin_write_tx, finish_write_tx, map_read_error, map_unique_or_write, map_write_error,
+        next_sort_order, require_household_id, require_household_id_tx, sort_order_i32, SortTable,
+    },
 };
 use crate::{
     domain::{
         CurrencyCode, HouseholdId, Instrument, InstrumentId, InstrumentType, MediaAssetId,
-        NewInstrument, PersistedInstrument, QuoteSourceKind, Timestamp,
+        NewInstrument, PersistedInstrument, QuotePreferenceObservationId, QuoteSourceKind,
+        Timestamp,
     },
     error::AppError,
     state::AppState,
@@ -176,6 +183,17 @@ async fn create_instrument_in_tx(
         Timestamp::now(),
     )?;
     insert_instrument(tx, &household_id, &instrument).await?;
+    insert_instrument_preference_observation(
+        tx,
+        &InstrumentPreferenceObservationRecord {
+            id: QuotePreferenceObservationId::new().to_string(),
+            instrument_id: instrument.id().to_string(),
+            quote_preference: instrument.quote_preference().as_str().to_owned(),
+            effective_at: instrument.created_at().to_rfc3339(),
+            created_at: instrument.created_at().to_rfc3339(),
+        },
+    )
+    .await?;
     tracing::info!(
         event = "instrument.create",
         instrument_id = %instrument.id(),
@@ -192,6 +210,7 @@ async fn update_instrument_in_tx(
     let instrument_id = InstrumentId::parse(&input.id)?;
     let mut instrument =
         load_instrument_domain(tx, &household_id, &instrument_id.to_string()).await?;
+    let previous_preference = instrument.quote_preference();
     let update = NewInstrument {
         household_id: instrument.household_id(),
         name: input.name,
@@ -208,13 +227,29 @@ async fn update_instrument_in_tx(
             .as_deref()
             .map(QuoteSourceKind::parse)
             .transpose()?
-            .unwrap_or_else(|| instrument.quote_preference()),
+            .unwrap_or(previous_preference),
         note: input.note,
         logo_asset_id: instrument.logo_asset_id(),
         sort_order: instrument.sort_order(),
     };
+    let preference_changed = update.quote_preference != previous_preference;
     instrument.update(update, Timestamp::now())?;
     persist_instrument(tx, &household_id, &instrument).await?;
+    if preference_changed {
+        insert_instrument_preference_observation(
+            tx,
+            &InstrumentPreferenceObservationRecord {
+                id: QuotePreferenceObservationId::new().to_string(),
+                instrument_id: instrument.id().to_string(),
+                quote_preference: instrument.quote_preference().as_str().to_owned(),
+                effective_at: instrument.updated_at().to_rfc3339(),
+                created_at: instrument.updated_at().to_rfc3339(),
+            },
+        )
+        .await?;
+        activity_service::mark_dirty_for_household(tx, &household_id, instrument.updated_at())
+            .await?;
+    }
     load_instrument(tx, &household_id, &instrument.id().to_string()).await
 }
 
