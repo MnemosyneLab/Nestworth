@@ -9,6 +9,7 @@ export const APP_ROUTES = [
   "/overview",
   "/investments",
   "/activity",
+  "/analytics",
   "/instruments",
   "/accounts",
   "/institutions",

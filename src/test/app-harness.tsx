@@ -10,19 +10,27 @@ import type {
   AccountValuationDto,
   ActivityDetailDto,
   ActivityPageDto,
+  AnalyticsStatusDto,
   BootstrapDto,
   CommandError,
+  CostBasisDeclarationPageDto,
   ErrorCode,
+  GainSummaryIpcDto,
   GroupRecordDto,
   HistoryOriginDto,
   HistoryStatusDto,
+  HoldingLotPageDto,
   InstitutionRecordDto,
   MemberRecordDto,
+  MoneyAvailabilityDto,
+  NetWorthAttributionIpcDto,
   NetWorthTrendDto,
+  PerformanceSummaryDto,
   RebuildHistorySnapshotsResultDto,
   OverviewDto,
   PortfolioDto,
   ReferenceCatalogDto,
+  SignedMoneyAvailabilityDto,
 } from "@/generated/tauri-bindings";
 import { commands } from "@/generated/tauri-bindings";
 
@@ -281,6 +289,95 @@ export function emptyRebuildResult(): RebuildHistorySnapshotsResultDto {
   };
 }
 
+export function emptyAnalyticsStatus(): AnalyticsStatusDto {
+  return {
+    usableHistory: {
+      kind: "unavailable",
+      reason: "ANALYTICS_PERIOD_UNAVAILABLE",
+      blockingDates: [],
+    },
+    earliestCompleteSnapshotOn: {
+      kind: "unavailable",
+      reason: "ANALYTICS_PERIOD_UNAVAILABLE",
+      blockingDates: [],
+    },
+    blockingDates: [],
+    unknownBasisLotCount: 0,
+    unknownBasisValue: {
+      kind: "unavailable",
+      reason: "ANALYTICS_INPUT_INCOMPLETE",
+      blockingDates: [],
+    },
+  };
+}
+
+function unavailableSignedMoney(): SignedMoneyAvailabilityDto {
+  return {
+    kind: "unavailable",
+    reason: "ANALYTICS_INPUT_INCOMPLETE",
+    blockingDates: [],
+  };
+}
+
+function unavailableMoney(): MoneyAvailabilityDto {
+  return {
+    kind: "unavailable",
+    reason: "ANALYTICS_INPUT_INCOMPLETE",
+    blockingDates: [],
+  };
+}
+
+export function emptyPerformanceSummary(): PerformanceSummaryDto {
+  return {
+    twr: {
+      kind: "unavailable",
+      reason: "ANALYTICS_PERIOD_UNAVAILABLE",
+      blockingDates: [],
+    },
+    xirr: {
+      kind: "unavailable",
+      reason: "ANALYTICS_PERIOD_UNAVAILABLE",
+      blockingDates: [],
+    },
+  };
+}
+
+export function emptyGainSummary(): GainSummaryIpcDto {
+  return {
+    realizedGross: unavailableSignedMoney(),
+    realizedNet: unavailableSignedMoney(),
+    allocatedFees: unavailableSignedMoney(),
+    unrealizedGross: unavailableSignedMoney(),
+    unexplainedDisposal: unavailableSignedMoney(),
+    basisComplete: true,
+    inputComplete: false,
+    decompositionComplete: false,
+    unknownBasisQuantity: "0",
+    unknownBasisValue: unavailableMoney(),
+    instrumentMovement: unavailableSignedMoney(),
+    currencyMovement: unavailableSignedMoney(),
+    income: [],
+    fees: [],
+  };
+}
+
+export function emptyAttribution(): NetWorthAttributionIpcDto {
+  return {
+    kind: "unavailable",
+    reason: "ANALYTICS_PERIOD_UNAVAILABLE",
+    blockingDates: [],
+    unconvertibleFlowCount: 0,
+  };
+}
+
+export function emptyLotPage(): HoldingLotPageDto {
+  return { items: [], nextCursor: null, hasMore: false };
+}
+
+export function emptyDeclarationPage(): CostBasisDeclarationPageDto {
+  return { items: [], nextCursor: null, hasMore: false };
+}
+
 export function emptyNetWorthTrend(currency = "CNY"): NetWorthTrendDto {
   const zero = { amount: "0", currency };
   return {
@@ -437,6 +534,42 @@ export function resetCommandMocks() {
   vi.mocked(commands.rebuildHistorySnapshots).mockResolvedValue({
     status: "ok",
     data: emptyRebuildResult(),
+  });
+  vi.mocked(commands.getAnalyticsStatus).mockResolvedValue({
+    status: "ok",
+    data: emptyAnalyticsStatus(),
+  });
+  vi.mocked(commands.getPerformanceSummary).mockResolvedValue({
+    status: "ok",
+    data: emptyPerformanceSummary(),
+  });
+  vi.mocked(commands.getGainSummary).mockResolvedValue({
+    status: "ok",
+    data: emptyGainSummary(),
+  });
+  vi.mocked(commands.getNetWorthAttribution).mockResolvedValue({
+    status: "ok",
+    data: emptyAttribution(),
+  });
+  vi.mocked(commands.listHoldingLots).mockResolvedValue({
+    status: "ok",
+    data: emptyLotPage(),
+  });
+  vi.mocked(commands.listUnknownBasisLots).mockResolvedValue({
+    status: "ok",
+    data: emptyLotPage(),
+  });
+  vi.mocked(commands.listCostBasisDeclarations).mockResolvedValue({
+    status: "ok",
+    data: emptyDeclarationPage(),
+  });
+  vi.mocked(commands.declareLotCostBasis).mockResolvedValue({
+    status: "error",
+    error: commandError("COST_BASIS_LOT_NOT_FOUND", "missing"),
+  });
+  vi.mocked(commands.revokeLotCostBasis).mockResolvedValue({
+    status: "error",
+    error: commandError("COST_BASIS_LOT_NOT_FOUND", "missing"),
   });
 }
 
