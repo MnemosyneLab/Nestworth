@@ -193,7 +193,7 @@ mod tests {
     use crate::{
         error::AppError,
         infrastructure::{
-            database::connect_writable,
+            database::{connect_writable, read_migration_version},
             database_bootstrap::{pre_migration_snapshot_path, MIGRATOR},
         },
         state::AppState,
@@ -327,13 +327,30 @@ mod tests {
             pool.close().await;
 
             let snapshot = pre_migration_snapshot_path(&path, 2);
-            let stray = pre_migration_snapshot_path(&path, 1);
+            let stray = pre_migration_snapshot_path(&path, 3);
             let state = AppState::initialize(path.clone()).await;
+            assert_eq!(
+                read_migration_version(&path)
+                    .await
+                    .expect("migrated database should report a version"),
+                4,
+                "initialize must migrate the schema-2 fixture through to schema 4"
+            );
             assert!(
                 snapshot.exists(),
-                "002→003 must create a recoverable pre-migration snapshot"
+                "002→004 must keep a recoverable pre-migration snapshot from found version 2"
             );
-            std::fs::write(&stray, b"stray pre-migrate snapshot").expect("stray snapshot");
+            let declarations_table: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'cost_basis_declarations'",
+            )
+            .fetch_one(state.writable_db().expect("writable schema-4 database"))
+            .await
+            .expect("cost_basis_declarations probe");
+            assert_eq!(
+                declarations_table, 1,
+                "schema 4 must create cost_basis_declarations before delete_all_data"
+            );
+            std::fs::write(&stray, b"stray pre-migrate-3 snapshot").expect("stray snapshot");
             assert!(path.exists());
 
             delete_all_data(&state, DeleteAllDataInput { confirmed: true })

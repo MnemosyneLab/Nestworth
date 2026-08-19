@@ -54,8 +54,8 @@ A simple bank account should take little effort to add. Advanced concepts such a
 | Account Value | A dated observation of an account balance or manual valuation |
 | Holding | A position in an investment account, such as shares of an instrument |
 | Activity | An explanation of a financial change, transfer, trade, income, or fee |
-| Lot | A future acquisition batch that records what a portion of a holding cost |
-| Cost Basis | A future statement of what a position cost, either recorded by a trade or declared by the user |
+| Lot | A derived FIFO acquisition batch that records what a portion of a holding cost; lots are computed, not entered |
+| Cost Basis | What a position cost, either recorded by a posted trade or declared by the user for an unknown-basis lot |
 
 Canonical business rules for these concepts live in the [domain model](../architecture/domain-model.md).
 
@@ -79,7 +79,7 @@ The user browses all, sole-owned, and shared accounts; intersects category, inst
 
 ### Understand Change
 
-Future releases add currencies, holdings, activity history, snapshots, and performance analysis. They must distinguish external cash flow from internal movement and investment return.
+Activities, snapshots, and analytics distinguish external cash flow from internal movement, market return, and currency movement. Later releases add automation on top of that history.
 
 ## Information Architecture
 
@@ -90,7 +90,7 @@ The product grows around these top-level destinations:
 - Groups
 - Institutions
 - Settings
-- Investments, Activity, Analytics, and Automation when their releases become active
+- Investments, Activity, and Analytics; Automation when its release becomes active
 
 The interface should favor direct navigation, keyboard access, clear empty states, and explicit confirmation for consequential actions. It should not expose storage-oriented concepts unless they help the user make a financial decision.
 

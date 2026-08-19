@@ -4,7 +4,7 @@ Nestworth is a local-first macOS application for building and maintaining a pers
 
 ## Status
 
-v0.1.3 is development-complete and is in release-candidate validation. Package, Cargo, and Tauri versions are `0.1.3`. Isolated-data launch, keyboard/VoiceOver smoke testing, arm64 `.app`/`.dmg` packaging, and the chosen signing/notarization policy remain named macOS release checks.
+v0.1.4 is development-complete pending Phase 11 release closeout. Package, Cargo, and Tauri versions remain `0.1.3` until that closeout. Isolated-data launch, keyboard/VoiceOver smoke testing, arm64 `.app`/`.dmg` packaging, and the chosen signing/notarization policy remain named macOS release checks.
 
 - Platform: macOS 26.0 or later
 - Architecture: Apple Silicon `arm64` only
@@ -14,27 +14,26 @@ v0.1.3 is development-complete and is in release-candidate validation. Package, 
 
 The current pull request is not itself a public release. Use an isolated test database when launching locally built artifacts.
 
-## v0.1.3 Features
+## v0.1.4 Features
 
-- Everything in v0.1.2: onboarding, Members, Institutions, Groups, Accounts, Ownership, Instruments, Holdings, manual quotes and FX, Overview, Investments, media, language, and appearance
-- Immutable Activity ledger for Opening, Balance, and Position Adjustments, Deposit, Withdrawal, Transfer, Buy, Sell, Income, Fee, Debt Draw, Debt Payment, Debt Adjustment, and Manual Valuation
-- Atomic current-state projection so post-origin value, cash, and Quantity mutations cannot bypass Activity
-- Reversal and correction without editing or deleting posted evidence
-- History Origin cutover for migrated v0.1.2 state and fresh onboarding, with no fabricated deposits or trades
-- Account timeline and a top-level `/activity` route with URL-backed filters and cursor pagination
-- Closed-day snapshot revisions, bounded rebuild, and Overview net-worth trend with an accessible table and a live current point
-- English and Simplified Chinese copy for Activity, timeline, origin, and trend workflows
+- Everything in v0.1.3: onboarding, Members, Institutions, Groups, Accounts, Ownership, Instruments, Holdings, manual quotes and FX, Overview, Investments, Activity ledger, History Origin, snapshots, `/activity`, Overview trend, media, language, and appearance
+- FIFO lots derived from posted Activities, with unknown-basis origin and adjustment quantities until the user declares a cost
+- Realized and unrealized gain, income and fee totals, and exact currency decomposition of base-currency gain
+- Daily-linked TWR and XIRR across Household, Portfolio, Account, and Instrument scopes
+- Net-worth attribution bridge with an explicit unexplained residual
+- Top-level `/analytics` route with lot table, unknown-basis worklist, and Investments and Account detail integration
+- English and Simplified Chinese copy for analytics, lots, declarations, availability, and method names
 - Manual-only operation when no market-data provider is configured; production provider controls remain unavailable
 
 ## Current Boundaries
 
 The Household name and base currency remain fixed after onboarding. Avatars and logos can be set or replaced but not cleared.
 
-v0.1.3 does not include cost basis, tax lots, realized or unrealized gain, TWR, XIRR, benchmarks, return attribution, a live market-data vendor, automation, import/export, or user-managed backup. Origin and adjustment quantities have unknown acquisition history and must not be treated as lots. FX conversion is direct or inverse against the base currency only.
+v0.1.4 does not include benchmarks, lot policies other than FIFO, tax reporting, a live market-data vendor, automation, import/export, or user-managed backup. Analytics never fill a missing cost, quote, or snapshot with an estimate. FX conversion is direct or inverse against the base currency only.
 
-All financial totals, Activity effects, and historical snapshots are calculated by Rust. Complete active included investment Accounts contribute their authoritative base values, including legacy Balance and Manual Value Accounts; incomplete values remain visible as diagnostics and are never treated as zero. Manual prices and FX rates are the complete offline workflow. The frontend formats returned DTOs and performs no financial arithmetic.
+All financial totals, Activity effects, historical snapshots, lots, gains, returns, and attribution are calculated by Rust. Complete active included investment Accounts contribute their authoritative base values, including legacy Balance and Manual Value Accounts; incomplete values remain visible as diagnostics and are never treated as zero. Manual prices and FX rates are the complete offline workflow. The frontend formats returned DTOs and performs no financial arithmetic.
 
-See the [v0.1.3 release contract](docs/releases/v0.1.3.md) for the exact delivered scope and accepted limitations.
+See the [v0.1.4 release contract](docs/releases/v0.1.4.md) for the exact delivered scope and accepted limitations.
 
 ## Privacy and Data Ownership
 
@@ -88,6 +87,9 @@ Start with the [documentation index](docs/README.md):
 - [v0.1.3 release contract](docs/releases/v0.1.3.md)
 - [v0.1.3 technical design](docs/releases/v0.1.3-technical-design.md)
 - [v0.1.3 implementation plan](docs/releases/v0.1.3-implementation-plan.md)
+- [v0.1.4 release contract](docs/releases/v0.1.4.md)
+- [v0.1.4 technical design](docs/releases/v0.1.4-technical-design.md)
+- [v0.1.4 implementation plan](docs/releases/v0.1.4-implementation-plan.md)
 
 ## License
 

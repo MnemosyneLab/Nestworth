@@ -54,9 +54,9 @@ The detailed scope, design, and delivery phases are defined by the [v0.1.3 relea
 
 **Theme:** Know why wealth changed.
 
-**Status:** Design approved; implementation not started.
+**Status:** Development complete; release candidate pending closeout.
 
-Add FIFO cost basis and lots, realized and unrealized gain, investment income and fee totals, currency decomposition of gain, scope-relative cash-flow classification, daily-linked time-weighted return, money-weighted return as XIRR, a net-worth attribution bridge, and the `/analytics` route. Lots are derived from the v0.1.3 ledger rather than entered, and the only new persisted fact is an explicit cost-basis declaration for an unknown-basis position.
+Add FIFO cost basis and lots, realized and unrealized gain, investment income and fee totals, currency decomposition of gain, scope-relative cash-flow classification, daily-linked time-weighted return, money-weighted return as XIRR, a net-worth attribution bridge, and the `/analytics` route. Lots are derived from the v0.1.3 ledger rather than entered, and the only new persisted fact is an explicit cost-basis declaration for an unknown-basis position. Isolated-data launch, keyboard/VoiceOver, arm64 packaging, and signing remain named Phase 11 macOS release checks. Package, Cargo, and Tauri versions remain `0.1.3` until that closeout.
 
 **Exit outcome:** Contributions, internal movement, market return, currency effects, income, and fees are separated instead of being inferred from ending value alone.
 

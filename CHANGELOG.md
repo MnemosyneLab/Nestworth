@@ -2,13 +2,13 @@
 
 All notable changes to Nestworth are recorded here. The project follows semantic versioning once a public release is published.
 
-## [0.1.4] - Planned
+## [0.1.4] - Unreleased
 
-v0.1.4 is in design. Its scope, technical design, delivery phases, and compatibility baseline are approved and no phase is implemented. Package, Cargo, and Tauri versions remain `0.1.3` until the v0.1.4 release closeout.
+v0.1.4 is development-complete pending Phase 11 release closeout. Package, Cargo, and Tauri versions remain `0.1.3` until that closeout. This revision does not assign a publish date, create a git tag, or mark the product Released.
 
-### Planned
+### Added
 
-- FIFO tax lots derived from the posted v0.1.3 Activity ledger, with no lot policy configuration
+- FIFO tax lots derived from the posted v0.1.3 Activity ledger, with no lot policy configuration and no persisted lot table
 - Realized and unrealized gain reported separately as gross and net of allocated fees
 - Append-only cost-basis declarations that supply a cost for an unknown-basis position without creating an Activity
 - Investment income and fee totals by kind, including trade commissions that carry no fee kind
@@ -17,14 +17,32 @@ v0.1.4 is in design. Its scope, technical design, delivery phases, and compatibi
 - Net-worth attribution bridge with an explicit unexplained residual
 - Top-level `/analytics` route, lot table, unknown-basis worklist, and Investments and Account detail integration
 
-### Planned Boundaries
+### Engineering
 
-- Analytics are read-only over the ledger; the only new write is a cost-basis declaration
-- A reversed Activity and its reversal are both excluded from the lot ledger while remaining visible in the audit chain
-- Fees are never capitalized into cost basis
-- No result is reported when a required cost, quote, FX rate, or daily snapshot is missing
-- Benchmarks moved to v0.1.5; no market-data vendor is selected and analytics stay fully operable offline
+- Migration `004` creates `cost_basis_declarations` only and rewrites no v0.1.3 business row
+- Application-layer analytics modules of free functions, `SignedMoney`/`ReturnRate` output types, and `rust_decimal` `maths` for annualization and XIRR
+- Frozen 80-command allowlist; analytics reads write nothing; declaration and revocation are the only new writes
+- Golden v0.1.1, v0.1.2, and v0.1.3 fixtures keep Overview and portfolio totals after migrate to schema 4
+- Zero-write coverage for unsupported future databases, including version `5`, across bootstrap, Activity/history, and all nine analytics commands
+- `delete_all_data` coverage for schema-4 databases, WAL/SHM sidecars, and `.pre-migrate-*` snapshots including a stray `.pre-migrate-3`
+
+### Accepted v0.1.4 Limitations
+
+- No benchmarks, index series, peer comparison, or relative return
+- FIFO is the only lot policy; average-cost, specific-lot, LIFO, and HIFO remain deferred
+- No tax reporting, wash-sale rules, or jurisdiction-specific cost rules
+- Isolated-data launch, keyboard/VoiceOver, arm64 packaging, and signing remain named Phase 11 macOS checks
 - Binary floating point remains prohibited, including in the XIRR solver
+
+### Distribution Status
+
+- Automated frontend and Linux-host Rust gates are the development evidence for this revision
+- Remaining named macOS distribution checks, not executed in this Linux closeout:
+  - Isolated-data application launch with production providers unconfigured
+  - Keyboard-only smoke of Analytics, lot table, declaration, and attribution workflows
+  - VoiceOver smoke testing
+  - arm64 `.app` and `.dmg` packaging with version and minimum-macOS metadata (`Nestworth_0.1.3_aarch64.dmg` until Phase 11)
+  - Chosen signing/notarization policy; unsigned artifacts remain controlled-test only
 
 ## [0.1.3] - Unreleased
 

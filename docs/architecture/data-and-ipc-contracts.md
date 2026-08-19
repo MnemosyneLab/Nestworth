@@ -70,10 +70,13 @@ The migration version is inspected through a read-only connection before any wri
 | `daily_valuation_snapshots` | Append-only daily snapshot revisions | Household FK, date and revision selection |
 | `daily_valuation_snapshot_items` | Component values, provenance, and missing diagnostics | Snapshot FK, Account and Instrument lookup |
 | `history_snapshot_state` | Earliest dirty local date and rebuild progress | One row per Household |
+| `cost_basis_declarations` | Append-only user-supplied cost for one unknown-basis lot | Household FK; mutually exclusive `origin_holding_id` (`holdings.id`) and `activity_leg_id`; Instrument FK; currency check; revocation flag |
 
 SQLite constraints provide structural integrity. Rules requiring sums, comparisons with current state, retained archived references, last-active-member checks, quote selection, or valuation remain application-service responsibilities. Database triggers are not used.
 
 Schema 003 creates tables only. History Origin capture and first opening observations (quantity, Account/Holding state, and preferences with `activity_id` NULL and timestamps equal to `origin_at`) are written in a later `BEGIN IMMEDIATE` transaction after migrate, verify, and settings. Empty databases defer that origin to onboarding. Migration SQL does not rewrite v0.1.2 business rows.
+
+Schema 004 creates `cost_basis_declarations` only. It adds no column to `activities`, `activity_legs`, or any snapshot table. Lots, gains, returns, and attribution results are not persisted; they are recomputed from one consistent read transaction.
 
 ## Transactions and Query Guarantees
 
@@ -146,8 +149,11 @@ The command surface is grouped by use case:
 | Activities | `preview_activity`, `list_activities`, `get_activity`, `create_activity`, `reverse_activity`, `correct_activity` |
 | Timeline | `get_account_timeline` |
 | History | `get_history_status`, `rebuild_history_snapshots`, `get_net_worth_trend` |
+| Analytics | `get_analytics_status`, `get_performance_summary`, `get_gain_summary`, `get_net_worth_attribution`, `list_holding_lots`, `list_unknown_basis_lots`, `list_cost_basis_declarations`, `declare_lot_cost_basis`, `revoke_lot_cost_basis` |
 
-The application does not expose `get_household`, `update_household`, or media-clear commands. Household name and base currency are displayed from bootstrap; language and appearance are the mutable settings. `delete_all_data` is an explicitly confirmed destructive reset: it is available only for a writable supported database, closes SQLite, removes the database, WAL/SHM sidecars, and pre-migration snapshots including schema-3 `.pre-migrate-*` files, and restarts into onboarding. It cannot delete an unsupported future-version database. Activity commands accept tagged kind-specific inputs only; `preview_activity` performs no writes. Production quote adapters are unconfigured, so production UI does not offer provider preference, provider search, or automatic refresh controls. Backend search and refresh remain available for deterministic fake-adapter tests and future integration, returning safe provider-unavailable errors with the production adapters.
+The application does not expose `get_household`, `update_household`, or media-clear commands. Household name and base currency are displayed from bootstrap; language and appearance are the mutable settings. `delete_all_data` is an explicitly confirmed destructive reset: it is available only for a writable supported database, closes SQLite, removes the database, WAL/SHM sidecars, and pre-migration snapshots including schema-4 `.pre-migrate-*` files, and restarts into onboarding. It cannot delete an unsupported future-version database. Activity commands accept tagged kind-specific inputs only; `preview_activity` performs no writes. Analytics reads are read-only over the ledger; `declare_lot_cost_basis` and `revoke_lot_cost_basis` are the only v0.1.4 writes and persist no lot, gain, or valuation state. Production quote adapters are unconfigured, so production UI does not offer provider preference, provider search, or automatic refresh controls. Backend search and refresh remain available for deterministic fake-adapter tests and future integration, returning safe provider-unavailable errors with the production adapters.
+
+The frozen allowlist contains 80 commands.
 
 Command adapters remain thin. Application services own transactions and domain conversion. Frontend code calls the generated `commands` client rather than using raw Tauri invoke names.
 
@@ -166,7 +172,7 @@ Run binding generation after any command or DTO change, then run the binding che
 
 ## Compatibility Evidence
 
-The repository contains a deterministic sanitized released v0.1.1 fixture at `src-tauri/test-fixtures/v0.1.1.sql` and a v0.1.2 fixture at `src-tauri/test-fixtures/v0.1.2.sql`. Migration tests capture pre-migration Overview, apply schema version 3, verify representative rows, retained archived references, History Origin baseline capture, close and reopen idempotently, and pass `foreign_key_check` and `integrity_check`. Unsupported future-version tests verify zero application writes, including no origin or snapshot write.
+The repository contains a deterministic sanitized released v0.1.1 fixture at `src-tauri/test-fixtures/v0.1.1.sql`, a v0.1.2 fixture at `src-tauri/test-fixtures/v0.1.2.sql`, and a v0.1.3 fixture at `src-tauri/test-fixtures/v0.1.3.sql`. Migration tests capture pre-migration Overview, apply schema version 4, verify representative rows, retained archived references, History Origin baseline capture, close and reopen idempotently, and pass `foreign_key_check` and `integrity_check`. Unsupported future-version tests, including version `5`, verify zero application writes from bootstrap, Activity/history commands, and all nine analytics commands.
 
 ## Error Contract
 
@@ -176,7 +182,7 @@ Every command returns either its typed result or a `CommandError` containing:
 - `message`: safe user-facing English text
 - `fields`: optional structured context for forms or diagnostics
 
-Current error categories include validation, not found, conflict, already onboarded, invalid Ownership total, base-currency change restriction, invalid Category, invalid Money, invalid Quantity, invalid UnitPrice, invalid FxRate, decimal overflow, duplicate Holding, quote unavailable, incomplete valuation, unsupported provider symbol, provider authentication, rate limit, provider unavailable, malformed provider response, invalid Media, database error or unavailability, unsupported future database, migration failure, history origin initialization failure, history timezone confirmation required, invalid Activity, insufficient balance or Quantity, transfer or trade mismatch, already reversed, not correctable, snapshot rebuild required or failed, and internal error.
+Current error categories include validation, not found, conflict, already onboarded, invalid Ownership total, base-currency change restriction, invalid Category, invalid Money, invalid Quantity, invalid UnitPrice, invalid FxRate, decimal overflow, duplicate Holding, quote unavailable, incomplete valuation, unsupported provider symbol, provider authentication, rate limit, provider unavailable, malformed provider response, invalid Media, database error or unavailability, unsupported future database, migration failure, history origin initialization failure, history timezone confirmation required, invalid Activity, insufficient balance or Quantity, transfer or trade mismatch, already reversed, not correctable, snapshot rebuild required or failed, analytics period unavailable, analytics input incomplete, return not computable, invalid cost-basis declaration, cost-basis lot not found, and internal error.
 
 Raw SQL, filenames other than the explicit blocked-startup database path, query text, driver details, credentials, raw provider payloads, and sensitive values must not appear in frontend errors. Detailed failures are logged locally with stable event names.
 

@@ -31,6 +31,10 @@ erDiagram
     HOUSEHOLD ||--o{ ACTIVITY : records
     ACTIVITY ||--|{ ACTIVITY_LEG : composed_of
     HOUSEHOLD ||--o{ DAILY_SNAPSHOT : valued_as
+    HOUSEHOLD ||--o{ COST_BASIS_DECLARATION : declares
+    COST_BASIS_DECLARATION }o--o| HOLDING : origin_lot
+    COST_BASIS_DECLARATION }o--o| ACTIVITY_LEG : acquisition_lot
+    INSTRUMENT ||--o{ COST_BASIS_DECLARATION : quotes
 ```
 
 ## Core Entities
@@ -105,11 +109,23 @@ History Origin is a cutover boundary, not an Activity. It states that Nestworth 
 
 A daily snapshot is an append-only valuation revision for one closed local calendar day in the History Origin timezone. It records how reconstructed state was valued at that cutoff, including quote provenance and incomplete diagnostics. Missing components are excluded from totals and never treated as zero. The current local day is a live ValuationService point, not a persisted final snapshot.
 
+### Cost-Basis Declaration
+
+A cost-basis declaration is an append-only user-supplied cost for one unknown-basis lot. It is keyed to an origin Holding or an Activity leg (`LotRef = OriginHolding(HoldingId) | Acquisition(ActivityLegId)`). `history_origin_holdings` has no item UUID, so origin lots use `HoldingId`. A declaration creates no Activity, changes no Quantity, Account Value, net worth, or snapshot, and is revoked by appending a revocation rather than editing. Lots themselves are not persisted.
+
+### Derived FIFO Lots
+
+Lots are a deterministic FIFO interpretation of posted Activities, History Origin baseline holdings, and effective declarations. A Buy opens a known-basis lot from the persisted gross settlement amount. Origin, Opening Adjustment, and Position Adjustment increases open unknown-basis lots until declared. A Sell consumes lots in acquisition order. A position Transfer relocates lots without changing cost, acquisition time, or basis status. Lots are recomputed on each analytics read and are never a stored financial fact.
+
+### Gain, Return, and Attribution
+
+Gain, income, fee totals, currency decomposition, time-weighted and money-weighted return, and the net-worth attribution bridge are derived analytics results. They are output-only: they never become valuation inputs, ledger facts, or current-state projections. Unavailable inputs produce an explicit unavailable or incomplete result rather than zero, one, or an estimate.
+
 ## Identity, Money, and Time
 
 ### Identifiers
 
-HouseholdId, MemberId, InstitutionId, AccountGroupId, AccountId, AccountValueId, MediaAssetId, InstrumentId, HoldingId, AccountCashValueId, InstrumentQuoteId, FxQuoteId, ActivityId, ActivityLegId, HistoryOriginId, HistoryOriginItemId, AccountStateObservationId, HoldingQuantityValueId, QuotePreferenceObservationId, ValuationSnapshotId, and ValuationSnapshotItemId are distinct Rust types backed by UUID v7. IDs are lowercase hyphenated UUID strings at persistence and IPC boundaries. IDs from different entity types are not interchangeable. A provider symbol is metadata, never a Nestworth business ID. A reversal or correction link references an `ActivityId`; it is not encoded in notes.
+HouseholdId, MemberId, InstitutionId, AccountGroupId, AccountId, AccountValueId, MediaAssetId, InstrumentId, HoldingId, AccountCashValueId, InstrumentQuoteId, FxQuoteId, ActivityId, ActivityLegId, HistoryOriginId, HistoryOriginItemId, AccountStateObservationId, HoldingQuantityValueId, QuotePreferenceObservationId, ValuationSnapshotId, ValuationSnapshotItemId, and CostBasisDeclarationId are distinct Rust types backed by UUID v7. A derived `LotRef` is `OriginHolding(HoldingId)` or `Acquisition(ActivityLegId)`, not a generated UUID. IDs are lowercase hyphenated UUID strings at persistence and IPC boundaries. IDs from different entity types are not interchangeable. A provider symbol is metadata, never a Nestworth business ID. A reversal or correction link references an `ActivityId`; it is not encoded in notes.
 
 ### Currency
 
@@ -134,6 +150,8 @@ Additional decimal types:
 | Quantity | Up to 18 | Up to 8 | Zero allowed |
 | UnitPrice | Up to 12 | Up to 8 | Zero allowed and distinct from a missing quote |
 | FxRate | Up to 8 | Up to 12 | Must be greater than zero |
+| SignedMoney | Up to 12 | Up to 4 | Output-only; leading `-` allowed; never converted into `Money` |
+| ReturnRate | Up to 8 | Up to 6 | Output-only fraction, not a percentage; `0.0404` means 4.04% |
 
 Canonical output removes insignificant trailing zeros: `1.2300` becomes `1.23`, and `0.0000` becomes `0`. Valuation uses checked decimal operations and rounds only values that cross the Money DTO boundary to four fractional digits using midpoint-nearest-even. Overflow returns `DECIMAL_OVERFLOW`.
 
@@ -225,7 +243,6 @@ Foreign keys protect structural references, while application transactions enfor
 
 These concepts are intentionally deferred and are not current behavior:
 
-- v0.1.4: FIFO cost basis and lots, realized and unrealized gain, investment income and fee totals, currency decomposition, TWR, XIRR, and net-worth attribution. Designed in the [v0.1.4 release contract](../releases/v0.1.4.md) and [technical design](../releases/v0.1.4-technical-design.md); not implemented.
 - v0.1.5: Automation rules, pending activities, imports, exports, backups, reminders, and benchmarks
 
-Their detailed models must be designed when their release becomes active. They must extend the current identity, Money, Ownership, lifecycle, quote, Activity, origin, and sign semantics. v0.1.4 must treat origin and adjustment quantities as unknown-basis and must not manufacture lots from v0.1.2 Holding Quantity. Its lots are a derived interpretation of the Activity ledger rather than a new financial fact, and gain and return introduce the first signed output types without relaxing the unsigned `Money`, `Quantity`, `UnitPrice`, and `FxRate` rules above.
+Their detailed models must be designed when their release becomes active. They must extend the current identity, Money, Ownership, lifecycle, quote, Activity, origin, lot, declaration, and sign semantics. Origin and adjustment quantities remain unknown-basis until explicitly declared. v0.1.4 lots are a derived interpretation of the Activity ledger rather than a persisted financial fact, and gain and return introduce the first signed output types without relaxing the unsigned `Money`, `Quantity`, `UnitPrice`, and `FxRate` rules above. A later release must not treat a declared basis as an imported transaction.
