@@ -54,11 +54,13 @@ The detailed scope, design, and delivery phases are defined by the [v0.1.3 relea
 
 **Theme:** Know why wealth changed.
 
-**Status:** Deferred roadmap direction.
+**Status:** Design approved; implementation not started.
 
-Add cost basis, realized and unrealized gain, investment income, fees, time-weighted return, money-weighted return, benchmarks, cash-flow classification, net-worth attribution, and FX attribution.
+Add FIFO cost basis and lots, realized and unrealized gain, investment income and fee totals, currency decomposition of gain, scope-relative cash-flow classification, daily-linked time-weighted return, money-weighted return as XIRR, a net-worth attribution bridge, and the `/analytics` route. Lots are derived from the v0.1.3 ledger rather than entered, and the only new persisted fact is an explicit cost-basis declaration for an unknown-basis position.
 
 **Exit outcome:** Contributions, internal movement, market return, currency effects, income, and fees are separated instead of being inferred from ending value alone.
+
+The detailed scope, design, and delivery phases are defined by the [v0.1.4 release contract](../releases/v0.1.4.md), [technical design](../releases/v0.1.4-technical-design.md), [implementation plan](../releases/v0.1.4-implementation-plan.md), and [compatibility baseline](../releases/v0.1.4-baseline.md). Benchmarks moved to v0.1.5 because no market-data vendor is selected and a manually maintained index series is a data-entry problem rather than an analytics problem. v0.1.4 remains provider-free and read-only over the ledger.
 
 ### v0.1.5 — Sustainable Long-Term Use
 
@@ -66,7 +68,7 @@ Add cost basis, realized and unrealized gain, investment income, fees, time-weig
 
 **Status:** Deferred roadmap direction.
 
-Add recurring and pending activities, freshness policies, valuation reminders, local backups, restore, machine-readable export, CSV import and export, importer boundaries, global search, a command palette, and keyboard-focused workflows.
+Add recurring and pending activities, freshness policies, valuation reminders, local backups, restore, machine-readable export, CSV import and export, importer boundaries, benchmark series and relative return, global search, a command palette, and keyboard-focused workflows.
 
 **Exit outcome:** The Household can maintain, protect, move, and recover its data without depending on Nestworth infrastructure.
 
@@ -82,6 +84,8 @@ Add recurring and pending activities, freshness policies, valuation reminders, l
 | Activity ledger and transfers | No | No | Yes | Analytics input | Automatable |
 | Historical trend | No | No | Yes | Explainable | Preserve |
 | Investment performance | No | No | No | Yes | Preserve |
+| Cost basis and lots | No | No | No | FIFO | Importable |
+| Benchmarks and relative return | No | No | No | No | Yes |
 | Backup, import, export, and automation | No | No | No | No | Yes |
 
 `Yes` describes a release outcome, not the current implementation status. Status for the active release belongs in its release contract.
@@ -91,6 +95,7 @@ Add recurring and pending activities, freshness policies, valuation reminders, l
 - Multi-currency valuation requires explicit quote provenance and manual fallback before portfolio totals use it.
 - Holdings require Instruments and a valuation service; an Account must not impersonate an Instrument.
 - Performance requires Activity and historical valuation data; it must not be estimated from initial and current values.
+- Cost basis is derived from posted trades; a position with no recorded acquisition stays unknown until the user declares its cost.
 - Automation produces reviewable pending financial events when real execution price, date, FX, or fee may differ.
 - Backup and export include every durable component required to reconstruct the user's data.
 
@@ -98,4 +103,4 @@ Add recurring and pending activities, freshness policies, valuation reminders, l
 
 Possible v0.2 directions include planning and target allocation, richer portfolio analysis, optional sync, and carefully scoped external integrations. Bank sync, broker APIs, crypto-wallet sync, statement parsing, AI-assisted import, household collaboration, plugin systems, tax reporting, and advanced risk modeling remain deferred until the local data and recovery model is mature.
 
-Detailed behavior, schemas, providers, and UI for v0.1.4, v0.1.5, and later deferred releases are intentionally undecided. Create a new release contract when each release becomes active, using the implemented previous release as its baseline.
+Detailed behavior, schemas, providers, and UI for v0.1.5 and later deferred releases are intentionally undecided. Create a new release contract when each release becomes active, using the implemented previous release as its baseline.

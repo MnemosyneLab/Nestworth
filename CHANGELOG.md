@@ -2,6 +2,30 @@
 
 All notable changes to Nestworth are recorded here. The project follows semantic versioning once a public release is published.
 
+## [0.1.4] - Planned
+
+v0.1.4 is in design. Its scope, technical design, delivery phases, and compatibility baseline are approved and no phase is implemented. Package, Cargo, and Tauri versions remain `0.1.3` until the v0.1.4 release closeout.
+
+### Planned
+
+- FIFO tax lots derived from the posted v0.1.3 Activity ledger, with no lot policy configuration
+- Realized and unrealized gain reported separately as gross and net of allocated fees
+- Append-only cost-basis declarations that supply a cost for an unknown-basis position without creating an Activity
+- Investment income and fee totals by kind, including trade commissions that carry no fee kind
+- Exact currency decomposition of base-currency gain into instrument movement and currency movement
+- Daily-linked time-weighted return and XIRR money-weighted return across Household, Portfolio, Account, and Instrument scopes
+- Net-worth attribution bridge with an explicit unexplained residual
+- Top-level `/analytics` route, lot table, unknown-basis worklist, and Investments and Account detail integration
+
+### Planned Boundaries
+
+- Analytics are read-only over the ledger; the only new write is a cost-basis declaration
+- A reversed Activity and its reversal are both excluded from the lot ledger while remaining visible in the audit chain
+- Fees are never capitalized into cost basis
+- No result is reported when a required cost, quote, FX rate, or daily snapshot is missing
+- Benchmarks moved to v0.1.5; no market-data vendor is selected and analytics stay fully operable offline
+- Binary floating point remains prohibited, including in the XIRR solver
+
 ## [0.1.3] - Unreleased
 
 v0.1.3 is development-complete and is undergoing release-candidate validation. Package, Cargo, and Tauri versions are `0.1.3`. This closeout does not assign a publish date, create a git tag, or mark the product Released.

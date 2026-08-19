@@ -225,7 +225,7 @@ Foreign keys protect structural references, while application transactions enfor
 
 These concepts are intentionally deferred and are not current behavior:
 
-- v0.1.4: Cost basis, tax lots, realized and unrealized gain, investment income, TWR, XIRR, and attribution
-- v0.1.5: Automation rules, pending activities, imports, exports, backups, and reminders
+- v0.1.4: FIFO cost basis and lots, realized and unrealized gain, investment income and fee totals, currency decomposition, TWR, XIRR, and net-worth attribution. Designed in the [v0.1.4 release contract](../releases/v0.1.4.md) and [technical design](../releases/v0.1.4-technical-design.md); not implemented.
+- v0.1.5: Automation rules, pending activities, imports, exports, backups, reminders, and benchmarks
 
-Their detailed models must be designed when their release becomes active. They must extend the current identity, Money, Ownership, lifecycle, quote, Activity, origin, and sign semantics. v0.1.4 must treat origin and adjustment quantities as unknown-basis and must not manufacture lots from v0.1.2 Holding Quantity.
+Their detailed models must be designed when their release becomes active. They must extend the current identity, Money, Ownership, lifecycle, quote, Activity, origin, and sign semantics. v0.1.4 must treat origin and adjustment quantities as unknown-basis and must not manufacture lots from v0.1.2 Holding Quantity. Its lots are a derived interpretation of the Activity ledger rather than a new financial fact, and gain and return introduce the first signed output types without relaxing the unsigned `Money`, `Quantity`, `UnitPrice`, and `FxRate` rules above.

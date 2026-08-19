@@ -52,8 +52,10 @@ A simple bank account should take little effort to add. Advanced concepts such a
 | Account | A financial container or manually valued asset or liability |
 | Ownership | The exact percentage of an account attributed to each member |
 | Account Value | A dated observation of an account balance or manual valuation |
-| Holding | A future position in an investment account, such as shares of an instrument |
-| Activity | A future explanation of a financial change, transfer, trade, income, or fee |
+| Holding | A position in an investment account, such as shares of an instrument |
+| Activity | An explanation of a financial change, transfer, trade, income, or fee |
+| Lot | A future acquisition batch that records what a portion of a holding cost |
+| Cost Basis | A future statement of what a position cost, either recorded by a trade or declared by the user |
 
 Canonical business rules for these concepts live in the [domain model](../architecture/domain-model.md).
 
