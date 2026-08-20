@@ -2,6 +2,8 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { router } from "@/app/router";
+
 import type {
   HistoryStatusDto,
   NetWorthTrendDto,
@@ -105,10 +107,19 @@ describe("overview page", () => {
     expect(within(table).getByText("CNY 9,876.5432")).toBeInTheDocument();
     expect(within(table).getByText("CNY 3,110,000")).toBeInTheDocument();
     expect(document.querySelector("svg[aria-hidden='true']")).not.toBeNull();
+    expect(
+      screen.getByRole("link", { name: "Explain this change" }),
+    ).toBeInTheDocument();
     expect(screen.queryByText("return")).not.toBeInTheDocument();
     expect(screen.queryByText("gain")).not.toBeInTheDocument();
     expect(screen.queryByText("benchmark")).not.toBeInTheDocument();
+    expect(screen.queryByText("TWR")).not.toBeInTheDocument();
+    expect(screen.queryByText("XIRR")).not.toBeInTheDocument();
+    expect(screen.queryByText("4.444%")).not.toBeInTheDocument();
     expect(screen.queryByText("attribution")).not.toBeInTheDocument();
+    const overviewCalls = vi.mocked(commands.getOverview).mock.calls.length;
+    expect(overviewCalls).toBeGreaterThan(0);
+    expect(vi.mocked(commands.getOverview).mock.calls.length).toBe(overviewCalls);
   });
 
   it("keeps displayed financial values when the chart scales coordinates", async () => {
@@ -474,6 +485,62 @@ describe("overview page", () => {
     await waitFor(() => {
       expect(commands.getNetWorthTrend).toHaveBeenCalledWith({ range: "all" });
     });
+    expect(screen.getByRole("link", { name: "Explain this change" })).toHaveAttribute(
+      "href",
+      expect.stringMatching(/period=all/),
+    );
+  });
+
+  it("links the displayed trend range into household attribution", async () => {
+    const user = userEvent.setup();
+    mockPopulatedOverview();
+    mockTrend(trendDto({ current: livePoint({ netWorth: money("3110000") }) }));
+    await renderReadyApp();
+    const link = await screen.findByRole("link", { name: "Explain this change" });
+    expect(link).toHaveAttribute("href", expect.stringContaining("scope=household"));
+    expect(link).toHaveAttribute("href", expect.stringContaining("period=oneMonth"));
+    expect(link).toHaveAttribute("href", expect.stringContaining("#attribution"));
+    await user.click(screen.getByRole("radio", { name: "Three months" }));
+    expect(
+      await screen.findByRole("link", { name: "Explain this change" }),
+    ).toHaveAttribute("href", expect.stringContaining("period=threeMonths"));
+    await user.click(screen.getByRole("radio", { name: "One year" }));
+    expect(screen.getByRole("link", { name: "Explain this change" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("period=oneYear"),
+    );
+    await user.click(screen.getByRole("radio", { name: "One month" }));
+    await user.click(screen.getByRole("link", { name: "Explain this change" }));
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/analytics");
+      expect(router.state.location.search).toEqual(
+        expect.objectContaining({
+          scope: "household",
+          period: "oneMonth",
+        }),
+      );
+      expect(router.state.location.hash).toBe("attribution");
+    });
+    await router.navigate({ to: "/overview", replace: true });
+  });
+
+  it("does not invalidate valuation when showing the attribution link", async () => {
+    mockPopulatedOverview();
+    mockTrend(trendDto({ current: livePoint({ netWorth: money("3110000") }) }));
+    await renderReadyApp();
+    expect(
+      await screen.findByRole("link", { name: "Explain this change" }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("CNY 3,110,000")).toBeInTheDocument();
+    const overviewCalls = vi.mocked(commands.getOverview).mock.calls.length;
+    const portfolioCalls = vi.mocked(commands.getPortfolio).mock.calls.length;
+    expect(overviewCalls).toBeGreaterThan(0);
+    await screen.findByRole("table", { name: "Net-worth history" });
+    expect(vi.mocked(commands.getOverview).mock.calls.length).toBe(overviewCalls);
+    expect(vi.mocked(commands.getPortfolio).mock.calls.length).toBe(portfolioCalls);
+    expect(screen.queryByText("TWR")).not.toBeInTheDocument();
+    expect(screen.queryByText("XIRR")).not.toBeInTheDocument();
+    expect(screen.queryByText("benchmark")).not.toBeInTheDocument();
   });
 });
 

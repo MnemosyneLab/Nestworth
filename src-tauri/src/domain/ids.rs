@@ -61,6 +61,7 @@ typed_id!(HoldingQuantityValueId);
 typed_id!(QuotePreferenceObservationId);
 typed_id!(ValuationSnapshotId);
 typed_id!(ValuationSnapshotItemId);
+typed_id!(CostBasisDeclarationId);
 
 #[cfg(test)]
 mod tests {
@@ -75,6 +76,12 @@ mod tests {
         assert_eq!(InstrumentId::new().as_uuid().get_version_num(), 7);
         assert_eq!(HoldingId::new().as_uuid().get_version_num(), 7);
         assert_eq!(ActivityId::new().as_uuid().get_version_num(), 7);
+        assert_eq!(
+            super::CostBasisDeclarationId::new()
+                .as_uuid()
+                .get_version_num(),
+            7
+        );
     }
 
     #[test]

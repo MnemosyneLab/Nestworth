@@ -7,6 +7,7 @@ import {
 
 import { validateAccountSearch } from "@/features/accounts/search";
 import { validateActivitySearch } from "@/features/activity/search";
+import { validateAnalyticsSearch } from "@/features/analytics/search";
 import { RootRoute } from "@/routes/__root";
 import { AccountsRoute } from "@/routes/accounts";
 import { GroupsRoute } from "@/routes/groups";
@@ -44,6 +45,12 @@ const activityRoute = createRoute({
   path: "/activity",
   component: lazyRouteComponent(() => import("@/routes/activity")),
   validateSearch: validateActivitySearch,
+});
+const analyticsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/analytics",
+  component: lazyRouteComponent(() => import("@/routes/analytics")),
+  validateSearch: validateAnalyticsSearch,
 });
 const instrumentsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -94,6 +101,7 @@ const routeTree = rootRoute.addChildren([
   overviewRoute,
   investmentsRoute,
   activityRoute,
+  analyticsRoute,
   instrumentsRoute,
   accountsRoute,
   accountDetailRoute,

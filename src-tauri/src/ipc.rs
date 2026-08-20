@@ -6,6 +6,14 @@ use crate::{
         account_service::{
             AccountRecordDto, CreateAccountInput, UpdateAccountInput, UpdateAccountValueInput,
         },
+        analytics_query_service::{
+            AnalyticsStatusDto, CostBasisDeclarationIpcDto, CostBasisDeclarationPageDto,
+            DeclareLotCostBasisInput, GainSummaryIpcDto, GetAnalyticsStatusInput,
+            GetGainSummaryInput, GetNetWorthAttributionInput, GetPerformanceSummaryInput,
+            HoldingGainSummaryListDto, HoldingLotPageDto, ListCostBasisDeclarationsInput,
+            ListHoldingGainSummariesInput, ListHoldingLotsInput, ListUnknownBasisLotsInput,
+            NetWorthAttributionIpcDto, RevokeLotCostBasisInput,
+        },
         cash_service::{AccountCashRecordDto, AppendAccountCashInput, ListAccountCashInput},
         group_service::{CreateGroupInput, GroupRecordDto, UpdateGroupInput},
         history_query_service::{
@@ -41,12 +49,19 @@ use crate::{
             ProviderInstrumentDto, RefreshInstrumentInput, RefreshResultDto,
             SearchProviderInstrumentsInput,
         },
+        return_service::PerformanceSummaryDto,
         settings_service::{AppSettingsDto, DeleteAllDataInput, UpdateSettingsInput},
     },
     commands::{
         accounts::{
             archive_account_impl, create_account_impl, get_account_impl, list_accounts_impl,
             restore_account_impl, update_account_impl, update_account_value_impl,
+        },
+        analytics::{
+            declare_lot_cost_basis_impl, get_analytics_status_impl, get_gain_summary_impl,
+            get_net_worth_attribution_impl, get_performance_summary_impl,
+            list_cost_basis_declarations_impl, list_holding_gain_summaries_impl,
+            list_holding_lots_impl, list_unknown_basis_lots_impl, revoke_lot_cost_basis_impl,
         },
         bootstrap::{bootstrap_impl, BootstrapDto},
         cash::{append_account_cash_impl, list_account_cash_impl},
@@ -729,6 +744,96 @@ pub async fn get_net_worth_trend(
     get_net_worth_trend_impl(&state, input).await
 }
 
+#[tauri::command]
+#[specta::specta]
+pub async fn get_analytics_status(
+    state: State<'_, AppState>,
+    input: GetAnalyticsStatusInput,
+) -> Result<AnalyticsStatusDto, crate::error::CommandError> {
+    get_analytics_status_impl(&state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn get_performance_summary(
+    state: State<'_, AppState>,
+    input: GetPerformanceSummaryInput,
+) -> Result<PerformanceSummaryDto, crate::error::CommandError> {
+    get_performance_summary_impl(&state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn get_gain_summary(
+    state: State<'_, AppState>,
+    input: GetGainSummaryInput,
+) -> Result<GainSummaryIpcDto, crate::error::CommandError> {
+    get_gain_summary_impl(&state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_holding_gain_summaries(
+    state: State<'_, AppState>,
+    input: ListHoldingGainSummariesInput,
+) -> Result<HoldingGainSummaryListDto, crate::error::CommandError> {
+    list_holding_gain_summaries_impl(&state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn get_net_worth_attribution(
+    state: State<'_, AppState>,
+    input: GetNetWorthAttributionInput,
+) -> Result<NetWorthAttributionIpcDto, crate::error::CommandError> {
+    get_net_worth_attribution_impl(&state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_holding_lots(
+    state: State<'_, AppState>,
+    input: ListHoldingLotsInput,
+) -> Result<HoldingLotPageDto, crate::error::CommandError> {
+    list_holding_lots_impl(&state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_unknown_basis_lots(
+    state: State<'_, AppState>,
+    input: ListUnknownBasisLotsInput,
+) -> Result<HoldingLotPageDto, crate::error::CommandError> {
+    list_unknown_basis_lots_impl(&state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_cost_basis_declarations(
+    state: State<'_, AppState>,
+    input: ListCostBasisDeclarationsInput,
+) -> Result<CostBasisDeclarationPageDto, crate::error::CommandError> {
+    list_cost_basis_declarations_impl(&state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn declare_lot_cost_basis(
+    state: State<'_, AppState>,
+    input: DeclareLotCostBasisInput,
+) -> Result<CostBasisDeclarationIpcDto, crate::error::CommandError> {
+    declare_lot_cost_basis_impl(&state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn revoke_lot_cost_basis(
+    state: State<'_, AppState>,
+    input: RevokeLotCostBasisInput,
+) -> Result<CostBasisDeclarationIpcDto, crate::error::CommandError> {
+    revoke_lot_cost_basis_impl(&state, input).await
+}
+
 pub fn command_builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new().commands(collect_commands![
         bootstrap,
@@ -801,6 +906,16 @@ pub fn command_builder() -> Builder<tauri::Wry> {
         get_account_timeline,
         get_history_status,
         rebuild_history_snapshots,
-        get_net_worth_trend
+        get_net_worth_trend,
+        get_analytics_status,
+        get_performance_summary,
+        get_gain_summary,
+        list_holding_gain_summaries,
+        get_net_worth_attribution,
+        list_holding_lots,
+        list_unknown_basis_lots,
+        list_cost_basis_declarations,
+        declare_lot_cost_basis,
+        revoke_lot_cost_basis
     ])
 }

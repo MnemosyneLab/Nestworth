@@ -260,15 +260,23 @@ async fn get_portfolio_in_tx(tx: &mut Transaction<'_, Sqlite>) -> Result<Portfol
         unvalued_items: unvalued,
         positions,
         accounts: account_dtos,
-        cash: cash_totals
-            .into_iter()
-            .map(|(currency, amount)| {
-                Ok(MoneyDto {
-                    amount: canonical_decimal(round_to_money_scale(amount)?),
-                    currency,
+        cash: {
+            let mut cash = cash_totals
+                .into_iter()
+                .map(|(currency, amount)| {
+                    Ok(MoneyDto {
+                        amount: canonical_decimal(round_to_money_scale(amount)?),
+                        currency,
+                    })
                 })
-            })
-            .collect::<Result<Vec<_>, AppError>>()?,
+                .collect::<Result<Vec<_>, AppError>>()?;
+            cash.sort_by(|left, right| {
+                left.currency
+                    .cmp(&right.currency)
+                    .then(left.amount.cmp(&right.amount))
+            });
+            cash
+        },
         by_currency: allocation_rows(by_currency, complete_total, &household.base_currency)?,
         by_country: allocation_rows(by_country, complete_total, &household.base_currency)?,
         by_instrument_type: allocation_rows(by_type, complete_total, &household.base_currency)?,

@@ -1,4 +1,5 @@
 pub mod accounts;
+pub mod analytics;
 pub mod bootstrap;
 pub mod cash;
 pub mod groups;

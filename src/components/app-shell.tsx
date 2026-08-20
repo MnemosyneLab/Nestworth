@@ -48,6 +48,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         <NavLink active={pathname === "/activity"} to="/activity">
           {t("nav.activity")}
         </NavLink>
+        <NavLink active={pathname === "/analytics"} to="/analytics">
+          {t("nav.analytics")}
+        </NavLink>
         <div>
           <NavLink active={accountsActive} search={{}} to="/accounts">
             {t("nav.accounts")}
@@ -122,6 +125,7 @@ function NavLink({
     | "/overview"
     | "/investments"
     | "/activity"
+    | "/analytics"
     | "/instruments"
     | "/accounts"
     | "/groups"

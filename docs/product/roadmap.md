@@ -54,9 +54,9 @@ The detailed scope, design, and delivery phases are defined by the [v0.1.3 relea
 
 **Theme:** Know why wealth changed.
 
-**Status:** Design approved; implementation not started.
+**Status:** Development complete; release candidate.
 
-Add FIFO cost basis and lots, realized and unrealized gain, investment income and fee totals, currency decomposition of gain, scope-relative cash-flow classification, daily-linked time-weighted return, money-weighted return as XIRR, a net-worth attribution bridge, and the `/analytics` route. Lots are derived from the v0.1.3 ledger rather than entered, and the only new persisted fact is an explicit cost-basis declaration for an unknown-basis position.
+Add FIFO cost basis and lots, realized and unrealized gain, investment income and fee totals, currency decomposition of gain, scope-relative cash-flow classification, daily-linked time-weighted return, money-weighted return as XIRR, a net-worth attribution bridge, and the `/analytics` route. Lots are derived from the v0.1.3 ledger rather than entered, and the only new persisted fact is an explicit cost-basis declaration for an unknown-basis position. Isolated-data launch, keyboard/VoiceOver, arm64 packaging, and signing remain named macOS release checks.
 
 **Exit outcome:** Contributions, internal movement, market return, currency effects, income, and fees are separated instead of being inferred from ending value alone.
 
@@ -66,11 +66,13 @@ The detailed scope, design, and delivery phases are defined by the [v0.1.4 relea
 
 **Theme:** Make Nestworth easy to maintain for years.
 
-**Status:** Deferred roadmap direction.
+**Status:** Planned; design complete, implementation not started.
 
-Add recurring and pending activities, freshness policies, valuation reminders, local backups, restore, machine-readable export, CSV import and export, importer boundaries, benchmark series and relative return, global search, a command palette, and keyboard-focused workflows.
+Add review-before-post pending and recurring Activities, configurable valuation-review reminders, full-fidelity local Backup/Restore, canonical JSON export, strict atomic CSV import/export, manually maintained Benchmark series and relative return, bounded global search, a command palette, and keyboard-focused workflows. Automation never posts automatically, Restore is staged and recoverable, and every workflow remains offline-capable.
 
-**Exit outcome:** The Household can maintain, protect, move, and recover its data without depending on Nestworth infrastructure.
+**Exit outcome:** Routine maintenance requires less repeated input, stale facts are visible, the complete database is recoverable, controlled bulk input cannot bypass the ledger, and Benchmark comparison does not alter financial truth.
+
+The detailed scope, design, and delivery phases are defined by the [v0.1.5 release contract](../releases/v0.1.5.md), [technical design](../releases/v0.1.5-technical-design.md), [implementation plan](../releases/v0.1.5-implementation-plan.md), and [compatibility baseline](../releases/v0.1.5-baseline.md). Automatic posting, arbitrary institution importers, encrypted/cloud Backup, provider-backed Benchmarks, background agents, and OS notifications remain deferred.
 
 ## Capability Matrix
 
@@ -103,4 +105,4 @@ Add recurring and pending activities, freshness policies, valuation reminders, l
 
 Possible v0.2 directions include planning and target allocation, richer portfolio analysis, optional sync, and carefully scoped external integrations. Bank sync, broker APIs, crypto-wallet sync, statement parsing, AI-assisted import, household collaboration, plugin systems, tax reporting, and advanced risk modeling remain deferred until the local data and recovery model is mature.
 
-Detailed behavior, schemas, providers, and UI for v0.1.5 and later deferred releases are intentionally undecided. Create a new release contract when each release becomes active, using the implemented previous release as its baseline.
+Detailed behavior for v0.2 and later remains intentionally undecided. Create a new release contract when a later release becomes active, using the implemented v0.1.5 result rather than its plan as the baseline.

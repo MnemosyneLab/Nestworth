@@ -11,6 +11,10 @@ import { AccountForm, translateAccountError } from "@/features/accounts/account-
 import { AccountMark } from "@/features/accounts/account-mark";
 import { AccountTimeline } from "@/features/activity/account-timeline";
 import {
+  AccountAnalyticsLink,
+  GainSnippet,
+} from "@/features/analytics/gain-snippet";
+import {
   cashSchema,
   holdingSchema,
   updateValueSchema,
@@ -178,6 +182,11 @@ export function AccountDetailPage({ accountId }: { accountId: string }) {
               </div>
             </div>
             <UnvaluedList items={account.valuation.unvaluedItems} />
+            <AccountGainSummary
+              accountId={account.id}
+              catalog={catalog}
+              name={account.name}
+            />
             {account.trackingMode === "holdings" ? (
               <>
                 <HoldingsPanel
@@ -219,6 +228,44 @@ export function AccountDetailPage({ accountId }: { accountId: string }) {
         ) : null}
       </main>
     </AppShell>
+  );
+}
+
+function AccountGainSummary({
+  accountId,
+  catalog,
+  name,
+}: {
+  accountId: string;
+  catalog: ReferenceCatalogDto;
+  name: string;
+}) {
+  const { t } = useTranslation();
+  const gainQuery = useQuery({
+    queryKey: ["gain-summary", { kind: "account", accountId }, { kind: "all" }],
+    queryFn: () =>
+      unwrapResult(
+        commands.getGainSummary({
+          scope: { kind: "account", accountId },
+          period: { kind: "all" },
+        }),
+      ),
+  });
+
+  return (
+    <section className="space-y-3 rounded-xl border border-border bg-card px-4 py-4 shadow-sm">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-lg font-medium">{t("accounts.gainSummary")}</h2>
+        <AccountAnalyticsLink accountId={accountId} name={name} />
+      </div>
+      <GainSnippet
+        catalog={catalog}
+        error={gainQuery.error}
+        gain={gainQuery.data}
+        loading={gainQuery.isPending}
+        showRealized
+      />
+    </section>
   );
 }
 

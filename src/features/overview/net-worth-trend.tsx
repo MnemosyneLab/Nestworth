@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import { periodKindForTrendRange } from "@/features/analytics/search";
 import {
   TREND_RANGES,
   chartDate,
@@ -116,7 +118,20 @@ export function NetWorthTrendSection({ catalog }: { catalog: ReferenceCatalogDto
     <section className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <h2 className="text-lg font-medium">{t("overview.trend.title")}</h2>
-        <RangeControl range={range} onChange={setRange} />
+        <div className="flex flex-wrap items-center gap-3">
+          <RangeControl range={range} onChange={setRange} />
+          <Link
+            className="text-sm text-muted-foreground hover:text-foreground"
+            hash="attribution"
+            search={{
+              scope: "household",
+              period: periodKindForTrendRange(range),
+            }}
+            to="/analytics"
+          >
+            {t("overview.trend.explainChange")}
+          </Link>
+        </div>
       </div>
       {trendQuery.isPending || statusQuery.isPending ? (
         <p role="status">{t("references.loading")}</p>

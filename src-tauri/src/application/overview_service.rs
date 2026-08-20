@@ -1028,7 +1028,7 @@ mod tests {
                 error,
                 AppError::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 3
+                    supported: 4
                 }
             ));
             assert_eq!(stable_sqlite_hash(&path).await, before_hash);

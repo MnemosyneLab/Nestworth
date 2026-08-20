@@ -9,6 +9,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { translateAccountError } from "@/features/accounts/account-form";
 import {
+  GainSnippet,
+  InstrumentAnalyticsLink,
+} from "@/features/analytics/gain-snippet";
+import {
   basisPointsToPercent,
   clampShareBps,
   fxRateSchema,
@@ -315,6 +319,19 @@ function PositionList({
   portfolio: PortfolioDto;
 }) {
   const { t } = useTranslation();
+  const holdingsGainQuery = useQuery({
+    queryKey: ["holding-gains", { kind: "all" }],
+    queryFn: () =>
+      unwrapResult(
+        commands.listHoldingGainSummaries({ period: { kind: "all" } }),
+      ),
+  });
+  const gainByHolding = new Map(
+    (holdingsGainQuery.data?.items ?? []).map((item) => [
+      `${item.accountId}:${item.instrumentId}`,
+      item.gain,
+    ]),
+  );
   if (portfolio.positions.length === 0 && portfolio.cash.length === 0) {
     return null;
   }
@@ -322,33 +339,48 @@ function PositionList({
     <section>
       <h2 className="text-lg font-medium">{t("investments.positions")}</h2>
       <ul className="mt-4 space-y-3">
-        {portfolio.positions.map((position) => (
-          <li
-            className="rounded-xl border border-border bg-card px-4 py-3"
-            key={position.holdingId}
-          >
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <span className="font-medium">{position.instrumentName}</span>
-              <span className="text-sm text-muted-foreground">
-                {position.base
-                  ? formatReferenceMoney(
-                      t,
-                      catalog,
-                      position.base.amount,
-                      position.base.currency,
-                    )
-                  : t("quotes.unavailable")}
-              </span>
-            </div>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {position.quantity}
-              {position.native
-                ? ` · ${formatReferenceMoney(t, catalog, position.native.amount, position.native.currency)}`
-                : ""}
-              {` · ${freshnessLabel(t, position.freshness)}`}
-            </p>
-          </li>
-        ))}
+        {portfolio.positions.map((position) => {
+          const gain = gainByHolding.get(
+            `${position.accountId}:${position.instrumentId}`,
+          );
+          return (
+            <li
+              className="rounded-xl border border-border bg-card px-4 py-3"
+              key={position.holdingId}
+            >
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <span className="font-medium">{position.instrumentName}</span>
+                <span className="text-sm text-muted-foreground">
+                  {position.base
+                    ? formatReferenceMoney(
+                        t,
+                        catalog,
+                        position.base.amount,
+                        position.base.currency,
+                      )
+                    : t("quotes.unavailable")}
+                </span>
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {position.quantity}
+                {position.native
+                  ? ` · ${formatReferenceMoney(t, catalog, position.native.amount, position.native.currency)}`
+                  : ""}
+                {` · ${freshnessLabel(t, position.freshness)}`}
+              </p>
+              <GainSnippet
+                catalog={catalog}
+                error={holdingsGainQuery.error}
+                gain={gain}
+                loading={holdingsGainQuery.isPending}
+              />
+              <InstrumentAnalyticsLink
+                instrumentId={position.instrumentId}
+                name={position.instrumentName}
+              />
+            </li>
+          );
+        })}
         {portfolio.cash.map((cash) => (
           <li
             className="rounded-xl border border-border bg-card px-4 py-3"

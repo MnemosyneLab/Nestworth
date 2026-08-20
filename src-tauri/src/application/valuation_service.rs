@@ -121,6 +121,25 @@ impl ValuationSnapshot {
         })
     }
 
+    #[must_use]
+    pub(crate) fn base_currency(&self) -> CurrencyCode {
+        self.base_currency
+    }
+
+    #[must_use]
+    pub(crate) fn instrument(&self, instrument_id: &str) -> Option<&InstrumentRecordDto> {
+        self.instruments.get(instrument_id)
+    }
+
+    #[must_use]
+    pub(crate) fn selected_instrument_quote(
+        &self,
+        instrument: &InstrumentRecordDto,
+    ) -> Option<&InstrumentQuoteRecordDto> {
+        self.instrument_quotes
+            .get(&(instrument.id.clone(), instrument.quote_preference.clone()))
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn from_parts(
         household_id: String,
@@ -369,7 +388,7 @@ pub(crate) fn calculate_holding(
         .instruments
         .get(&holding.instrument_id)
         .ok_or_else(|| AppError::not_found("instrument", &holding.instrument_id))?;
-    let Some(quote_dto) = selected_instrument_quote(snapshot, instrument) else {
+    let Some(quote_dto) = snapshot.selected_instrument_quote(instrument) else {
         return Ok(HoldingCalculation {
             dto: holding_dto(
                 snapshot,
@@ -502,15 +521,6 @@ pub(crate) fn convert_amount(
     })
 }
 
-fn selected_instrument_quote<'a>(
-    snapshot: &'a ValuationSnapshot,
-    instrument: &InstrumentRecordDto,
-) -> Option<&'a InstrumentQuoteRecordDto> {
-    snapshot
-        .instrument_quotes
-        .get(&(instrument.id.clone(), instrument.quote_preference.clone()))
-}
-
 fn selected_fx(
     snapshot: &ValuationSnapshot,
     base: CurrencyCode,
@@ -551,7 +561,9 @@ pub(crate) fn instrument_quote_id(
     snapshot: &ValuationSnapshot,
     instrument: &InstrumentRecordDto,
 ) -> Option<String> {
-    selected_instrument_quote(snapshot, instrument).map(|quote| quote.id.clone())
+    snapshot
+        .selected_instrument_quote(instrument)
+        .map(|quote| quote.id.clone())
 }
 
 pub(crate) fn fx_quote_id(

@@ -89,6 +89,16 @@ vi.mock("@/generated/tauri-bindings", async (importOriginal) => {
       getHistoryStatus: vi.fn(),
       rebuildHistorySnapshots: vi.fn(),
       getNetWorthTrend: vi.fn(),
+      getAnalyticsStatus: vi.fn(),
+      getPerformanceSummary: vi.fn(),
+      getGainSummary: vi.fn(),
+      listHoldingGainSummaries: vi.fn(),
+      getNetWorthAttribution: vi.fn(),
+      listHoldingLots: vi.fn(),
+      listUnknownBasisLots: vi.fn(),
+      listCostBasisDeclarations: vi.fn(),
+      declareLotCostBasis: vi.fn(),
+      revokeLotCostBasis: vi.fn(),
     },
   };
 });
