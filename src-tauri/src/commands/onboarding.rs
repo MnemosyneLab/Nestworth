@@ -7,10 +7,10 @@ use crate::{
 };
 
 pub async fn complete_onboarding_impl(
-    state: State<'_, AppState>,
+    state: &State<'_, AppState>,
     input: CompleteOnboardingInput,
 ) -> Result<(), CommandError> {
-    complete_onboarding(&state, input)
+    complete_onboarding(state, input)
         .await
         .map_err(CommandError::from)
 }

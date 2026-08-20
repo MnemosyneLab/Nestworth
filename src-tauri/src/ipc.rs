@@ -112,12 +112,22 @@ use crate::{
     state::AppState,
 };
 
+macro_rules! with_shared_operation {
+    ($state:expr, $future:expr) => {{
+        let _operation = ($state)
+            .acquire_shared_operation()
+            .await
+            .map_err(crate::error::CommandError::from)?;
+        $future.await
+    }};
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn bootstrap(
     state: State<'_, AppState>,
 ) -> Result<BootstrapDto, crate::error::CommandError> {
-    bootstrap_impl(&state).await
+    with_shared_operation!(&state, bootstrap_impl(&state))
 }
 
 #[tauri::command]
@@ -126,7 +136,7 @@ pub async fn complete_onboarding(
     state: State<'_, AppState>,
     input: CompleteOnboardingInput,
 ) -> Result<(), crate::error::CommandError> {
-    complete_onboarding_impl(state, input).await
+    with_shared_operation!(&state, complete_onboarding_impl(&state, input))
 }
 
 #[tauri::command]
@@ -135,7 +145,7 @@ pub async fn list_members(
     state: State<'_, AppState>,
     input: ListFilterInput,
 ) -> Result<Vec<MemberRecordDto>, crate::error::CommandError> {
-    list_members_impl(&state, input).await
+    with_shared_operation!(&state, list_members_impl(&state, input))
 }
 
 #[tauri::command]
@@ -144,7 +154,7 @@ pub async fn create_member(
     state: State<'_, AppState>,
     input: CreateMemberInput,
 ) -> Result<MemberRecordDto, crate::error::CommandError> {
-    create_member_impl(&state, input).await
+    with_shared_operation!(&state, create_member_impl(&state, input))
 }
 
 #[tauri::command]
@@ -153,7 +163,7 @@ pub async fn update_member(
     state: State<'_, AppState>,
     input: UpdateMemberInput,
 ) -> Result<MemberRecordDto, crate::error::CommandError> {
-    update_member_impl(&state, input).await
+    with_shared_operation!(&state, update_member_impl(&state, input))
 }
 
 #[tauri::command]
@@ -162,7 +172,7 @@ pub async fn archive_member(
     state: State<'_, AppState>,
     input: IdInput,
 ) -> Result<MemberRecordDto, crate::error::CommandError> {
-    archive_member_impl(&state, input).await
+    with_shared_operation!(&state, archive_member_impl(&state, input))
 }
 
 #[tauri::command]
@@ -171,7 +181,7 @@ pub async fn restore_member(
     state: State<'_, AppState>,
     input: IdInput,
 ) -> Result<MemberRecordDto, crate::error::CommandError> {
-    restore_member_impl(&state, input).await
+    with_shared_operation!(&state, restore_member_impl(&state, input))
 }
 
 #[tauri::command]
@@ -180,7 +190,7 @@ pub async fn list_institutions(
     state: State<'_, AppState>,
     input: ListFilterInput,
 ) -> Result<Vec<InstitutionRecordDto>, crate::error::CommandError> {
-    list_institutions_impl(&state, input).await
+    with_shared_operation!(&state, list_institutions_impl(&state, input))
 }
 
 #[tauri::command]
@@ -189,7 +199,7 @@ pub async fn create_institution(
     state: State<'_, AppState>,
     input: CreateInstitutionInput,
 ) -> Result<InstitutionRecordDto, crate::error::CommandError> {
-    create_institution_impl(&state, input).await
+    with_shared_operation!(&state, create_institution_impl(&state, input))
 }
 
 #[tauri::command]
@@ -198,7 +208,7 @@ pub async fn update_institution(
     state: State<'_, AppState>,
     input: UpdateInstitutionInput,
 ) -> Result<InstitutionRecordDto, crate::error::CommandError> {
-    update_institution_impl(&state, input).await
+    with_shared_operation!(&state, update_institution_impl(&state, input))
 }
 
 #[tauri::command]
@@ -207,7 +217,7 @@ pub async fn archive_institution(
     state: State<'_, AppState>,
     input: IdInput,
 ) -> Result<InstitutionRecordDto, crate::error::CommandError> {
-    archive_institution_impl(&state, input).await
+    with_shared_operation!(&state, archive_institution_impl(&state, input))
 }
 
 #[tauri::command]
@@ -216,7 +226,7 @@ pub async fn restore_institution(
     state: State<'_, AppState>,
     input: IdInput,
 ) -> Result<InstitutionRecordDto, crate::error::CommandError> {
-    restore_institution_impl(&state, input).await
+    with_shared_operation!(&state, restore_institution_impl(&state, input))
 }
 
 #[tauri::command]
@@ -225,7 +235,7 @@ pub async fn list_groups(
     state: State<'_, AppState>,
     input: ListFilterInput,
 ) -> Result<Vec<GroupRecordDto>, crate::error::CommandError> {
-    list_groups_impl(&state, input).await
+    with_shared_operation!(&state, list_groups_impl(&state, input))
 }
 
 #[tauri::command]
@@ -234,7 +244,7 @@ pub async fn create_group(
     state: State<'_, AppState>,
     input: CreateGroupInput,
 ) -> Result<GroupRecordDto, crate::error::CommandError> {
-    create_group_impl(&state, input).await
+    with_shared_operation!(&state, create_group_impl(&state, input))
 }
 
 #[tauri::command]
@@ -243,7 +253,7 @@ pub async fn update_group(
     state: State<'_, AppState>,
     input: UpdateGroupInput,
 ) -> Result<GroupRecordDto, crate::error::CommandError> {
-    update_group_impl(&state, input).await
+    with_shared_operation!(&state, update_group_impl(&state, input))
 }
 
 #[tauri::command]
@@ -252,7 +262,7 @@ pub async fn archive_group(
     state: State<'_, AppState>,
     input: IdInput,
 ) -> Result<GroupRecordDto, crate::error::CommandError> {
-    archive_group_impl(&state, input).await
+    with_shared_operation!(&state, archive_group_impl(&state, input))
 }
 
 #[tauri::command]
@@ -261,7 +271,7 @@ pub async fn restore_group(
     state: State<'_, AppState>,
     input: IdInput,
 ) -> Result<GroupRecordDto, crate::error::CommandError> {
-    restore_group_impl(&state, input).await
+    with_shared_operation!(&state, restore_group_impl(&state, input))
 }
 
 #[tauri::command]
@@ -270,7 +280,7 @@ pub async fn list_accounts(
     state: State<'_, AppState>,
     input: ListFilterInput,
 ) -> Result<Vec<AccountRecordDto>, crate::error::CommandError> {
-    list_accounts_impl(&state, input).await
+    with_shared_operation!(&state, list_accounts_impl(&state, input))
 }
 
 #[tauri::command]
@@ -279,7 +289,7 @@ pub async fn get_account(
     state: State<'_, AppState>,
     input: IdInput,
 ) -> Result<AccountRecordDto, crate::error::CommandError> {
-    get_account_impl(&state, input).await
+    with_shared_operation!(&state, get_account_impl(&state, input))
 }
 
 #[tauri::command]
@@ -288,7 +298,7 @@ pub async fn create_account(
     state: State<'_, AppState>,
     input: CreateAccountInput,
 ) -> Result<AccountRecordDto, crate::error::CommandError> {
-    create_account_impl(&state, input).await
+    with_shared_operation!(&state, create_account_impl(&state, input))
 }
 
 #[tauri::command]
@@ -297,7 +307,7 @@ pub async fn update_account(
     state: State<'_, AppState>,
     input: UpdateAccountInput,
 ) -> Result<AccountRecordDto, crate::error::CommandError> {
-    update_account_impl(&state, input).await
+    with_shared_operation!(&state, update_account_impl(&state, input))
 }
 
 #[tauri::command]
@@ -306,7 +316,7 @@ pub async fn update_account_value(
     state: State<'_, AppState>,
     input: UpdateAccountValueInput,
 ) -> Result<AccountRecordDto, crate::error::CommandError> {
-    update_account_value_impl(&state, input).await
+    with_shared_operation!(&state, update_account_value_impl(&state, input))
 }
 
 #[tauri::command]
@@ -315,7 +325,7 @@ pub async fn archive_account(
     state: State<'_, AppState>,
     input: IdInput,
 ) -> Result<AccountRecordDto, crate::error::CommandError> {
-    archive_account_impl(&state, input).await
+    with_shared_operation!(&state, archive_account_impl(&state, input))
 }
 
 #[tauri::command]
@@ -324,7 +334,7 @@ pub async fn restore_account(
     state: State<'_, AppState>,
     input: IdInput,
 ) -> Result<AccountRecordDto, crate::error::CommandError> {
-    restore_account_impl(&state, input).await
+    with_shared_operation!(&state, restore_account_impl(&state, input))
 }
 
 #[tauri::command]
@@ -332,7 +342,7 @@ pub async fn restore_account(
 pub async fn get_overview(
     state: State<'_, AppState>,
 ) -> Result<OverviewDto, crate::error::CommandError> {
-    get_overview_impl(&state).await
+    with_shared_operation!(&state, get_overview_impl(&state))
 }
 
 #[tauri::command]
@@ -341,7 +351,7 @@ pub async fn set_member_avatar(
     state: State<'_, AppState>,
     input: SetMediaInput,
 ) -> Result<MemberRecordDto, crate::error::CommandError> {
-    set_member_avatar_impl(&state, input).await
+    with_shared_operation!(&state, set_member_avatar_impl(&state, input))
 }
 
 #[tauri::command]
@@ -350,7 +360,7 @@ pub async fn set_institution_logo(
     state: State<'_, AppState>,
     input: SetMediaInput,
 ) -> Result<InstitutionRecordDto, crate::error::CommandError> {
-    set_institution_logo_impl(&state, input).await
+    with_shared_operation!(&state, set_institution_logo_impl(&state, input))
 }
 
 #[tauri::command]
@@ -359,7 +369,7 @@ pub async fn set_group_logo(
     state: State<'_, AppState>,
     input: SetMediaInput,
 ) -> Result<GroupRecordDto, crate::error::CommandError> {
-    set_group_logo_impl(&state, input).await
+    with_shared_operation!(&state, set_group_logo_impl(&state, input))
 }
 
 #[tauri::command]
@@ -368,7 +378,7 @@ pub async fn set_account_logo(
     state: State<'_, AppState>,
     input: SetMediaInput,
 ) -> Result<AccountRecordDto, crate::error::CommandError> {
-    set_account_logo_impl(&state, input).await
+    with_shared_operation!(&state, set_account_logo_impl(&state, input))
 }
 
 #[tauri::command]
@@ -377,7 +387,7 @@ pub async fn set_instrument_logo(
     state: State<'_, AppState>,
     input: SetMediaInput,
 ) -> Result<InstrumentRecordDto, crate::error::CommandError> {
-    set_instrument_logo_impl(&state, input).await
+    with_shared_operation!(&state, set_instrument_logo_impl(&state, input))
 }
 
 #[tauri::command]
@@ -386,7 +396,7 @@ pub async fn list_instruments(
     state: State<'_, AppState>,
     input: ListFilterInput,
 ) -> Result<Vec<InstrumentRecordDto>, crate::error::CommandError> {
-    list_instruments_impl(&state, input).await
+    with_shared_operation!(&state, list_instruments_impl(&state, input))
 }
 
 #[tauri::command]
@@ -395,7 +405,7 @@ pub async fn get_instrument(
     state: State<'_, AppState>,
     input: IdInput,
 ) -> Result<InstrumentRecordDto, crate::error::CommandError> {
-    get_instrument_impl(&state, input).await
+    with_shared_operation!(&state, get_instrument_impl(&state, input))
 }
 
 #[tauri::command]
@@ -404,7 +414,7 @@ pub async fn create_instrument(
     state: State<'_, AppState>,
     input: CreateInstrumentInput,
 ) -> Result<InstrumentRecordDto, crate::error::CommandError> {
-    create_instrument_impl(&state, input).await
+    with_shared_operation!(&state, create_instrument_impl(&state, input))
 }
 
 #[tauri::command]
@@ -413,7 +423,7 @@ pub async fn update_instrument(
     state: State<'_, AppState>,
     input: UpdateInstrumentInput,
 ) -> Result<InstrumentRecordDto, crate::error::CommandError> {
-    update_instrument_impl(&state, input).await
+    with_shared_operation!(&state, update_instrument_impl(&state, input))
 }
 
 #[tauri::command]
@@ -422,7 +432,7 @@ pub async fn archive_instrument(
     state: State<'_, AppState>,
     input: IdInput,
 ) -> Result<InstrumentRecordDto, crate::error::CommandError> {
-    archive_instrument_impl(&state, input).await
+    with_shared_operation!(&state, archive_instrument_impl(&state, input))
 }
 
 #[tauri::command]
@@ -431,7 +441,7 @@ pub async fn restore_instrument(
     state: State<'_, AppState>,
     input: IdInput,
 ) -> Result<InstrumentRecordDto, crate::error::CommandError> {
-    restore_instrument_impl(&state, input).await
+    with_shared_operation!(&state, restore_instrument_impl(&state, input))
 }
 
 #[tauri::command]
@@ -440,7 +450,7 @@ pub async fn list_holdings(
     state: State<'_, AppState>,
     input: ListHoldingsInput,
 ) -> Result<Vec<HoldingRecordDto>, crate::error::CommandError> {
-    list_holdings_impl(&state, input).await
+    with_shared_operation!(&state, list_holdings_impl(&state, input))
 }
 
 #[tauri::command]
@@ -449,7 +459,7 @@ pub async fn create_holding(
     state: State<'_, AppState>,
     input: CreateHoldingInput,
 ) -> Result<HoldingRecordDto, crate::error::CommandError> {
-    create_holding_impl(&state, input).await
+    with_shared_operation!(&state, create_holding_impl(&state, input))
 }
 
 #[tauri::command]
@@ -458,7 +468,7 @@ pub async fn update_holding(
     state: State<'_, AppState>,
     input: UpdateHoldingInput,
 ) -> Result<HoldingRecordDto, crate::error::CommandError> {
-    update_holding_impl(&state, input).await
+    with_shared_operation!(&state, update_holding_impl(&state, input))
 }
 
 #[tauri::command]
@@ -467,7 +477,7 @@ pub async fn archive_holding(
     state: State<'_, AppState>,
     input: IdInput,
 ) -> Result<HoldingRecordDto, crate::error::CommandError> {
-    archive_holding_impl(&state, input).await
+    with_shared_operation!(&state, archive_holding_impl(&state, input))
 }
 
 #[tauri::command]
@@ -476,7 +486,7 @@ pub async fn restore_holding(
     state: State<'_, AppState>,
     input: IdInput,
 ) -> Result<HoldingRecordDto, crate::error::CommandError> {
-    restore_holding_impl(&state, input).await
+    with_shared_operation!(&state, restore_holding_impl(&state, input))
 }
 
 #[tauri::command]
@@ -485,7 +495,7 @@ pub async fn list_account_cash(
     state: State<'_, AppState>,
     input: ListAccountCashInput,
 ) -> Result<Vec<AccountCashRecordDto>, crate::error::CommandError> {
-    list_account_cash_impl(&state, input).await
+    with_shared_operation!(&state, list_account_cash_impl(&state, input))
 }
 
 #[tauri::command]
@@ -494,7 +504,7 @@ pub async fn append_account_cash(
     state: State<'_, AppState>,
     input: AppendAccountCashInput,
 ) -> Result<AccountCashRecordDto, crate::error::CommandError> {
-    append_account_cash_impl(&state, input).await
+    with_shared_operation!(&state, append_account_cash_impl(&state, input))
 }
 
 #[tauri::command]
@@ -503,7 +513,7 @@ pub async fn list_instrument_quotes(
     state: State<'_, AppState>,
     input: ListInstrumentQuotesInput,
 ) -> Result<Vec<InstrumentQuoteRecordDto>, crate::error::CommandError> {
-    list_instrument_quotes_impl(&state, input).await
+    with_shared_operation!(&state, list_instrument_quotes_impl(&state, input))
 }
 
 #[tauri::command]
@@ -512,7 +522,7 @@ pub async fn append_manual_instrument_quote(
     state: State<'_, AppState>,
     input: AppendManualInstrumentQuoteInput,
 ) -> Result<InstrumentQuoteRecordDto, crate::error::CommandError> {
-    append_manual_instrument_quote_impl(&state, input).await
+    with_shared_operation!(&state, append_manual_instrument_quote_impl(&state, input))
 }
 
 #[tauri::command]
@@ -521,7 +531,7 @@ pub async fn set_instrument_quote_preference(
     state: State<'_, AppState>,
     input: SetInstrumentQuotePreferenceInput,
 ) -> Result<InstrumentRecordDto, crate::error::CommandError> {
-    set_instrument_quote_preference_impl(&state, input).await
+    with_shared_operation!(&state, set_instrument_quote_preference_impl(&state, input))
 }
 
 #[tauri::command]
@@ -529,7 +539,7 @@ pub async fn set_instrument_quote_preference(
 pub async fn list_required_fx(
     state: State<'_, AppState>,
 ) -> Result<Vec<FxPairStatusDto>, crate::error::CommandError> {
-    list_required_fx_impl(&state).await
+    with_shared_operation!(&state, list_required_fx_impl(&state))
 }
 
 #[tauri::command]
@@ -538,7 +548,7 @@ pub async fn list_fx_quotes(
     state: State<'_, AppState>,
     input: ListFxQuotesInput,
 ) -> Result<Vec<FxQuoteRecordDto>, crate::error::CommandError> {
-    list_fx_quotes_impl(&state, input).await
+    with_shared_operation!(&state, list_fx_quotes_impl(&state, input))
 }
 
 #[tauri::command]
@@ -547,7 +557,7 @@ pub async fn append_manual_fx_quote(
     state: State<'_, AppState>,
     input: AppendManualFxQuoteInput,
 ) -> Result<FxQuoteRecordDto, crate::error::CommandError> {
-    append_manual_fx_quote_impl(&state, input).await
+    with_shared_operation!(&state, append_manual_fx_quote_impl(&state, input))
 }
 
 #[tauri::command]
@@ -556,7 +566,7 @@ pub async fn set_fx_quote_preference(
     state: State<'_, AppState>,
     input: SetFxQuotePreferenceInput,
 ) -> Result<FxPairStatusDto, crate::error::CommandError> {
-    set_fx_quote_preference_impl(&state, input).await
+    with_shared_operation!(&state, set_fx_quote_preference_impl(&state, input))
 }
 
 #[tauri::command]
@@ -564,7 +574,7 @@ pub async fn set_fx_quote_preference(
 pub async fn get_portfolio(
     state: State<'_, AppState>,
 ) -> Result<PortfolioDto, crate::error::CommandError> {
-    get_portfolio_impl(&state).await
+    with_shared_operation!(&state, get_portfolio_impl(&state))
 }
 
 #[tauri::command]
@@ -573,7 +583,7 @@ pub async fn search_provider_instruments(
     state: State<'_, AppState>,
     input: SearchProviderInstrumentsInput,
 ) -> Result<Vec<ProviderInstrumentDto>, crate::error::CommandError> {
-    search_provider_instruments_impl(&state, input).await
+    with_shared_operation!(&state, search_provider_instruments_impl(&state, input))
 }
 
 #[tauri::command]
@@ -582,7 +592,7 @@ pub async fn refresh_instrument(
     state: State<'_, AppState>,
     input: RefreshInstrumentInput,
 ) -> Result<RefreshResultDto, crate::error::CommandError> {
-    refresh_instrument_impl(&state, input).await
+    with_shared_operation!(&state, refresh_instrument_impl(&state, input))
 }
 
 #[tauri::command]
@@ -590,7 +600,7 @@ pub async fn refresh_instrument(
 pub async fn refresh_required_fx(
     state: State<'_, AppState>,
 ) -> Result<RefreshResultDto, crate::error::CommandError> {
-    refresh_required_fx_impl(&state).await
+    with_shared_operation!(&state, refresh_required_fx_impl(&state))
 }
 
 #[tauri::command]
@@ -598,7 +608,7 @@ pub async fn refresh_required_fx(
 pub async fn refresh_all(
     state: State<'_, AppState>,
 ) -> Result<RefreshResultDto, crate::error::CommandError> {
-    refresh_all_impl(&state).await
+    with_shared_operation!(&state, refresh_all_impl(&state))
 }
 
 #[tauri::command]
@@ -607,7 +617,7 @@ pub async fn get_media(
     state: State<'_, AppState>,
     input: GetMediaInput,
 ) -> Result<MediaAssetDto, crate::error::CommandError> {
-    get_media_impl(&state, input).await
+    with_shared_operation!(&state, get_media_impl(&state, input))
 }
 
 #[tauri::command]
@@ -615,7 +625,7 @@ pub async fn get_media(
 pub async fn get_settings(
     state: State<'_, AppState>,
 ) -> Result<AppSettingsDto, crate::error::CommandError> {
-    get_settings_impl(&state).await
+    with_shared_operation!(&state, get_settings_impl(&state))
 }
 
 #[tauri::command]
@@ -624,7 +634,7 @@ pub async fn update_settings(
     state: State<'_, AppState>,
     input: UpdateSettingsInput,
 ) -> Result<AppSettingsDto, crate::error::CommandError> {
-    update_settings_impl(&state, input).await
+    with_shared_operation!(&state, update_settings_impl(&state, input))
 }
 
 #[tauri::command]
@@ -643,7 +653,7 @@ pub async fn delete_all_data(
 pub async fn get_history_origin(
     state: State<'_, AppState>,
 ) -> Result<HistoryOriginDto, crate::error::CommandError> {
-    get_history_origin_impl(&state).await
+    with_shared_operation!(&state, get_history_origin_impl(&state))
 }
 
 #[tauri::command]
@@ -652,7 +662,7 @@ pub async fn confirm_history_timezone(
     state: State<'_, AppState>,
     input: ConfirmHistoryTimezoneInput,
 ) -> Result<HistoryOriginDto, crate::error::CommandError> {
-    confirm_history_timezone_impl(&state, input).await
+    with_shared_operation!(&state, confirm_history_timezone_impl(&state, input))
 }
 
 #[tauri::command]
@@ -661,7 +671,7 @@ pub async fn preview_activity(
     state: State<'_, AppState>,
     input: CreateActivityInput,
 ) -> Result<ActivityPreviewDto, crate::error::CommandError> {
-    preview_activity_impl(&state, input).await
+    with_shared_operation!(&state, preview_activity_impl(&state, input))
 }
 
 #[tauri::command]
@@ -670,7 +680,7 @@ pub async fn list_activities(
     state: State<'_, AppState>,
     input: ListActivitiesInput,
 ) -> Result<ActivityPageDto, crate::error::CommandError> {
-    list_activities_impl(&state, input).await
+    with_shared_operation!(&state, list_activities_impl(&state, input))
 }
 
 #[tauri::command]
@@ -679,7 +689,7 @@ pub async fn get_activity(
     state: State<'_, AppState>,
     input: IdInput,
 ) -> Result<ActivityDetailDto, crate::error::CommandError> {
-    get_activity_impl(&state, input).await
+    with_shared_operation!(&state, get_activity_impl(&state, input))
 }
 
 #[tauri::command]
@@ -688,7 +698,7 @@ pub async fn create_activity(
     state: State<'_, AppState>,
     input: CreateActivityInput,
 ) -> Result<ActivityDetailDto, crate::error::CommandError> {
-    create_activity_impl(&state, input).await
+    with_shared_operation!(&state, create_activity_impl(&state, input))
 }
 
 #[tauri::command]
@@ -697,7 +707,7 @@ pub async fn reverse_activity(
     state: State<'_, AppState>,
     input: ReverseActivityInput,
 ) -> Result<ActivityDetailDto, crate::error::CommandError> {
-    reverse_activity_impl(&state, input).await
+    with_shared_operation!(&state, reverse_activity_impl(&state, input))
 }
 
 #[tauri::command]
@@ -706,7 +716,7 @@ pub async fn correct_activity(
     state: State<'_, AppState>,
     input: CorrectActivityInput,
 ) -> Result<PostedCorrectionDto, crate::error::CommandError> {
-    correct_activity_impl(&state, input).await
+    with_shared_operation!(&state, correct_activity_impl(&state, input))
 }
 
 #[tauri::command]
@@ -715,7 +725,7 @@ pub async fn get_account_timeline(
     state: State<'_, AppState>,
     input: GetAccountTimelineInput,
 ) -> Result<AccountTimelinePageDto, crate::error::CommandError> {
-    get_account_timeline_impl(&state, input).await
+    with_shared_operation!(&state, get_account_timeline_impl(&state, input))
 }
 
 #[tauri::command]
@@ -723,7 +733,7 @@ pub async fn get_account_timeline(
 pub async fn get_history_status(
     state: State<'_, AppState>,
 ) -> Result<HistoryStatusDto, crate::error::CommandError> {
-    get_history_status_impl(&state).await
+    with_shared_operation!(&state, get_history_status_impl(&state))
 }
 
 #[tauri::command]
@@ -732,7 +742,7 @@ pub async fn rebuild_history_snapshots(
     state: State<'_, AppState>,
     input: RebuildHistorySnapshotsInput,
 ) -> Result<RebuildHistorySnapshotsResultDto, crate::error::CommandError> {
-    rebuild_history_snapshots_impl(&state, input).await
+    with_shared_operation!(&state, rebuild_history_snapshots_impl(&state, input))
 }
 
 #[tauri::command]
@@ -741,7 +751,7 @@ pub async fn get_net_worth_trend(
     state: State<'_, AppState>,
     input: GetNetWorthTrendInput,
 ) -> Result<NetWorthTrendDto, crate::error::CommandError> {
-    get_net_worth_trend_impl(&state, input).await
+    with_shared_operation!(&state, get_net_worth_trend_impl(&state, input))
 }
 
 #[tauri::command]
@@ -750,7 +760,7 @@ pub async fn get_analytics_status(
     state: State<'_, AppState>,
     input: GetAnalyticsStatusInput,
 ) -> Result<AnalyticsStatusDto, crate::error::CommandError> {
-    get_analytics_status_impl(&state, input).await
+    with_shared_operation!(&state, get_analytics_status_impl(&state, input))
 }
 
 #[tauri::command]
@@ -759,7 +769,7 @@ pub async fn get_performance_summary(
     state: State<'_, AppState>,
     input: GetPerformanceSummaryInput,
 ) -> Result<PerformanceSummaryDto, crate::error::CommandError> {
-    get_performance_summary_impl(&state, input).await
+    with_shared_operation!(&state, get_performance_summary_impl(&state, input))
 }
 
 #[tauri::command]
@@ -768,7 +778,7 @@ pub async fn get_gain_summary(
     state: State<'_, AppState>,
     input: GetGainSummaryInput,
 ) -> Result<GainSummaryIpcDto, crate::error::CommandError> {
-    get_gain_summary_impl(&state, input).await
+    with_shared_operation!(&state, get_gain_summary_impl(&state, input))
 }
 
 #[tauri::command]
@@ -777,7 +787,7 @@ pub async fn list_holding_gain_summaries(
     state: State<'_, AppState>,
     input: ListHoldingGainSummariesInput,
 ) -> Result<HoldingGainSummaryListDto, crate::error::CommandError> {
-    list_holding_gain_summaries_impl(&state, input).await
+    with_shared_operation!(&state, list_holding_gain_summaries_impl(&state, input))
 }
 
 #[tauri::command]
@@ -786,7 +796,7 @@ pub async fn get_net_worth_attribution(
     state: State<'_, AppState>,
     input: GetNetWorthAttributionInput,
 ) -> Result<NetWorthAttributionIpcDto, crate::error::CommandError> {
-    get_net_worth_attribution_impl(&state, input).await
+    with_shared_operation!(&state, get_net_worth_attribution_impl(&state, input))
 }
 
 #[tauri::command]
@@ -795,7 +805,7 @@ pub async fn list_holding_lots(
     state: State<'_, AppState>,
     input: ListHoldingLotsInput,
 ) -> Result<HoldingLotPageDto, crate::error::CommandError> {
-    list_holding_lots_impl(&state, input).await
+    with_shared_operation!(&state, list_holding_lots_impl(&state, input))
 }
 
 #[tauri::command]
@@ -804,7 +814,7 @@ pub async fn list_unknown_basis_lots(
     state: State<'_, AppState>,
     input: ListUnknownBasisLotsInput,
 ) -> Result<HoldingLotPageDto, crate::error::CommandError> {
-    list_unknown_basis_lots_impl(&state, input).await
+    with_shared_operation!(&state, list_unknown_basis_lots_impl(&state, input))
 }
 
 #[tauri::command]
@@ -813,7 +823,7 @@ pub async fn list_cost_basis_declarations(
     state: State<'_, AppState>,
     input: ListCostBasisDeclarationsInput,
 ) -> Result<CostBasisDeclarationPageDto, crate::error::CommandError> {
-    list_cost_basis_declarations_impl(&state, input).await
+    with_shared_operation!(&state, list_cost_basis_declarations_impl(&state, input))
 }
 
 #[tauri::command]
@@ -822,7 +832,7 @@ pub async fn declare_lot_cost_basis(
     state: State<'_, AppState>,
     input: DeclareLotCostBasisInput,
 ) -> Result<CostBasisDeclarationIpcDto, crate::error::CommandError> {
-    declare_lot_cost_basis_impl(&state, input).await
+    with_shared_operation!(&state, declare_lot_cost_basis_impl(&state, input))
 }
 
 #[tauri::command]
@@ -831,7 +841,7 @@ pub async fn revoke_lot_cost_basis(
     state: State<'_, AppState>,
     input: RevokeLotCostBasisInput,
 ) -> Result<CostBasisDeclarationIpcDto, crate::error::CommandError> {
-    revoke_lot_cost_basis_impl(&state, input).await
+    with_shared_operation!(&state, revoke_lot_cost_basis_impl(&state, input))
 }
 
 pub fn command_builder() -> Builder<tauri::Wry> {

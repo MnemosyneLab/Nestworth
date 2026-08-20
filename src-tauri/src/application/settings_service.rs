@@ -7,7 +7,7 @@ use sqlx::Row;
 use super::reference::{begin_write_tx, finish_write_tx, map_read_error, map_write_error};
 use crate::{
     domain::{is_supported_appearance, is_supported_language, Timestamp},
-    error::AppError,
+    error::{AppError, RestartReason},
     state::AppState,
 };
 
@@ -57,8 +57,10 @@ pub async fn delete_all_data(state: &AppState, input: DeleteAllDataInput) -> Res
         ));
     }
 
+    let operation = state.acquire_exclusive_operation().await?;
     let database = state.writable_db()?.clone();
     let database_path = state.database_path().to_path_buf();
+    operation.mark_restart_required(RestartReason::Reset)?;
     database.close().await;
 
     remove_pre_migration_snapshots(&database_path)?;
@@ -191,7 +193,7 @@ mod tests {
         delete_all_data, get_settings, update_settings, DeleteAllDataInput, UpdateSettingsInput,
     };
     use crate::{
-        error::AppError,
+        error::{AppError, RestartReason},
         infrastructure::{
             database::{connect_writable, read_migration_version},
             database_bootstrap::{pre_migration_snapshot_path, MIGRATOR},
@@ -362,6 +364,18 @@ mod tests {
             assert!(!stray.exists());
             assert!(!super::sidecar_path(&path, "-wal").exists());
             assert!(!super::sidecar_path(&path, "-shm").exists());
+            assert_eq!(
+                state.runtime_state(),
+                crate::state::RuntimeState::RestartRequired {
+                    reason: RestartReason::Reset
+                }
+            );
+            assert!(matches!(
+                state.writable_db(),
+                Err(AppError::AppRestartRequired {
+                    reason: RestartReason::Reset
+                })
+            ));
         });
     }
 }

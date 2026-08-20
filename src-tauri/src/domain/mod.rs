@@ -22,6 +22,7 @@ mod quote;
 mod reference_catalog;
 mod return_rate;
 mod signed_money;
+mod sustainable;
 mod text;
 mod time;
 mod unit_price;
@@ -57,10 +58,12 @@ pub use holding::{Holding, PersistedHolding};
 pub use household::Household;
 pub use ids::{
     AccountCashValueId, AccountGroupId, AccountId, AccountStateObservationId, AccountValueId,
-    ActivityId, ActivityLegId, CostBasisDeclarationId, FxQuoteId, HistoryOriginId,
-    HistoryOriginItemId, HoldingId, HoldingQuantityValueId, HoldingStateObservationId, HouseholdId,
-    InstitutionId, InstrumentId, InstrumentQuoteId, MediaAssetId, MemberId,
-    QuotePreferenceObservationId, ValuationSnapshotId, ValuationSnapshotItemId,
+    ActivityId, ActivityLegId, BackupId, BenchmarkId, BenchmarkObservationId,
+    CostBasisDeclarationId, FreshnessPolicyId, FxQuoteId, HistoryOriginId, HistoryOriginItemId,
+    HoldingId, HoldingQuantityValueId, HoldingStateObservationId, HouseholdId, ImportBatchId,
+    ImportItemId, InstitutionId, InstrumentId, InstrumentQuoteId, MaintenanceSnoozeId,
+    MediaAssetId, MemberId, PendingActivityId, QuotePreferenceObservationId,
+    RecurringActivityRuleId, ValuationSnapshotId, ValuationSnapshotItemId,
 };
 pub use institution::{Institution, NewInstitution, PersistedInstitution};
 pub use instrument::{Instrument, InstrumentType, NewInstrument, PersistedInstrument};
@@ -80,6 +83,12 @@ pub use reference_catalog::{
 };
 pub use return_rate::ReturnRate;
 pub use signed_money::SignedMoney;
+pub use sustainable::{
+    ActivityImportRow, BackupFormatVersion, BenchmarkLevel, CanonicalImportRow, CarryWindow,
+    Checksum, ExternalId, ImportField, ImportFingerprint, ImportTemplate, PendingActivityKind,
+    PendingActivityPayload, RecurrenceResult, RecurringActivityKind, RecurringActivityPayload,
+    Schedule, ScheduleCadence, ScheduleInterval, SourceNamespace, MAX_RECURRENCE_OCCURRENCES,
+};
 pub use text::{parse_optional_note, NOTE_MAX_CHARS};
 pub use time::{
     closed_day_cutoff, inclusive_closed_day_instant, origin_timezone_from_iana_name,

@@ -8,6 +8,22 @@ use crate::infrastructure::database_bootstrap::DatabaseBootstrapStatus;
 
 pub const LAST_ACTIVE_MEMBER_MESSAGE: &str = "A household must keep at least one active member.";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RestartReason {
+    Reset,
+    Restore,
+}
+
+impl RestartReason {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Reset => "reset",
+            Self::Restore => "restore",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Error)]
 pub enum AppError {
     #[error("validation failed for {field}")]
@@ -88,6 +104,20 @@ pub enum AppError {
     InvalidCostBasisDeclaration { message: String },
     #[error("the cost-basis lot was not found")]
     CostBasisLotNotFound,
+    #[error("the recurring rule is invalid")]
+    InvalidRecurringRule { message: String },
+    #[error("the pending activity is invalid")]
+    InvalidPendingActivity { message: String },
+    #[error("the benchmark is invalid")]
+    InvalidBenchmark { message: String },
+    #[error("the import row is invalid")]
+    InvalidImportRow { message: String },
+    #[error("the backup is invalid")]
+    InvalidBackup { message: String },
+    #[error("the backup format version is unsupported")]
+    BackupUnsupportedVersion,
+    #[error("the application must be restarted")]
+    AppRestartRequired { reason: RestartReason },
     #[error("the analytics period is unavailable")]
     AnalyticsPeriodUnavailable {
         reason: String,
@@ -198,6 +228,40 @@ impl AppError {
         Self::InvalidCostBasisDeclaration {
             message: message.to_owned(),
         }
+    }
+
+    pub fn invalid_recurring_rule(message: &str) -> Self {
+        Self::InvalidRecurringRule {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn invalid_pending_activity(message: &str) -> Self {
+        Self::InvalidPendingActivity {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn invalid_benchmark(message: &str) -> Self {
+        Self::InvalidBenchmark {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn invalid_import_row(message: &str) -> Self {
+        Self::InvalidImportRow {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn invalid_backup(message: &str) -> Self {
+        Self::InvalidBackup {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn backup_unsupported_version() -> Self {
+        Self::BackupUnsupportedVersion
     }
 
     pub fn analytics_input_incomplete(reason: &str) -> Self {
@@ -459,6 +523,45 @@ impl AppError {
                 ErrorCode::CostBasisLotNotFound,
                 "The referenced lot could not be found.",
             ),
+            Self::InvalidRecurringRule { message } => CommandError {
+                code: ErrorCode::InvalidRecurringRule,
+                message,
+                fields: None,
+            },
+            Self::InvalidPendingActivity { message } => CommandError {
+                code: ErrorCode::InvalidPendingActivity,
+                message,
+                fields: None,
+            },
+            Self::InvalidBenchmark { message } => CommandError {
+                code: ErrorCode::InvalidBenchmark,
+                message,
+                fields: None,
+            },
+            Self::InvalidImportRow { message } => CommandError {
+                code: ErrorCode::ImportInvalid,
+                message,
+                fields: None,
+            },
+            Self::InvalidBackup { message } => CommandError {
+                code: ErrorCode::BackupInvalid,
+                message,
+                fields: None,
+            },
+            Self::BackupUnsupportedVersion => CommandError::new(
+                ErrorCode::BackupUnsupportedVersion,
+                "The backup format version is not supported.",
+            ),
+            Self::AppRestartRequired { reason } => {
+                let mut fields = HashMap::new();
+                fields.insert("reason".to_owned(), reason.as_str().to_owned());
+                CommandError {
+                    code: ErrorCode::AppRestartRequired,
+                    message: "The application must restart before more work can continue."
+                        .to_owned(),
+                    fields: Some(fields),
+                }
+            }
             Self::AnalyticsPeriodUnavailable { .. } => CommandError::new(
                 ErrorCode::AnalyticsPeriodUnavailable,
                 "This analytics period is unavailable.",
@@ -532,6 +635,13 @@ pub enum ErrorCode {
     ReturnNotComputable,
     InvalidCostBasisDeclaration,
     CostBasisLotNotFound,
+    InvalidRecurringRule,
+    InvalidPendingActivity,
+    InvalidBenchmark,
+    ImportInvalid,
+    BackupInvalid,
+    BackupUnsupportedVersion,
+    AppRestartRequired,
     InternalError,
 }
 
