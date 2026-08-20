@@ -66,11 +66,13 @@ The detailed scope, design, and delivery phases are defined by the [v0.1.4 relea
 
 **Theme:** Make Nestworth easy to maintain for years.
 
-**Status:** Planned; release contract and implementation plan pending.
+**Status:** Planned; design complete, implementation not started.
 
-Candidate capabilities include recurring and pending activities, freshness policies, valuation reminders, local backups, restore, machine-readable export, CSV import and export, importer boundaries, benchmark series and relative return, global search, a command palette, and keyboard-focused workflows. This list is not an implementation contract; the v0.1.5 design document must select the actual scope, dependencies, migration needs, and release gates.
+Add review-before-post pending and recurring Activities, configurable valuation-review reminders, full-fidelity local Backup/Restore, canonical JSON export, strict atomic CSV import/export, manually maintained Benchmark series and relative return, bounded global search, a command palette, and keyboard-focused workflows. Automation never posts automatically, Restore is staged and recoverable, and every workflow remains offline-capable.
 
-**Exit outcome:** To be defined by the v0.1.5 release contract. It must preserve the v0.1.4 ledger, analytics, declaration, and compatibility promises.
+**Exit outcome:** Routine maintenance requires less repeated input, stale facts are visible, the complete database is recoverable, controlled bulk input cannot bypass the ledger, and Benchmark comparison does not alter financial truth.
+
+The detailed scope, design, and delivery phases are defined by the [v0.1.5 release contract](../releases/v0.1.5.md), [technical design](../releases/v0.1.5-technical-design.md), [implementation plan](../releases/v0.1.5-implementation-plan.md), and [compatibility baseline](../releases/v0.1.5-baseline.md). Automatic posting, arbitrary institution importers, encrypted/cloud Backup, provider-backed Benchmarks, background agents, and OS notifications remain deferred.
 
 ## Capability Matrix
 
@@ -103,4 +105,4 @@ Candidate capabilities include recurring and pending activities, freshness polic
 
 Possible v0.2 directions include planning and target allocation, richer portfolio analysis, optional sync, and carefully scoped external integrations. Bank sync, broker APIs, crypto-wallet sync, statement parsing, AI-assisted import, household collaboration, plugin systems, tax reporting, and advanced risk modeling remain deferred until the local data and recovery model is mature.
 
-Detailed behavior, schemas, providers, and UI for v0.1.5 are intentionally undecided until its design contract is prepared. Use the implemented v0.1.4 release and compatibility baseline as the starting point.
+Detailed behavior for v0.2 and later remains intentionally undecided. Create a new release contract when a later release becomes active, using the implemented v0.1.5 result rather than its plan as the baseline.

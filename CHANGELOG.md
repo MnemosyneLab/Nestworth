@@ -4,11 +4,13 @@ All notable changes to Nestworth are recorded here. The project follows semantic
 
 ## [0.1.5] - Unreleased
 
-v0.1.5 is the next development line. Its feature scope, technical design, and acceptance criteria remain pending the release design contract.
+v0.1.5 is the active planned development line. Its design contract is complete; no feature phase is implemented or released.
 
 ### Planning
 
-- Preserve the v0.1.4 compatibility baseline while the v0.1.5 scope is selected.
+- Add the v0.1.5 release contract, technical design, implementation plan, and compatibility baseline.
+- Select review-before-post automation, maintenance reminders, recoverable local Backup/Restore, controlled export/import, manually maintained Benchmarks, global search, and keyboard productivity as the release scope.
+- Require explicit posting, staged Restore, atomic CSV commit, offline operation, and Rust authority over every financial or Benchmark result.
 - A declared cost basis is not an imported transaction and must not be converted into fabricated acquisition history.
 - Existing FIFO results and declarations must not be silently reinterpreted.
 

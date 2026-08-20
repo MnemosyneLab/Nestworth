@@ -241,8 +241,8 @@ Foreign keys protect structural references, while application transactions enfor
 
 ## Deferred Domain Extensions
 
-These concepts are intentionally deferred and are not current behavior:
+These concepts are planned but are not current behavior:
 
-- v0.1.5 candidates: Automation rules, pending activities, imports, exports, backups, reminders, and benchmarks
+- v0.1.5: Pending and recurring Activity preparation, freshness policies, maintenance reminders, Backup/Restore, versioned export and strict CSV import, Benchmarks, global search, and command-palette workflows are defined by the [release contract](../releases/v0.1.5.md) and [technical design](../releases/v0.1.5-technical-design.md).
 
-These candidates are not current behavior. Their detailed models must be selected and designed for v0.1.5. They must extend the current identity, Money, Ownership, lifecycle, quote, Activity, origin, lot, declaration, and sign semantics. Origin and adjustment quantities remain unknown-basis until explicitly declared. v0.1.4 lots are a derived interpretation of the Activity ledger rather than a persisted financial fact, and gain and return introduce the first signed output types without relaxing the unsigned `Money`, `Quantity`, `UnitPrice`, and `FxRate` rules above. A later release must not treat a declared basis as an imported transaction.
+The planned models extend the current identity, Money, Ownership, lifecycle, quote, Activity, origin, lot, declaration, and sign semantics. A pending item is not a financial fact before posting. Origin and adjustment quantities remain unknown-basis until explicitly declared. v0.1.4 lots remain a derived interpretation of the Activity ledger, and a declared basis never becomes an imported transaction.
