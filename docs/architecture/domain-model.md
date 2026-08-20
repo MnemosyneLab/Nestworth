@@ -243,6 +243,6 @@ Foreign keys protect structural references, while application transactions enfor
 
 These concepts are intentionally deferred and are not current behavior:
 
-- v0.1.5: Automation rules, pending activities, imports, exports, backups, reminders, and benchmarks
+- v0.1.5 candidates: Automation rules, pending activities, imports, exports, backups, reminders, and benchmarks
 
-Their detailed models must be designed when their release becomes active. They must extend the current identity, Money, Ownership, lifecycle, quote, Activity, origin, lot, declaration, and sign semantics. Origin and adjustment quantities remain unknown-basis until explicitly declared. v0.1.4 lots are a derived interpretation of the Activity ledger rather than a persisted financial fact, and gain and return introduce the first signed output types without relaxing the unsigned `Money`, `Quantity`, `UnitPrice`, and `FxRate` rules above. A later release must not treat a declared basis as an imported transaction.
+These candidates are not current behavior. Their detailed models must be selected and designed for v0.1.5. They must extend the current identity, Money, Ownership, lifecycle, quote, Activity, origin, lot, declaration, and sign semantics. Origin and adjustment quantities remain unknown-basis until explicitly declared. v0.1.4 lots are a derived interpretation of the Activity ledger rather than a persisted financial fact, and gain and return introduce the first signed output types without relaxing the unsigned `Money`, `Quantity`, `UnitPrice`, and `FxRate` rules above. A later release must not treat a declared basis as an imported transaction.

@@ -66,11 +66,11 @@ The detailed scope, design, and delivery phases are defined by the [v0.1.4 relea
 
 **Theme:** Make Nestworth easy to maintain for years.
 
-**Status:** Deferred roadmap direction.
+**Status:** Planned; release contract and implementation plan pending.
 
-Add recurring and pending activities, freshness policies, valuation reminders, local backups, restore, machine-readable export, CSV import and export, importer boundaries, benchmark series and relative return, global search, a command palette, and keyboard-focused workflows.
+Candidate capabilities include recurring and pending activities, freshness policies, valuation reminders, local backups, restore, machine-readable export, CSV import and export, importer boundaries, benchmark series and relative return, global search, a command palette, and keyboard-focused workflows. This list is not an implementation contract; the v0.1.5 design document must select the actual scope, dependencies, migration needs, and release gates.
 
-**Exit outcome:** The Household can maintain, protect, move, and recover its data without depending on Nestworth infrastructure.
+**Exit outcome:** To be defined by the v0.1.5 release contract. It must preserve the v0.1.4 ledger, analytics, declaration, and compatibility promises.
 
 ## Capability Matrix
 
@@ -103,4 +103,4 @@ Add recurring and pending activities, freshness policies, valuation reminders, l
 
 Possible v0.2 directions include planning and target allocation, richer portfolio analysis, optional sync, and carefully scoped external integrations. Bank sync, broker APIs, crypto-wallet sync, statement parsing, AI-assisted import, household collaboration, plugin systems, tax reporting, and advanced risk modeling remain deferred until the local data and recovery model is mature.
 
-Detailed behavior, schemas, providers, and UI for v0.1.5 and later deferred releases are intentionally undecided. Create a new release contract when each release becomes active, using the implemented previous release as its baseline.
+Detailed behavior, schemas, providers, and UI for v0.1.5 are intentionally undecided until its design contract is prepared. Use the implemented v0.1.4 release and compatibility baseline as the starting point.

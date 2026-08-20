@@ -4,17 +4,17 @@ Nestworth is a local-first macOS application for building and maintaining a pers
 
 ## Status
 
-v0.1.4 is development-complete and is a release candidate. Package, Cargo, and Tauri versions are `0.1.4`. Isolated-data launch, keyboard/VoiceOver smoke testing, arm64 `.app`/`.dmg` packaging, and the chosen signing/notarization policy remain named macOS release checks.
+v0.1.5 is the next development line. v0.1.4 is development-complete and remains a release candidate. Package, Cargo, and Tauri versions are now `0.1.5`; the v0.1.4 isolated-data launch, keyboard/VoiceOver smoke testing, arm64 `.app`/`.dmg` packaging, and chosen signing/notarization policy remain named macOS release checks.
 
 - Platform: macOS 26.0 or later
 - Architecture: Apple Silicon `arm64` only
 - Data: local SQLite database
 - Distribution: `.app` and `.dmg`
-- Public release: not yet signed or notarized
+- Public release: v0.1.4 is not yet signed or notarized
 
 The current pull request is not itself a public release. Use an isolated test database when launching locally built artifacts.
 
-## v0.1.4 Features
+## v0.1.4 Baseline
 
 - Everything in v0.1.3: onboarding, Members, Institutions, Groups, Accounts, Ownership, Instruments, Holdings, manual quotes and FX, Overview, Investments, Activity ledger, History Origin, snapshots, `/activity`, Overview trend, media, language, and appearance
 - FIFO lots derived from posted Activities, with unknown-basis origin and adjustment quantities until the user declares a cost
@@ -29,7 +29,7 @@ The current pull request is not itself a public release. Use an isolated test da
 
 The Household name and base currency remain fixed after onboarding. Avatars and logos can be set or replaced but not cleared.
 
-v0.1.4 does not include benchmarks, lot policies other than FIFO, tax reporting, a live market-data vendor, automation, import/export, or user-managed backup. Analytics never fill a missing cost, quote, or snapshot with an estimate. FX conversion is direct or inverse against the base currency only.
+The v0.1.4 baseline does not include benchmarks, lot policies other than FIFO, tax reporting, a live market-data vendor, automation, import/export, or user-managed backup. Analytics never fill a missing cost, quote, or snapshot with an estimate. FX conversion is direct or inverse against the base currency only. No v0.1.5 feature is claimed until its design contract is approved.
 
 All financial totals, Activity effects, historical snapshots, lots, gains, returns, and attribution are calculated by Rust. Complete active included investment Accounts contribute their authoritative base values, including legacy Balance and Manual Value Accounts; incomplete values remain visible as diagnostics and are never treated as zero. Manual prices and FX rates are the complete offline workflow. The frontend formats returned DTOs and performs no financial arithmetic.
 
@@ -37,7 +37,7 @@ See the [v0.1.4 release contract](docs/releases/v0.1.4.md) for the exact deliver
 
 ## Privacy and Data Ownership
 
-The Rust backend is the only business-data database client. Core workflows have no network dependency, and the frontend receives typed data through generated Tauri commands. Production quote adapters are unconfigured in this release.
+The Rust backend is the only business-data database client. Core workflows have no network dependency, and the frontend receives typed data through generated Tauri commands. Production quote adapters remain unconfigured in the v0.1.4 baseline.
 
 The database is stored in the Tauri application data directory as `nestworth.sqlite3`. Before testing a local build, protect any existing database and use an isolated application-data environment. Do not use release-candidate smoke tests against the only copy of real financial data.
 
@@ -90,6 +90,7 @@ Start with the [documentation index](docs/README.md):
 - [v0.1.4 release contract](docs/releases/v0.1.4.md)
 - [v0.1.4 technical design](docs/releases/v0.1.4-technical-design.md)
 - [v0.1.4 implementation plan](docs/releases/v0.1.4-implementation-plan.md)
+- v0.1.5 design documents will be added after the release contract is approved.
 
 ## License
 

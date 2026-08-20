@@ -2,6 +2,16 @@
 
 All notable changes to Nestworth are recorded here. The project follows semantic versioning once a public release is published.
 
+## [0.1.5] - Unreleased
+
+v0.1.5 is the next development line. Its feature scope, technical design, and acceptance criteria remain pending the release design contract.
+
+### Planning
+
+- Preserve the v0.1.4 compatibility baseline while the v0.1.5 scope is selected.
+- A declared cost basis is not an imported transaction and must not be converted into fabricated acquisition history.
+- Existing FIFO results and declarations must not be silently reinterpreted.
+
 ## [0.1.4] - Unreleased
 
 v0.1.4 is development-complete and is undergoing release-candidate validation. Package, Cargo, and Tauri versions are `0.1.4`. This closeout does not assign a publish date, create a git tag, or mark the product Released.
