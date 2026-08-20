@@ -20,6 +20,7 @@ pub mod image;
 pub mod income_fee_service;
 pub mod institution_service;
 pub mod instrument_service;
+pub mod maintenance_service;
 pub mod media_service;
 pub mod member_service;
 pub mod onboarding_service;

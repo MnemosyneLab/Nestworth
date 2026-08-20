@@ -704,6 +704,42 @@ pub async fn list_pending_activities(
         .collect()
 }
 
+pub async fn list_due_pending_activities(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    local_date: &str,
+    limit: i64,
+) -> Result<Vec<PendingActivityRecord>, AppError> {
+    let limit = limit.clamp(1, 200);
+    query_count::record("sustainable.pending_due_list");
+    sqlx::query(
+        "SELECT id, household_id, recurring_rule_id, recurring_rule_revision,
+                scheduled_local_date, creation_source, kind, endpoint_account_id,
+                endpoint_component, amount, currency, source_account_id, source_component,
+                source_amount, source_currency, destination_account_id, destination_component,
+                destination_amount, destination_currency, fee_amount, fee_currency, fee_kind,
+                income_kind, related_instrument_id, source_holding_id, source_instrument_id,
+                destination_holding_id, destination_instrument_id, quantity, holding_id,
+                instrument_id, unit_price, gross_amount, gross_currency, confirm_zero_unit_price,
+                liability_account_id, principal_amount, principal_currency, cash_account_id,
+                cash_component, cash_amount, cash_currency, fx_rate, note, status,
+                posted_activity_id, skipped_at, created_at, updated_at
+         FROM pending_activities
+         WHERE household_id = ? AND status = 'open' AND scheduled_local_date <= ?
+         ORDER BY scheduled_local_date ASC, created_at ASC, id ASC
+         LIMIT ?",
+    )
+    .bind(household_id)
+    .bind(local_date)
+    .bind(limit)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("sustainable.pending_due_list_failed", error))?
+    .into_iter()
+    .map(pending_from_row)
+    .collect()
+}
+
 pub async fn get_pending_activity(
     tx: &mut Transaction<'_, Sqlite>,
     household_id: &str,
@@ -966,6 +1002,42 @@ pub async fn insert_freshness_policy(
             AppError::conflict("A freshness policy already exists for this target."),
         )
     })?;
+    Ok(())
+}
+
+pub async fn update_freshness_policy(
+    tx: &mut Transaction<'_, Sqlite>,
+    row: &FreshnessPolicyRecord,
+) -> Result<(), AppError> {
+    query_count::record("sustainable.policy_update");
+    let result = sqlx::query(
+        "UPDATE freshness_policies
+         SET kind = ?, target_account_id = ?, target_instrument_id = ?,
+             target_currency_a = ?, target_currency_b = ?, review_interval_days = ?,
+             updated_at = ?
+         WHERE id = ? AND household_id = ?",
+    )
+    .bind(&row.kind)
+    .bind(&row.target_account_id)
+    .bind(&row.target_instrument_id)
+    .bind(&row.target_currency_a)
+    .bind(&row.target_currency_b)
+    .bind(row.review_interval_days)
+    .bind(&row.updated_at)
+    .bind(&row.id)
+    .bind(&row.household_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|error| {
+        map_unique_or_write(
+            "sustainable.policy_update_failed",
+            error,
+            AppError::conflict("A freshness policy already exists for this target."),
+        )
+    })?;
+    if result.rows_affected() != 1 {
+        return Err(AppError::not_found("freshness policy", &row.id));
+    }
     Ok(())
 }
 

@@ -22,6 +22,39 @@ const BENCHMARK_LEVEL_MAX_INTEGER_DIGITS: usize = 18;
 const BENCHMARK_LEVEL_MAX_FRACTIONAL_DIGITS: usize = 8;
 const CANONICAL_IMPORT_PREFIX: &[u8] = b"nestworth-import-row\0v1\0";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FreshnessPolicyKind {
+    AccountValue,
+    AccountCash,
+    InstrumentQuote,
+    FxQuote,
+}
+
+impl FreshnessPolicyKind {
+    pub fn parse(value: &str) -> Result<Self, AppError> {
+        match value {
+            "account_value" => Ok(Self::AccountValue),
+            "account_cash" => Ok(Self::AccountCash),
+            "instrument_quote" => Ok(Self::InstrumentQuote),
+            "fx_quote" => Ok(Self::FxQuote),
+            _ => Err(AppError::validation(
+                "policyKind",
+                "Freshness policy kind is not supported.",
+            )),
+        }
+    }
+
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::AccountValue => "account_value",
+            Self::AccountCash => "account_cash",
+            Self::InstrumentQuote => "instrument_quote",
+            Self::FxQuote => "fx_quote",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BenchmarkLevel(Decimal);
 

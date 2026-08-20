@@ -85,9 +85,10 @@ pub use return_rate::ReturnRate;
 pub use signed_money::SignedMoney;
 pub use sustainable::{
     ActivityImportRow, BackupFormatVersion, BenchmarkLevel, CanonicalImportRow, CarryWindow,
-    Checksum, ExternalId, ImportField, ImportFingerprint, ImportTemplate, PendingActivityKind,
-    PendingActivityPayload, RecurrenceResult, RecurringActivityKind, RecurringActivityPayload,
-    Schedule, ScheduleCadence, ScheduleInterval, SourceNamespace, MAX_RECURRENCE_OCCURRENCES,
+    Checksum, ExternalId, FreshnessPolicyKind, ImportField, ImportFingerprint, ImportTemplate,
+    PendingActivityKind, PendingActivityPayload, RecurrenceResult, RecurringActivityKind,
+    RecurringActivityPayload, Schedule, ScheduleCadence, ScheduleInterval, SourceNamespace,
+    MAX_RECURRENCE_OCCURRENCES,
 };
 pub use text::{parse_optional_note, NOTE_MAX_CHARS};
 pub use time::{

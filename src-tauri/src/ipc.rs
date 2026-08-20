@@ -33,6 +33,10 @@ use crate::{
             CreateInstitutionInput, InstitutionRecordDto, UpdateInstitutionInput,
         },
         instrument_service::{CreateInstrumentInput, InstrumentRecordDto, UpdateInstrumentInput},
+        maintenance_service::{
+            FreshnessPolicyDto, MaintenancePageDto, MaintenanceSnoozeDto,
+            SnoozeMaintenanceItemInput, UpdateFreshnessPolicyInput,
+        },
         media_service::{GetMediaInput, MediaAssetDto, SetMediaInput},
         member_service::{CreateMemberInput, MemberRecordDto, UpdateMemberInput},
         onboarding_service::CompleteOnboardingInput,
@@ -93,6 +97,10 @@ use crate::{
         instruments::{
             archive_instrument_impl, create_instrument_impl, get_instrument_impl,
             list_instruments_impl, restore_instrument_impl, update_instrument_impl,
+        },
+        maintenance::{
+            list_freshness_policies_impl, list_maintenance_items_impl,
+            snooze_maintenance_item_impl, update_freshness_policy_impl,
         },
         media::{
             get_media_impl, set_account_logo_impl, set_group_logo_impl, set_institution_logo_impl,
@@ -825,6 +833,44 @@ pub async fn generate_due_pending_activities(
 
 #[tauri::command]
 #[specta::specta]
+pub async fn list_maintenance_items(
+    state: State<'_, AppState>,
+) -> Result<MaintenancePageDto, crate::error::CommandError> {
+    with_shared_operation!(&state, list_maintenance_items_impl(&state))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_freshness_policies(
+    state: State<'_, AppState>,
+    input: ListFilterInput,
+) -> Result<Vec<FreshnessPolicyDto>, crate::error::CommandError> {
+    with_shared_operation!(
+        &state,
+        list_freshness_policies_impl(&state, input.include_archived)
+    )
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn update_freshness_policy(
+    state: State<'_, AppState>,
+    input: UpdateFreshnessPolicyInput,
+) -> Result<FreshnessPolicyDto, crate::error::CommandError> {
+    with_shared_operation!(&state, update_freshness_policy_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn snooze_maintenance_item(
+    state: State<'_, AppState>,
+    input: SnoozeMaintenanceItemInput,
+) -> Result<MaintenanceSnoozeDto, crate::error::CommandError> {
+    with_shared_operation!(&state, snooze_maintenance_item_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn reverse_activity(
     state: State<'_, AppState>,
     input: ReverseActivityInput,
@@ -1045,6 +1091,10 @@ pub fn command_builder() -> Builder<tauri::Wry> {
         archive_recurring_activity_rule,
         restore_recurring_activity_rule,
         generate_due_pending_activities,
+        list_maintenance_items,
+        list_freshness_policies,
+        update_freshness_policy,
+        snooze_maintenance_item,
         reverse_activity,
         correct_activity,
         get_account_timeline,

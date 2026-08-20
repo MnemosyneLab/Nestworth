@@ -622,6 +622,38 @@ async generateDuePendingActivities() : Promise<Result<GenerateDuePendingActiviti
     else return { status: "error", error: e  as any };
 }
 },
+async listMaintenanceItems() : Promise<Result<MaintenancePageDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_maintenance_items") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async listFreshnessPolicies(input: ListFilterInput) : Promise<Result<FreshnessPolicyDto[], CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_freshness_policies", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async updateFreshnessPolicy(input: UpdateFreshnessPolicyInput) : Promise<Result<FreshnessPolicyDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_freshness_policy", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async snoozeMaintenanceItem(input: SnoozeMaintenanceItemInput) : Promise<Result<MaintenanceSnoozeDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("snooze_maintenance_item", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async reverseActivity(input: ReverseActivityInput) : Promise<Result<ActivityDetailDto, CommandError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("reverse_activity", { input }) };
@@ -807,6 +839,7 @@ export type DeclareLotCostBasisInput = { lotRef: LotRefDto; instrumentId: string
 export type DeleteAllDataInput = { confirmed: boolean }
 export type ErrorCode = "VALIDATION_ERROR" | "NOT_FOUND" | "CONFLICT" | "ALREADY_ONBOARDED" | "OWNERSHIP_TOTAL_INVALID" | "BASE_CURRENCY_CHANGE_NOT_ALLOWED" | "INVALID_CATEGORY" | "INVALID_MONEY" | "INVALID_QUANTITY" | "INVALID_UNIT_PRICE" | "INVALID_FX_RATE" | "DECIMAL_OVERFLOW" | "INVALID_ACTIVITY" | "INVALID_ACTIVITY_TIME" | "INVALID_ACTIVITY_LEGS" | "INSUFFICIENT_BALANCE" | "INSUFFICIENT_QUANTITY" | "TRANSFER_MISMATCH" | "TRADE_TOTAL_MISMATCH" | "ACTIVITY_ALREADY_REVERSED" | "ACTIVITY_NOT_CORRECTABLE" | "QUOTE_UNAVAILABLE" | "INCOMPLETE_VALUATION" | "DUPLICATE_HOLDING" | "UNSUPPORTED_PROVIDER_SYMBOL" | "PROVIDER_AUTHENTICATION" | "PROVIDER_RATE_LIMIT" | "PROVIDER_UNAVAILABLE" | "MALFORMED_PROVIDER_RESPONSE" | "MEDIA_INVALID" | "DATABASE_ERROR" | "DATABASE_UNAVAILABLE" | "UNSUPPORTED_NEWER_DATABASE" | "MIGRATION_FAILED" | "DATA_RESET_FAILED" | "HISTORY_INITIALIZATION_FAILED" | "HISTORY_TIMEZONE_CONFIRMATION_REQUIRED" | "SNAPSHOT_REBUILD_REQUIRED" | "SNAPSHOT_REBUILD_FAILED" | "ANALYTICS_PERIOD_UNAVAILABLE" | "ANALYTICS_INPUT_INCOMPLETE" | "RETURN_NOT_COMPUTABLE" | "INVALID_COST_BASIS_DECLARATION" | "COST_BASIS_LOT_NOT_FOUND" | "INVALID_RECURRING_RULE" | "INVALID_PENDING_ACTIVITY" | "INVALID_BENCHMARK" | "IMPORT_INVALID" | "BACKUP_INVALID" | "BACKUP_UNSUPPORTED_VERSION" | "APP_RESTART_REQUIRED" | "INTERNAL_ERROR"
 export type FeeBucketDto = { feeKind: string; attributedInstrumentId: string | null; amount: MoneyDto }
+export type FreshnessPolicyDto = { id: string; kind: string; targetAccountId: string | null; targetInstrumentId: string | null; targetCurrencyA: string | null; targetCurrencyB: string | null; reviewIntervalDays: number | null; isDefault: boolean; archivedAt: string | null; createdAt: string; updatedAt: string }
 export type FxPairStatusDto = { currencyA: string; currencyB: string; quotePreference: string; selectedQuote: FxQuoteRecordDto | null; selectedRate: string | null }
 export type FxQuoteRecordDto = { id: string; baseCurrency: string; quoteCurrency: string; rate: string; sourceKind: string; sourceKey: string; delayed: boolean; quotedAt: string; createdAt: string }
 export type GainSummaryIpcDto = { realizedGross: SignedMoneyAvailabilityDto; realizedNet: SignedMoneyAvailabilityDto; allocatedFees: SignedMoneyAvailabilityDto; unrealizedGross: SignedMoneyAvailabilityDto; unexplainedDisposal: SignedMoneyAvailabilityDto; basisComplete: boolean; inputComplete: boolean; decompositionComplete: boolean; unknownBasisQuantity: string; unknownBasisValue: MoneyAvailabilityDto; instrumentMovement: SignedMoneyAvailabilityDto; currencyMovement: SignedMoneyAvailabilityDto; unrealizedAsOf: string; income: IncomeBucketDto[]; fees: FeeBucketDto[] }
@@ -846,6 +879,9 @@ export type ListPendingActivitiesInput = { cursor: string | null; limit: number 
 export type ListUnknownBasisLotsInput = { scope: AnalyticsScopeDto; cursor: string | null; limit: number | null }
 export type LotRefDto = { sourceKind: LotRefSourceKind; sourceId: string }
 export type LotRefSourceKind = "originHolding" | "acquisition"
+export type MaintenanceItemDto = { id: string; itemKind: string; policyId: string | null; policyKind: string | null; targetAccountId: string | null; targetInstrumentId: string | null; targetCurrencyA: string | null; targetCurrencyB: string | null; label: string; underlyingStatus: string; status: string; observedOn: string | null; dueOn: string | null; snoozedUntil: string | null; pendingActivity: PendingActivityDto | null }
+export type MaintenancePageDto = { localDate: string; items: MaintenanceItemDto[] }
+export type MaintenanceSnoozeDto = { id: string; policyKind: string; targetAccountId: string | null; targetInstrumentId: string | null; targetCurrencyA: string | null; targetCurrencyB: string | null; snoozedUntil: string; createdAt: string }
 export type MediaAssetDto = { mimeType: string; data: string }
 export type MemberDto = { id: string; name: string }
 export type MemberRecordDto = { id: string; name: string; note: string | null; avatarAssetId: string | null; sortOrder: number; createdAt: string; updatedAt: string; archivedAt: string | null }
@@ -887,10 +923,12 @@ export type SetInstrumentQuotePreferenceInput = { instrumentId: string; quotePre
 export type SetMediaInput = { id: string; path: string }
 export type SignedMoneyAvailabilityDto = { kind: "available"; value: SignedMoneyDto } | { kind: "unavailable"; reason: string; blockingDates: string[] }
 export type SignedMoneyDto = { amount: string; currency: string }
+export type SnoozeMaintenanceItemInput = { policyKind: string; targetAccountId: string | null; targetInstrumentId: string | null; targetCurrencyA: string | null; targetCurrencyB: string | null; snoozedUntil: string }
 export type TwrResultDto = { kind: "available"; method: string; flowAssumption: string; cumulative: string; annualized: string | null; skippedDays: number; linkedDays: number } | { kind: "unavailable"; reason: string; blockingDates: string[] }
 export type UnvaluedItemDto = { kind: string; id: string; name: string; reason: string }
 export type UpdateAccountInput = { id: string; name: string; primaryCategory: string; secondaryCategory: string; institutionId: string | null; groupId: string | null; trackingMode: string | null; note: string | null; includeInNetWorth: boolean; includeInInvestment: boolean; includeInLiquidAssets: boolean; openedOn: string | null; closedOn: string | null; owners: OwnershipShareInput[] }
 export type UpdateAccountValueInput = { id: string; amount: string }
+export type UpdateFreshnessPolicyInput = { id: string | null; kind: string; targetAccountId: string | null; targetInstrumentId: string | null; targetCurrencyA: string | null; targetCurrencyB: string | null; reviewIntervalDays: number | null }
 export type UpdateGroupInput = { id: string; name: string; iconKey: string | null; color: string | null; description: string | null }
 export type UpdateHoldingInput = { id: string; quantity: string; note: string | null }
 export type UpdateInstitutionInput = { id: string; name: string; institutionType: string | null; countryCode: string | null; website: string | null; note: string | null }

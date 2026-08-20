@@ -7,6 +7,7 @@ pub mod history;
 pub mod holdings;
 pub mod institutions;
 pub mod instruments;
+pub mod maintenance;
 pub mod media;
 pub mod members;
 pub mod onboarding;

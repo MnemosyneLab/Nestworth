@@ -394,6 +394,19 @@ pub async fn list_pending_activities(
     finish_read_tx(tx, result).await
 }
 
+pub(crate) async fn list_due_pending_activities_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    local_date: &str,
+    limit: i64,
+) -> Result<Vec<PendingActivityDto>, AppError> {
+    repositories::list_due_pending_activities(tx, household_id, local_date, limit)
+        .await?
+        .iter()
+        .map(pending_dto)
+        .collect()
+}
+
 pub async fn preview_pending_activity(
     state: &AppState,
     input: PendingActivityTimeInput,
