@@ -244,7 +244,7 @@ impl Schedule {
             });
         }
 
-        let mut index = self.first_index_at_or_after_start()?;
+        let mut index = self.first_index_at_or_after(self.start)?;
         let mut dates = Vec::with_capacity(limit);
         loop {
             let Some(date) = self.occurrence_at(index)? else {
@@ -272,11 +272,67 @@ impl Schedule {
         }
     }
 
-    fn first_index_at_or_after_start(self) -> Result<u64, AppError> {
-        if self.anchor >= self.start {
+    pub fn occurrences_after(
+        self,
+        after: CalendarDate,
+        through: CalendarDate,
+        requested_limit: usize,
+    ) -> Result<RecurrenceResult, AppError> {
+        if requested_limit == 0 {
+            return Err(AppError::invalid_recurring_rule(
+                "Recurrence generation limit must be positive.",
+            ));
+        }
+        let limit = requested_limit.min(MAX_RECURRENCE_OCCURRENCES);
+        let upper_bound = self
+            .end
+            .map_or(through, |end| if end < through { end } else { through });
+        if upper_bound <= after {
+            return Ok(RecurrenceResult {
+                dates: Vec::new(),
+                has_more: false,
+            });
+        }
+
+        let mut index = self.first_index_at_or_after(after)?;
+        let mut dates = Vec::with_capacity(limit);
+        loop {
+            let Some(date) = self.occurrence_at(index)? else {
+                return Ok(RecurrenceResult {
+                    dates,
+                    has_more: false,
+                });
+            };
+            if date <= after {
+                index = index
+                    .checked_add(1)
+                    .ok_or_else(|| AppError::invalid_recurring_rule("Recurrence overflowed."))?;
+                continue;
+            }
+            if date > upper_bound {
+                return Ok(RecurrenceResult {
+                    dates,
+                    has_more: false,
+                });
+            }
+            if dates.len() == limit {
+                return Ok(RecurrenceResult {
+                    dates,
+                    has_more: true,
+                });
+            }
+            dates.push(date);
+            index = index
+                .checked_add(1)
+                .ok_or_else(|| AppError::invalid_recurring_rule("Recurrence overflowed."))?;
+        }
+    }
+
+    fn first_index_at_or_after(self, target: CalendarDate) -> Result<u64, AppError> {
+        if self.anchor >= target {
             return Ok(0);
         }
-        let difference = self.start.as_naive_date() - self.anchor.as_naive_date();
+        let difference = target.as_naive_date() - self.anchor.as_naive_date();
         let rough = match self.cadence {
             ScheduleCadence::Daily => {
                 ceil_div(difference.num_days(), i64::from(self.interval.value))
@@ -285,8 +341,7 @@ impl Schedule {
                 ceil_div(difference.num_days(), i64::from(self.interval.value) * 7)
             }
             ScheduleCadence::Monthly | ScheduleCadence::Yearly => {
-                let months =
-                    month_difference(self.anchor.as_naive_date(), self.start.as_naive_date());
+                let months = month_difference(self.anchor.as_naive_date(), target.as_naive_date());
                 let step = i64::from(self.interval.value)
                     * if self.cadence == ScheduleCadence::Yearly {
                         12
@@ -298,10 +353,7 @@ impl Schedule {
         };
         let mut index = u64::try_from(rough.max(0))
             .map_err(|_| AppError::invalid_recurring_rule("Recurrence index overflowed."))?;
-        while self
-            .occurrence_at(index)?
-            .is_some_and(|date| date < self.start)
-        {
+        while self.occurrence_at(index)?.is_some_and(|date| date < target) {
             index = index
                 .checked_add(1)
                 .ok_or_else(|| AppError::invalid_recurring_rule("Recurrence overflowed."))?;
@@ -309,7 +361,7 @@ impl Schedule {
         while index > 0
             && self
                 .occurrence_at(index - 1)?
-                .is_some_and(|date| date >= self.start)
+                .is_some_and(|date| date >= target)
         {
             index -= 1;
         }
@@ -1253,6 +1305,29 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["2026-03-07", "2026-03-08"]
         );
+    }
+
+    #[test]
+    fn recurrence_continuation_starts_after_monthly_clamped_date() {
+        let monthly = Schedule::new(
+            ScheduleCadence::Monthly,
+            ScheduleInterval::new(ScheduleCadence::Monthly, 1).expect("interval"),
+            date("2026-01-31"),
+            Some(date("2026-04-30")),
+        )
+        .expect("schedule");
+        let result = monthly
+            .occurrences_after(date("2026-02-28"), date("2026-04-30"), 20)
+            .expect("continuation");
+        assert_eq!(
+            result
+                .dates
+                .iter()
+                .map(|value| value.to_ymd())
+                .collect::<Vec<_>>(),
+            vec!["2026-03-31", "2026-04-30"]
+        );
+        assert!(!result.has_more);
     }
 
     #[test]

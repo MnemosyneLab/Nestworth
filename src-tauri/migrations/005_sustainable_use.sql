@@ -128,6 +128,7 @@ CREATE TABLE recurring_activity_rules (
     ),
     CHECK(
         (kind = 'fee' AND fee_kind IS NOT NULL)
+        OR (kind IN ('transfer', 'debt_payment'))
         OR (kind NOT IN ('fee', 'transfer', 'debt_payment') AND fee_kind IS NULL)
     ),
     CHECK(
@@ -298,6 +299,7 @@ CREATE TABLE pending_activities (
     ),
     CHECK(
         (kind = 'fee' AND fee_kind IS NOT NULL)
+        OR (kind IN ('transfer', 'debt_payment'))
         OR (kind NOT IN ('fee', 'transfer', 'debt_payment') AND fee_kind IS NULL)
     ),
     FOREIGN KEY(household_id) REFERENCES households(id) ON DELETE CASCADE,

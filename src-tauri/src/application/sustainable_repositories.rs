@@ -564,6 +564,92 @@ pub async fn insert_recurring_activity_rule(
     Ok(())
 }
 
+pub async fn update_recurring_activity_rule(
+    tx: &mut Transaction<'_, Sqlite>,
+    row: &RecurringActivityRuleRecord,
+) -> Result<(), AppError> {
+    query_count::record("sustainable.rule_update");
+    let payload = &row.payload;
+    sqlx::query(
+        "UPDATE recurring_activity_rules
+         SET cadence = ?, interval_value = ?, start_local_date = ?, end_local_date = ?,
+             anchor_local_date = ?, kind = ?, endpoint_account_id = ?, endpoint_component = ?,
+             amount = ?, currency = ?, source_account_id = ?, source_component = ?,
+             source_amount = ?, source_currency = ?, destination_account_id = ?,
+             destination_component = ?, destination_amount = ?, destination_currency = ?,
+             fee_amount = ?, fee_currency = ?, fee_kind = ?, income_kind = ?,
+             related_instrument_id = ?, liability_account_id = ?, principal_amount = ?,
+             principal_currency = ?, cash_account_id = ?, cash_component = ?, cash_amount = ?,
+             cash_currency = ?, fx_rate = ?, note = ?, revision = ?, archived_at = ?,
+             updated_at = ?
+         WHERE id = ? AND household_id = ?",
+    )
+    .bind(&row.cadence)
+    .bind(row.interval_value)
+    .bind(&row.start_local_date)
+    .bind(&row.end_local_date)
+    .bind(&row.anchor_local_date)
+    .bind(&row.kind)
+    .bind(&payload.endpoint_account_id)
+    .bind(&payload.endpoint_component)
+    .bind(&payload.amount)
+    .bind(&payload.currency)
+    .bind(&payload.source_account_id)
+    .bind(&payload.source_component)
+    .bind(&payload.source_amount)
+    .bind(&payload.source_currency)
+    .bind(&payload.destination_account_id)
+    .bind(&payload.destination_component)
+    .bind(&payload.destination_amount)
+    .bind(&payload.destination_currency)
+    .bind(&payload.fee_amount)
+    .bind(&payload.fee_currency)
+    .bind(&payload.fee_kind)
+    .bind(&payload.income_kind)
+    .bind(&payload.related_instrument_id)
+    .bind(&payload.liability_account_id)
+    .bind(&payload.principal_amount)
+    .bind(&payload.principal_currency)
+    .bind(&payload.cash_account_id)
+    .bind(&payload.cash_component)
+    .bind(&payload.cash_amount)
+    .bind(&payload.cash_currency)
+    .bind(&payload.fx_rate)
+    .bind(&row.note)
+    .bind(row.revision)
+    .bind(&row.archived_at)
+    .bind(&row.updated_at)
+    .bind(&row.id)
+    .bind(&row.household_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|error| {
+        map_unique_or_write(
+            "sustainable.rule_update_failed",
+            error,
+            AppError::conflict("This recurring rule conflicts with an existing rule."),
+        )
+    })?;
+    Ok(())
+}
+
+pub async fn list_recurring_pending_dates(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+) -> Result<Vec<(String, String)>, AppError> {
+    query_count::record("sustainable.pending_schedule_keys");
+    sqlx::query_as(
+        "SELECT recurring_rule_id, scheduled_local_date
+         FROM pending_activities
+         WHERE household_id = ? AND recurring_rule_id IS NOT NULL
+         ORDER BY recurring_rule_id, scheduled_local_date",
+    )
+    .bind(household_id)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("sustainable.pending_schedule_keys_failed", error))
+}
+
 pub async fn list_pending_activities(
     tx: &mut Transaction<'_, Sqlite>,
     household_id: &str,
@@ -723,6 +809,94 @@ pub async fn insert_pending_activity(
     .execute(&mut **tx)
     .await
     .map_err(|error| map_write_error("sustainable.pending_insert_failed", error))?;
+    Ok(())
+}
+
+pub async fn update_pending_activity(
+    tx: &mut Transaction<'_, Sqlite>,
+    row: &PendingActivityRecord,
+) -> Result<(), AppError> {
+    query_count::record("sustainable.pending_update");
+    let payload = &row.payload;
+    let result = sqlx::query(
+        "UPDATE pending_activities
+         SET recurring_rule_id = ?, recurring_rule_revision = ?, scheduled_local_date = ?,
+             creation_source = ?, kind = ?, endpoint_account_id = ?, endpoint_component = ?,
+             amount = ?, currency = ?, source_account_id = ?, source_component = ?,
+             source_amount = ?, source_currency = ?, destination_account_id = ?,
+             destination_component = ?, destination_amount = ?, destination_currency = ?,
+             fee_amount = ?, fee_currency = ?, fee_kind = ?, income_kind = ?,
+             related_instrument_id = ?, source_holding_id = ?, source_instrument_id = ?,
+             destination_holding_id = ?, destination_instrument_id = ?, quantity = ?,
+             holding_id = ?, instrument_id = ?, unit_price = ?, gross_amount = ?,
+             gross_currency = ?, confirm_zero_unit_price = ?, liability_account_id = ?,
+             principal_amount = ?, principal_currency = ?, cash_account_id = ?,
+             cash_component = ?, cash_amount = ?, cash_currency = ?, fx_rate = ?, note = ?,
+             status = ?, posted_activity_id = ?, skipped_at = ?, updated_at = ?
+         WHERE id = ? AND household_id = ? AND status = 'open'",
+    )
+    .bind(&row.recurring_rule_id)
+    .bind(row.recurring_rule_revision)
+    .bind(&row.scheduled_local_date)
+    .bind(&row.creation_source)
+    .bind(&row.kind)
+    .bind(&payload.endpoint_account_id)
+    .bind(&payload.endpoint_component)
+    .bind(&payload.amount)
+    .bind(&payload.currency)
+    .bind(&payload.source_account_id)
+    .bind(&payload.source_component)
+    .bind(&payload.source_amount)
+    .bind(&payload.source_currency)
+    .bind(&payload.destination_account_id)
+    .bind(&payload.destination_component)
+    .bind(&payload.destination_amount)
+    .bind(&payload.destination_currency)
+    .bind(&payload.fee_amount)
+    .bind(&payload.fee_currency)
+    .bind(&payload.fee_kind)
+    .bind(&payload.income_kind)
+    .bind(&payload.related_instrument_id)
+    .bind(&payload.source_holding_id)
+    .bind(&payload.source_instrument_id)
+    .bind(&payload.destination_holding_id)
+    .bind(&payload.destination_instrument_id)
+    .bind(&payload.quantity)
+    .bind(&payload.holding_id)
+    .bind(&payload.instrument_id)
+    .bind(&payload.unit_price)
+    .bind(&payload.gross_amount)
+    .bind(&payload.gross_currency)
+    .bind(i64::from(payload.confirm_zero_unit_price))
+    .bind(&payload.liability_account_id)
+    .bind(&payload.principal_amount)
+    .bind(&payload.principal_currency)
+    .bind(&payload.cash_account_id)
+    .bind(&payload.cash_component)
+    .bind(&payload.cash_amount)
+    .bind(&payload.cash_currency)
+    .bind(&payload.fx_rate)
+    .bind(&row.note)
+    .bind(&row.status)
+    .bind(&row.posted_activity_id)
+    .bind(&row.skipped_at)
+    .bind(&row.updated_at)
+    .bind(&row.id)
+    .bind(&row.household_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|error| {
+        map_unique_or_write(
+            "sustainable.pending_update_failed",
+            error,
+            AppError::conflict("This pending Activity conflicts with an existing occurrence."),
+        )
+    })?;
+    if result.rows_affected() != 1 {
+        return Err(AppError::conflict(
+            "This pending Activity is no longer open.",
+        ));
+    }
     Ok(())
 }
 

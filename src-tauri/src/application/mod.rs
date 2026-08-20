@@ -24,6 +24,7 @@ pub mod media_service;
 pub mod member_service;
 pub mod onboarding_service;
 pub mod overview_service;
+pub mod pending_service;
 pub mod portfolio_service;
 pub mod providers;
 pub mod query_count;

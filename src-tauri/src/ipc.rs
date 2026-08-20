@@ -37,6 +37,13 @@ use crate::{
         member_service::{CreateMemberInput, MemberRecordDto, UpdateMemberInput},
         onboarding_service::CompleteOnboardingInput,
         overview_service::OverviewDto,
+        pending_service::{
+            CreatePendingActivityInput, CreateRecurringActivityRuleInput,
+            GenerateDuePendingActivitiesResultDto, ListPendingActivitiesInput, PendingActivityDto,
+            PendingActivityPageDto, PendingActivityPostDto, PendingActivityPreviewDto,
+            PendingActivityTimeInput, RecurringActivityRuleDto, UpdatePendingActivityInput,
+            UpdateRecurringActivityRuleInput,
+        },
         portfolio_service::PortfolioDto,
         quote_service::{
             AppendManualFxQuoteInput, AppendManualInstrumentQuoteInput, FxPairStatusDto,
@@ -97,6 +104,14 @@ use crate::{
         },
         onboarding::complete_onboarding_impl,
         overview::get_overview_impl,
+        pending::{
+            archive_recurring_activity_rule_impl, create_pending_activity_impl,
+            create_recurring_activity_rule_impl, generate_due_pending_activities_impl,
+            list_pending_activities_impl, list_recurring_activity_rules_impl,
+            post_pending_activity_impl, preview_pending_activity_impl,
+            restore_recurring_activity_rule_impl, skip_pending_activity_impl,
+            update_pending_activity_impl, update_recurring_activity_rule_impl,
+        },
         portfolio::get_portfolio_impl,
         quotes::{
             append_manual_fx_quote_impl, append_manual_instrument_quote_impl, list_fx_quotes_impl,
@@ -703,6 +718,113 @@ pub async fn create_activity(
 
 #[tauri::command]
 #[specta::specta]
+pub async fn create_pending_activity(
+    state: State<'_, AppState>,
+    input: CreatePendingActivityInput,
+) -> Result<PendingActivityDto, crate::error::CommandError> {
+    with_shared_operation!(&state, create_pending_activity_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn update_pending_activity(
+    state: State<'_, AppState>,
+    input: UpdatePendingActivityInput,
+) -> Result<PendingActivityDto, crate::error::CommandError> {
+    with_shared_operation!(&state, update_pending_activity_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_pending_activities(
+    state: State<'_, AppState>,
+    input: ListPendingActivitiesInput,
+) -> Result<PendingActivityPageDto, crate::error::CommandError> {
+    with_shared_operation!(&state, list_pending_activities_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn preview_pending_activity(
+    state: State<'_, AppState>,
+    input: PendingActivityTimeInput,
+) -> Result<PendingActivityPreviewDto, crate::error::CommandError> {
+    with_shared_operation!(&state, preview_pending_activity_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn post_pending_activity(
+    state: State<'_, AppState>,
+    input: PendingActivityTimeInput,
+) -> Result<PendingActivityPostDto, crate::error::CommandError> {
+    with_shared_operation!(&state, post_pending_activity_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn skip_pending_activity(
+    state: State<'_, AppState>,
+    input: IdInput,
+) -> Result<PendingActivityDto, crate::error::CommandError> {
+    with_shared_operation!(&state, skip_pending_activity_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_recurring_activity_rules(
+    state: State<'_, AppState>,
+    input: ListFilterInput,
+) -> Result<Vec<RecurringActivityRuleDto>, crate::error::CommandError> {
+    with_shared_operation!(&state, list_recurring_activity_rules_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn create_recurring_activity_rule(
+    state: State<'_, AppState>,
+    input: CreateRecurringActivityRuleInput,
+) -> Result<RecurringActivityRuleDto, crate::error::CommandError> {
+    with_shared_operation!(&state, create_recurring_activity_rule_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn update_recurring_activity_rule(
+    state: State<'_, AppState>,
+    input: UpdateRecurringActivityRuleInput,
+) -> Result<RecurringActivityRuleDto, crate::error::CommandError> {
+    with_shared_operation!(&state, update_recurring_activity_rule_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn archive_recurring_activity_rule(
+    state: State<'_, AppState>,
+    input: IdInput,
+) -> Result<RecurringActivityRuleDto, crate::error::CommandError> {
+    with_shared_operation!(&state, archive_recurring_activity_rule_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn restore_recurring_activity_rule(
+    state: State<'_, AppState>,
+    input: IdInput,
+) -> Result<RecurringActivityRuleDto, crate::error::CommandError> {
+    with_shared_operation!(&state, restore_recurring_activity_rule_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn generate_due_pending_activities(
+    state: State<'_, AppState>,
+) -> Result<GenerateDuePendingActivitiesResultDto, crate::error::CommandError> {
+    with_shared_operation!(&state, generate_due_pending_activities_impl(&state))
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn reverse_activity(
     state: State<'_, AppState>,
     input: ReverseActivityInput,
@@ -911,6 +1033,18 @@ pub fn command_builder() -> Builder<tauri::Wry> {
         list_activities,
         get_activity,
         create_activity,
+        create_pending_activity,
+        update_pending_activity,
+        list_pending_activities,
+        preview_pending_activity,
+        post_pending_activity,
+        skip_pending_activity,
+        list_recurring_activity_rules,
+        create_recurring_activity_rule,
+        update_recurring_activity_rule,
+        archive_recurring_activity_rule,
+        restore_recurring_activity_rule,
+        generate_due_pending_activities,
         reverse_activity,
         correct_activity,
         get_account_timeline,

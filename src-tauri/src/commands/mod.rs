@@ -11,6 +11,7 @@ pub mod media;
 pub mod members;
 pub mod onboarding;
 pub mod overview;
+pub mod pending;
 pub mod portfolio;
 pub mod quotes;
 pub mod refresh;
