@@ -20,8 +20,8 @@ use super::{
 use crate::{
     domain::{
         checked_add, classify, endpoint_in_scope, Activity, ActivityId, ActivityKind,
-        AnalyticsScope, Classification, ComponentKind, CurrencyCode, FeeKind, InstrumentId,
-        LegRole, Money, ScopeEndpointFacts,
+        AnalyticsScope, CalendarDate, Classification, ComponentKind, CurrencyCode, FeeKind,
+        InstrumentId, LegRole, Money, ScopeEndpointFacts,
     },
     error::AppError,
     state::AppState,
@@ -65,25 +65,29 @@ pub async fn get_income_fee_totals(
 ) -> Result<IncomeFeeTotalsDto, AppError> {
     let database = state.writable_db()?;
     let mut tx = begin_read_tx(database).await?;
-    let result = get_income_fee_totals_in_tx(&mut tx, scope).await;
+    let result = get_income_fee_totals_in_tx(&mut tx, scope, None, None).await;
     finish_read_tx(tx, result).await
 }
 
 pub async fn get_income_fee_totals_in_tx(
     tx: &mut Transaction<'_, Sqlite>,
     scope: AnalyticsScope,
+    start: Option<CalendarDate>,
+    end: Option<CalendarDate>,
 ) -> Result<IncomeFeeTotalsDto, AppError> {
     query_count::record("income_fees");
     let household = require_household_tx(tx).await?;
     let activities = history_repositories::list_all_activities_asc(tx, &household.id).await?;
     let accounts = account_service::list_account_records_in_tx(tx, &household.id, true).await?;
-    summarize_income_fees(&activities, &accounts, scope)
+    summarize_income_fees(&activities, &accounts, scope, start, end)
 }
 
 pub(crate) fn summarize_income_fees(
     activities: &[Activity],
     accounts: &[AccountRecordDto],
     scope: AnalyticsScope,
+    start: Option<CalendarDate>,
+    end: Option<CalendarDate>,
 ) -> Result<IncomeFeeTotalsDto, AppError> {
     let excluded = excluded_activity_ids(activities);
     let accounts_by_id: HashMap<&str, &AccountRecordDto> = accounts
@@ -95,6 +99,9 @@ pub(crate) fn summarize_income_fees(
 
     for activity in activities {
         if excluded.contains(&activity.id()) {
+            continue;
+        }
+        if !activity_in_period(activity, start, end) {
             continue;
         }
         if activity.kind() == ActivityKind::Income {
@@ -164,6 +171,21 @@ fn fee_bucket(activity: &Activity) -> Option<String> {
     }
 }
 
+fn activity_in_period(
+    activity: &Activity,
+    start: Option<CalendarDate>,
+    end: Option<CalendarDate>,
+) -> bool {
+    match (start, end) {
+        (Some(start), Some(end)) if start <= end => {
+            let date = activity.effective_local_date();
+            date >= start && date <= end
+        }
+        (Some(_), Some(_)) => false,
+        _ => true,
+    }
+}
+
 fn amount_in_scope(
     scope: AnalyticsScope,
     activity: &Activity,
@@ -172,6 +194,14 @@ fn amount_in_scope(
 ) -> Result<bool, AppError> {
     if let AnalyticsScope::Instrument(instrument_id) = scope {
         return Ok(activity.related_instrument_id() == Some(instrument_id));
+    }
+    if let AnalyticsScope::Holding {
+        account_id: holding_account,
+        instrument_id,
+    } = scope
+    {
+        return Ok(activity.related_instrument_id() == Some(instrument_id)
+            && holding_account == account_id);
     }
     let account_key = account_id.to_string();
     let facts = match accounts.get(account_key.as_str()) {
@@ -269,9 +299,12 @@ fn money_dto(amount: Decimal, currency: CurrencyCode) -> Result<MoneyDto, AppErr
 
 #[cfg(test)]
 mod tests {
-    use super::{get_income_fee_totals, TRADE_COMMISSION};
+    use super::{
+        begin_read_tx, finish_read_tx, get_income_fee_totals, get_income_fee_totals_in_tx,
+        TRADE_COMMISSION,
+    };
     use crate::{
-        domain::AnalyticsScope,
+        domain::{AnalyticsScope, CalendarDate},
         infrastructure::{database::connect_writable, database_bootstrap::MIGRATOR},
         state::AppState,
         test_support::{cleanup, test_path},
@@ -459,6 +492,53 @@ mod tests {
                 .fees
                 .iter()
                 .all(|bucket| bucket.fee_kind != "bank_fee"));
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn selected_period_excludes_income_and_fees_outside_the_window() {
+        tauri::async_runtime::block_on(async {
+            let (state, path) = load_v013("income-period").await;
+            let database = state.writable_db().expect("db");
+            let mut tx = begin_read_tx(database).await.expect("tx");
+            let before = get_income_fee_totals_in_tx(
+                &mut tx,
+                AnalyticsScope::Household,
+                Some(CalendarDate::parse("2026-01-02").expect("start")),
+                Some(CalendarDate::parse("2026-01-14").expect("end")),
+            )
+            .await
+            .expect("before dividend");
+            let dividend_day = get_income_fee_totals_in_tx(
+                &mut tx,
+                AnalyticsScope::Household,
+                Some(CalendarDate::parse("2026-01-15").expect("start")),
+                Some(CalendarDate::parse("2026-01-15").expect("end")),
+            )
+            .await
+            .expect("dividend day");
+            let fee_day = get_income_fee_totals_in_tx(
+                &mut tx,
+                AnalyticsScope::Household,
+                Some(CalendarDate::parse("2026-01-16").expect("start")),
+                Some(CalendarDate::parse("2026-01-16").expect("end")),
+            )
+            .await
+            .expect("fee day");
+            finish_read_tx(tx, Ok(())).await.expect("rollback");
+            assert!(before.income.is_empty());
+            assert!(before
+                .fees
+                .iter()
+                .all(|bucket| bucket.fee_kind != "bank_fee"));
+            assert_eq!(dividend_day.income.len(), 1);
+            assert_eq!(dividend_day.income[0].amount.amount, "10");
+            assert!(fee_day.income.is_empty());
+            assert!(fee_day
+                .fees
+                .iter()
+                .any(|bucket| bucket.fee_kind == "bank_fee" && bucket.amount.amount == "5"));
             cleanup(&path);
         });
     }

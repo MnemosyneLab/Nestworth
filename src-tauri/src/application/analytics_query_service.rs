@@ -2,7 +2,7 @@
 //!
 //! Adds specta DTOs and dispatches to existing free functions. No service struct.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde::{Deserialize, Serialize};
@@ -18,7 +18,7 @@ use super::{
     gain_service::{self, SignedMoneyDto},
     history_repositories,
     income_fee_service::{self, FeeBucketDto, IncomeBucketDto},
-    query_count,
+    query_count, quote_service,
     reference::{begin_read_tx, finish_read_tx, require_household_tx},
     return_service::{self, PerformanceSummaryDto},
     valuation_service::ValuationSnapshot,
@@ -37,6 +37,7 @@ const MAX_PAGE_SIZE: i32 = 100;
 pub const REASON_PERIOD_UNAVAILABLE: &str = "ANALYTICS_PERIOD_UNAVAILABLE";
 pub const REASON_INPUT_INCOMPLETE: &str = "ANALYTICS_INPUT_INCOMPLETE";
 pub const REASON_UNKNOWN_BASIS: &str = "UNKNOWN_BASIS";
+pub const UNREALIZED_AS_OF_CURRENT_SNAPSHOT: &str = "currentSnapshot";
 const SOURCE_ORIGIN: &str = "originHolding";
 const SOURCE_ACQUISITION: &str = "acquisition";
 
@@ -51,6 +52,11 @@ pub enum AnalyticsScopeDto {
     },
     #[serde(rename_all = "camelCase")]
     Instrument {
+        instrument_id: String,
+    },
+    #[serde(rename_all = "camelCase")]
+    Holding {
+        account_id: String,
         instrument_id: String,
     },
 }
@@ -151,6 +157,7 @@ pub struct GetPerformanceSummaryInput {
 #[serde(rename_all = "camelCase")]
 pub struct GetGainSummaryInput {
     pub scope: AnalyticsScopeDto,
+    pub period: AnalyticsPeriodDto,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Type)]
@@ -226,6 +233,7 @@ pub struct GainSummaryIpcDto {
     pub unknown_basis_value: MoneyAvailabilityDto,
     pub instrument_movement: SignedMoneyAvailabilityDto,
     pub currency_movement: SignedMoneyAvailabilityDto,
+    pub unrealized_as_of: String,
     pub income: Vec<IncomeBucketDto>,
     pub fees: Vec<FeeBucketDto>,
 }
@@ -266,6 +274,26 @@ pub struct HoldingLotPageDto {
     pub items: Vec<HoldingLotDto>,
     pub next_cursor: Option<String>,
     pub has_more: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ListHoldingGainSummariesInput {
+    pub period: AnalyticsPeriodDto,
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct HoldingGainSummaryDto {
+    pub account_id: String,
+    pub instrument_id: String,
+    pub gain: GainSummaryIpcDto,
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct HoldingGainSummaryListDto {
+    pub items: Vec<HoldingGainSummaryDto>,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -319,6 +347,16 @@ pub async fn get_gain_summary(
     let database = state.writable_db()?;
     let mut tx = begin_read_tx(database).await?;
     let result = get_gain_summary_in_tx(&mut tx, input).await;
+    finish_read_tx(tx, result).await
+}
+
+pub async fn list_holding_gain_summaries(
+    state: &AppState,
+    input: ListHoldingGainSummariesInput,
+) -> Result<HoldingGainSummaryListDto, AppError> {
+    let database = state.writable_db()?;
+    let mut tx = begin_read_tx(database).await?;
+    let result = list_holding_gain_summaries_in_tx(&mut tx, input).await;
     finish_read_tx(tx, result).await
 }
 
@@ -468,7 +506,7 @@ async fn get_analytics_status_in_tx(
     let accounts = account_service::list_account_records_in_tx(tx, &household.id, true).await?;
     let snapshot = ValuationSnapshot::load(tx, &household.id, &household.base_currency).await?;
     let now = Timestamp::now();
-    let gain = gain_service::summarize_gain(&ledger, &snapshot, &accounts, scope, &now)?;
+    let gain = gain_service::summarize_gain(&ledger, &snapshot, &accounts, scope, &now, None)?;
     let unknown_basis_lot_count = i32::try_from(count_unknown_lots(&ledger, &accounts, scope)?)
         .map_err(|_| AppError::Internal)?;
     let unknown_basis_value = money_option_availability(
@@ -515,20 +553,227 @@ async fn get_gain_summary_in_tx(
     tx: &mut Transaction<'_, Sqlite>,
     input: GetGainSummaryInput,
 ) -> Result<GainSummaryIpcDto, AppError> {
+    let resolved = resolve_scope_period(tx, &input.scope, &input.period).await?;
+    compose_gain_summary(tx, resolved.scope, resolved.start, resolved.end).await
+}
+
+async fn list_holding_gain_summaries_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    input: ListHoldingGainSummariesInput,
+) -> Result<HoldingGainSummaryListDto, AppError> {
+    query_count::record("holding_gains");
+    let resolved = resolve_scope_period(tx, &AnalyticsScopeDto::Portfolio, &input.period).await?;
     let household = require_household_tx(tx).await?;
-    let scope = resolve_scope(tx, &household.id, &input.scope).await?;
-    let gain = gain_service::get_gain_summary_in_tx(tx, scope).await?;
-    let income_fees = income_fee_service::get_income_fee_totals_in_tx(tx, scope).await?;
-    let decomposition = currency_decomposition::get_currency_decomposition_in_tx(tx, scope).await?;
+    let ledger = cost_basis_service::load_effective_lot_ledger_in_tx(tx, &household.id).await?;
+    let accounts = account_service::list_account_records_in_tx(tx, &household.id, true).await?;
+    let snapshot = ValuationSnapshot::load(tx, &household.id, &household.base_currency).await?;
+    let activities = history_repositories::list_all_activities_asc(tx, &household.id).await?;
+    let period = gain_period(resolved.start, resolved.end, &activities);
+    let quotes = quote_service::list_all_fx_quotes(tx, &household.id).await?;
+    let preference_observations =
+        history_repositories::list_fx_preference_observations(tx, &household.id).await?;
+    let current_preferences: std::collections::HashMap<_, _> =
+        quote_service::list_fx_preferences(tx, &household.id)
+            .await?
+            .into_iter()
+            .collect();
+    let origin = history_repositories::get_origin_by_household(tx, &household.id)
+        .await?
+        .ok_or(AppError::HistoryInitializationFailed)?;
+    let timezone = HistoryTimezone::parse(&origin.timezone)?;
+    let disposal_at = activities
+        .iter()
+        .map(|activity| (activity.id(), activity.effective_at().clone()))
+        .collect();
+    let disposal_dates = activities
+        .iter()
+        .map(|activity| (activity.id(), activity.effective_local_date()))
+        .collect();
+    let accounts_by_id: HashMap<&str, &AccountRecordDto> = accounts
+        .iter()
+        .map(|account| (account.id.as_str(), account))
+        .collect();
+    let mut keys = Vec::new();
+    for lot in ledger.open_lots() {
+        if !gain_service::in_scope(
+            AnalyticsScope::Portfolio,
+            lot.account_id(),
+            lot.instrument_id(),
+            &accounts_by_id,
+        )? {
+            continue;
+        }
+        let key = (
+            lot.account_id().to_string(),
+            lot.instrument_id().to_string(),
+        );
+        if !keys.contains(&key) {
+            keys.push(key);
+        }
+    }
+    keys.sort();
+    let mut items = Vec::new();
+    for (account_id, instrument_id) in keys {
+        let scope = AnalyticsScope::Holding {
+            account_id: AccountId::parse(&account_id)?,
+            instrument_id: InstrumentId::parse(&instrument_id)?,
+        };
+        let gain = gain_service::summarize_gain(
+            &ledger,
+            &snapshot,
+            &accounts,
+            scope,
+            &Timestamp::now(),
+            Some(&period),
+        )?;
+        let income_fees = income_fee_service::summarize_income_fees(
+            &activities,
+            &accounts,
+            scope,
+            Some(resolved.start),
+            Some(resolved.end),
+        )?;
+        let decomposition = currency_decomposition::summarize_decomposition(
+            currency_decomposition::DecompositionView {
+                ledger: &ledger,
+                snapshot: &snapshot,
+                accounts: &accounts,
+                quotes: &quotes,
+                preference_observations: &preference_observations,
+                current_preferences: &current_preferences,
+                timezone,
+                disposal_at: &disposal_at,
+                disposal_dates: &disposal_dates,
+                now: &Timestamp::now(),
+                base: snapshot.base_currency(),
+                scope,
+                start: Some(resolved.start),
+                end: Some(resolved.end),
+            },
+        )?;
+        items.push(HoldingGainSummaryDto {
+            account_id,
+            instrument_id,
+            gain: ipc_gain(gain, income_fees, decomposition)?,
+        });
+    }
     tracing::info!(
-        event = "analytics.gain",
-        scope_kind = scope_kind_label(&input.scope),
-        "gain summary loaded"
+        event = "analytics.holding_gains",
+        holding_count = items.len() as i64,
+        "holding gain summaries loaded"
     );
+    Ok(HoldingGainSummaryListDto { items })
+}
+
+async fn compose_gain_summary(
+    tx: &mut Transaction<'_, Sqlite>,
+    scope: AnalyticsScope,
+    start: CalendarDate,
+    end: CalendarDate,
+) -> Result<GainSummaryIpcDto, AppError> {
+    query_count::record("gain_summary");
+    let household = require_household_tx(tx).await?;
+    let ledger = cost_basis_service::load_effective_lot_ledger_in_tx(tx, &household.id).await?;
+    let accounts = account_service::list_account_records_in_tx(tx, &household.id, true).await?;
+    let snapshot = ValuationSnapshot::load(tx, &household.id, &household.base_currency).await?;
+    let activities = history_repositories::list_all_activities_asc(tx, &household.id).await?;
+    let period = gain_period(start, end, &activities);
+    let gain = gain_service::summarize_gain(
+        &ledger,
+        &snapshot,
+        &accounts,
+        scope,
+        &Timestamp::now(),
+        Some(&period),
+    )?;
+    let income_fees = income_fee_service::summarize_income_fees(
+        &activities,
+        &accounts,
+        scope,
+        Some(start),
+        Some(end),
+    )?;
+    let quotes = quote_service::list_all_fx_quotes(tx, &household.id).await?;
+    let preference_observations =
+        history_repositories::list_fx_preference_observations(tx, &household.id).await?;
+    let current_preferences: std::collections::HashMap<_, _> =
+        quote_service::list_fx_preferences(tx, &household.id)
+            .await?
+            .into_iter()
+            .collect();
+    let origin = history_repositories::get_origin_by_household(tx, &household.id)
+        .await?
+        .ok_or(AppError::HistoryInitializationFailed)?;
+    let timezone = HistoryTimezone::parse(&origin.timezone)?;
+    let disposal_at = activities
+        .iter()
+        .map(|activity| (activity.id(), activity.effective_at().clone()))
+        .collect();
+    let disposal_dates = activities
+        .iter()
+        .map(|activity| (activity.id(), activity.effective_local_date()))
+        .collect();
+    let decomposition = currency_decomposition::summarize_decomposition(
+        currency_decomposition::DecompositionView {
+            ledger: &ledger,
+            snapshot: &snapshot,
+            accounts: &accounts,
+            quotes: &quotes,
+            preference_observations: &preference_observations,
+            current_preferences: &current_preferences,
+            timezone,
+            disposal_at: &disposal_at,
+            disposal_dates: &disposal_dates,
+            now: &Timestamp::now(),
+            base: snapshot.base_currency(),
+            scope,
+            start: Some(start),
+            end: Some(end),
+        },
+    )?;
+    tracing::info!(event = "analytics.gain", "gain summary loaded");
+    ipc_gain(gain, income_fees, decomposition)
+}
+
+fn gain_period(
+    start: CalendarDate,
+    end: CalendarDate,
+    activities: &[crate::domain::Activity],
+) -> gain_service::GainPeriod {
+    gain_service::GainPeriod {
+        start,
+        end,
+        activity_dates: activities
+            .iter()
+            .map(|activity| (activity.id(), activity.effective_local_date()))
+            .collect(),
+    }
+}
+
+fn ipc_gain(
+    gain: gain_service::GainSummaryDto,
+    income_fees: income_fee_service::IncomeFeeTotalsDto,
+    decomposition: currency_decomposition::CurrencyDecompositionSummaryDto,
+) -> Result<GainSummaryIpcDto, AppError> {
     Ok(GainSummaryIpcDto {
-        realized_gross: signed_option_availability(gain.realized_gross, gain.input_complete),
-        realized_net: signed_option_availability(gain.realized_net, gain.input_complete),
-        allocated_fees: signed_option_availability(gain.allocated_fees, gain.input_complete),
+        realized_gross: realized_availability(
+            gain.realized_gross,
+            gain.input_complete,
+            gain.unknown_realized,
+            &gain.reporting_currency,
+        )?,
+        realized_net: realized_availability(
+            gain.realized_net,
+            gain.input_complete,
+            gain.unknown_realized,
+            &gain.reporting_currency,
+        )?,
+        allocated_fees: realized_availability(
+            gain.allocated_fees,
+            gain.input_complete,
+            gain.unknown_realized,
+            &gain.reporting_currency,
+        )?,
         unrealized_gross: signed_option_availability(gain.unrealized_gross, gain.input_complete),
         unexplained_disposal: signed_option_availability(
             gain.unexplained_disposal_value,
@@ -550,6 +795,7 @@ async fn get_gain_summary_in_tx(
             decomposition.currency_movement,
             decomposition.input_complete,
         ),
+        unrealized_as_of: UNREALIZED_AS_OF_CURRENT_SNAPSHOT.to_owned(),
         income: income_fees.income,
         fees: income_fees.fees,
     })
@@ -605,7 +851,6 @@ async fn list_holding_lots_in_tx(
         .map(|account| (account.id.as_str(), account))
         .collect();
     let mut lots = Vec::new();
-    let mut seen_refs = HashSet::<(String, String)>::new();
     for lot in ledger.open_lots() {
         if unknown_only && lot.basis() != BasisStatus::Unknown {
             continue;
@@ -619,13 +864,6 @@ async fn list_holding_lots_in_tx(
             continue;
         }
         let dto = lot_dto(&ledger, &snapshot, lot)?;
-        let identity = (
-            source_kind_dto_label(&dto.lot_ref.source_kind).to_owned(),
-            dto.lot_ref.source_id.clone(),
-        );
-        if !seen_refs.insert(identity) {
-            continue;
-        }
         lots.push(dto);
     }
     lots.sort_by_key(lot_dto_sort_key);
@@ -784,6 +1022,35 @@ async fn resolve_scope(
                 Err(AppError::not_found("instrument", instrument_id))
             }
         }
+        AnalyticsScopeDto::Holding {
+            account_id,
+            instrument_id,
+        } => {
+            let account = AccountId::parse(account_id.trim())?;
+            let instrument = InstrumentId::parse(instrument_id.trim())?;
+            if !history_repositories::household_account_exists(
+                tx,
+                household_id,
+                &account.to_string(),
+            )
+            .await?
+            {
+                return Err(AppError::not_found("account", account_id));
+            }
+            if !history_repositories::household_instrument_exists(
+                tx,
+                household_id,
+                &instrument.to_string(),
+            )
+            .await?
+            {
+                return Err(AppError::not_found("instrument", instrument_id));
+            }
+            Ok(AnalyticsScope::Holding {
+                account_id: account,
+                instrument_id: instrument,
+            })
+        }
     }
 }
 
@@ -792,11 +1059,18 @@ fn resolve_period(
     origin_date: CalendarDate,
     today: CalendarDate,
 ) -> Result<(CalendarDate, CalendarDate), AppError> {
+    let last_closed = today.pred().unwrap_or(origin_date);
     match period {
-        AnalyticsPeriodDto::OneMonth => Ok((preset_start(30, origin_date, today), today)),
-        AnalyticsPeriodDto::ThreeMonths => Ok((preset_start(90, origin_date, today), today)),
-        AnalyticsPeriodDto::OneYear => Ok((preset_start(365, origin_date, today), today)),
-        AnalyticsPeriodDto::All => Ok((origin_date, today)),
+        AnalyticsPeriodDto::OneMonth => {
+            Ok((preset_start(30, origin_date, last_closed), last_closed))
+        }
+        AnalyticsPeriodDto::ThreeMonths => {
+            Ok((preset_start(90, origin_date, last_closed), last_closed))
+        }
+        AnalyticsPeriodDto::OneYear => {
+            Ok((preset_start(365, origin_date, last_closed), last_closed))
+        }
+        AnalyticsPeriodDto::All => Ok((origin_date, last_closed.max(origin_date))),
         AnalyticsPeriodDto::Custom {
             start_local_date,
             end_local_date,
@@ -958,27 +1232,38 @@ fn declaration_in_scope(
     let Some(opening) = ledger.opening(lot_ref) else {
         return Ok(false);
     };
-    let account_id = ledger
+    let fragment_accounts: Vec<_> = ledger
         .open_lots()
         .iter()
-        .find(|lot| lot.lot_ref() == lot_ref)
+        .filter(|lot| lot.lot_ref() == lot_ref)
         .map(OpenLot::account_id)
-        .or_else(|| {
-            ledger
-                .consumptions()
-                .iter()
-                .rev()
-                .find(|consumption| consumption.lot_ref() == lot_ref)
-                .map(|consumption| consumption.account_id())
-        });
-    let Some(account_id) = account_id else {
-        return Ok(match scope {
-            AnalyticsScope::Household => true,
-            AnalyticsScope::Instrument(instrument_id) => opening.instrument_id() == instrument_id,
-            AnalyticsScope::Portfolio | AnalyticsScope::Account(_) => false,
-        });
-    };
-    gain_service::in_scope(scope, account_id, opening.instrument_id(), accounts)
+        .collect();
+    if fragment_accounts.is_empty() {
+        let account_id = ledger
+            .consumptions()
+            .iter()
+            .rev()
+            .find(|consumption| consumption.lot_ref() == lot_ref)
+            .map(|consumption| consumption.account_id());
+        let Some(account_id) = account_id else {
+            return Ok(match scope {
+                AnalyticsScope::Household => true,
+                AnalyticsScope::Instrument(instrument_id) => {
+                    opening.instrument_id() == instrument_id
+                }
+                AnalyticsScope::Portfolio
+                | AnalyticsScope::Account(_)
+                | AnalyticsScope::Holding { .. } => false,
+            });
+        };
+        return gain_service::in_scope(scope, account_id, opening.instrument_id(), accounts);
+    }
+    for account_id in fragment_accounts {
+        if gain_service::in_scope(scope, account_id, opening.instrument_id(), accounts)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn count_unknown_lots(
@@ -1157,6 +1442,7 @@ fn scope_kind_label(scope: &AnalyticsScopeDto) -> &'static str {
         AnalyticsScopeDto::Portfolio => "portfolio",
         AnalyticsScopeDto::Account { .. } => "account",
         AnalyticsScopeDto::Instrument { .. } => "instrument",
+        AnalyticsScopeDto::Holding { .. } => "holding",
     }
 }
 
@@ -1184,6 +1470,37 @@ fn signed_option_availability(
             reason: REASON_INPUT_INCOMPLETE.to_owned(),
             blocking_dates: Vec::new(),
         },
+    }
+}
+
+fn realized_availability(
+    value: Option<SignedMoneyDto>,
+    input_complete: bool,
+    unknown_realized: bool,
+    reporting_currency: &str,
+) -> Result<SignedMoneyAvailabilityDto, AppError> {
+    match value {
+        Some(value) => Ok(SignedMoneyAvailabilityDto::Available { value }),
+        None if unknown_realized => Ok(SignedMoneyAvailabilityDto::Unavailable {
+            reason: REASON_UNKNOWN_BASIS.to_owned(),
+            blocking_dates: Vec::new(),
+        }),
+        None if !input_complete => Ok(SignedMoneyAvailabilityDto::Unavailable {
+            reason: REASON_INPUT_INCOMPLETE.to_owned(),
+            blocking_dates: Vec::new(),
+        }),
+        None => {
+            let zero = crate::domain::SignedMoney::from_canonical(
+                rust_decimal::Decimal::ZERO,
+                crate::domain::CurrencyCode::parse(reporting_currency)?,
+            )?;
+            Ok(SignedMoneyAvailabilityDto::Available {
+                value: SignedMoneyDto {
+                    amount: zero.canonical_amount(),
+                    currency: reporting_currency.to_owned(),
+                },
+            })
+        }
     }
 }
 
@@ -1229,17 +1546,24 @@ mod tests {
     use crate::{
         application::{
             analytics_repositories::CostBasisDeclarationRecord,
+            query_count,
             reference::{begin_write_tx, require_household_id_tx},
         },
+        domain::{CalendarDate, HistoryTimezone, Timestamp},
         error::{AppError, ErrorCode},
         infrastructure::{database::connect_writable, database_bootstrap::MIGRATOR},
+        state::AppState,
         test_support::{cleanup, test_path, UNKNOWN_UUID},
     };
     use std::{collections::HashSet, fs, path::PathBuf};
 
     const ORIGIN_QQQ_HOLDING: &str = "30303030-3030-4303-8303-303030303030";
     const QQQ: &str = "20202020-2020-4202-8202-202020202020";
+    const VOO: &str = "25252525-2525-4252-8252-252525252525";
+    const ES3: &str = "21212121-2121-4212-8212-212121212121";
     const BROKERAGE: &str = "99999999-9999-4999-8999-999999999999";
+    const TRANSFER_DEST: &str = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+    const XLF: &str = "27272727-2727-4272-8272-272727272727";
     const OPENING_XLF_LEG: &str = "01a0188f-862c-7c93-9999-26697ff52022";
 
     fn household_scope() -> AnalyticsScopeDto {
@@ -1459,6 +1783,7 @@ mod tests {
                 &state,
                 GetGainSummaryInput {
                     scope: household_scope(),
+                    period: AnalyticsPeriodDto::All,
                 },
             )
             .await
@@ -1590,6 +1915,7 @@ mod tests {
                     scope: AnalyticsScopeDto::Account {
                         account_id: UNKNOWN_UUID.to_owned(),
                     },
+                    period: AnalyticsPeriodDto::All,
                 },
             )
             .await
@@ -1601,6 +1927,7 @@ mod tests {
                     scope: AnalyticsScopeDto::Instrument {
                         instrument_id: UNKNOWN_UUID.to_owned(),
                     },
+                    period: AnalyticsPeriodDto::All,
                 },
             )
             .await
@@ -1633,6 +1960,7 @@ mod tests {
                     scope: AnalyticsScopeDto::Account {
                         account_id: BROKERAGE.to_owned(),
                     },
+                    period: AnalyticsPeriodDto::All,
                 },
             )
             .await
@@ -1643,6 +1971,7 @@ mod tests {
                     scope: AnalyticsScopeDto::Instrument {
                         instrument_id: QQQ.to_owned(),
                     },
+                    period: AnalyticsPeriodDto::All,
                 },
             )
             .await
@@ -1700,9 +2029,10 @@ mod tests {
                 .expect("lot page");
                 for item in &page.items {
                     let key = format!(
-                        "{}:{}",
+                        "{}:{}:{}",
                         source_kind_dto_label(&item.lot_ref.source_kind),
-                        item.lot_ref.source_id
+                        item.lot_ref.source_id,
+                        item.account_id
                     );
                     assert!(seen_lots.insert(key.clone()), "duplicate lot {key}");
                 }
@@ -1727,9 +2057,10 @@ mod tests {
                 .iter()
                 .map(|item| {
                     format!(
-                        "{}:{}",
+                        "{}:{}:{}",
                         source_kind_dto_label(&item.lot_ref.source_kind),
-                        item.lot_ref.source_id
+                        item.lot_ref.source_id,
+                        item.account_id
                     )
                 })
                 .collect();
@@ -1791,6 +2122,7 @@ mod tests {
                     &state,
                     GetGainSummaryInput {
                         scope: household_scope(),
+                        period: AnalyticsPeriodDto::All,
                     },
                 )
             })
@@ -1995,5 +2327,559 @@ mod tests {
                     .and_then(|count| count.parse().ok())
             })
             .unwrap_or(0)
+    }
+
+    fn period_span_days(start: CalendarDate, end: CalendarDate) -> i64 {
+        end.as_naive_date()
+            .signed_duration_since(start.as_naive_date())
+            .num_days()
+    }
+
+    fn sample_lot(account_id: &str) -> HoldingLotDto {
+        HoldingLotDto {
+            lot_ref: LotRefDto {
+                source_kind: LotRefSourceKind::Acquisition,
+                source_id: OPENING_XLF_LEG.to_owned(),
+            },
+            account_id: account_id.to_owned(),
+            instrument_id: QQQ.to_owned(),
+            acquired_at: "2026-01-04T02:00:00.000Z".to_owned(),
+            quantity_remaining: "1".to_owned(),
+            original_quantity: "1".to_owned(),
+            cost: MoneyAvailabilityDto::Unavailable {
+                reason: REASON_UNKNOWN_BASIS.to_owned(),
+                blocking_dates: Vec::new(),
+            },
+            basis: "unknown".to_owned(),
+            is_declared: false,
+            current_value: MoneyAvailabilityDto::Unavailable {
+                reason: REASON_INPUT_INCOMPLETE.to_owned(),
+                blocking_dates: Vec::new(),
+            },
+            unrealized_gross: SignedMoneyAvailabilityDto::Unavailable {
+                reason: REASON_UNKNOWN_BASIS.to_owned(),
+                blocking_dates: Vec::new(),
+            },
+        }
+    }
+
+    #[test]
+    fn presets_use_last_closed_local_date_and_intended_linked_day_spans() {
+        let origin = CalendarDate::parse("2020-01-01").expect("origin");
+        let today = CalendarDate::parse("2026-08-20").expect("today");
+        let last_closed = today.pred().expect("yesterday");
+        let (one_month_start, one_month_end) =
+            resolve_period(&AnalyticsPeriodDto::OneMonth, origin, today).expect("1m");
+        let (three_month_start, three_month_end) =
+            resolve_period(&AnalyticsPeriodDto::ThreeMonths, origin, today).expect("3m");
+        let (one_year_start, one_year_end) =
+            resolve_period(&AnalyticsPeriodDto::OneYear, origin, today).expect("1y");
+        let (all_start, all_end) =
+            resolve_period(&AnalyticsPeriodDto::All, origin, today).expect("all");
+        assert_eq!(one_month_end, last_closed);
+        assert_eq!(three_month_end, last_closed);
+        assert_eq!(one_year_end, last_closed);
+        assert_eq!(all_end, last_closed);
+        assert_eq!(period_span_days(one_month_start, one_month_end), 30);
+        assert_eq!(period_span_days(three_month_start, three_month_end), 90);
+        assert_eq!(period_span_days(one_year_start, one_year_end), 365);
+        assert_eq!(one_month_start.to_ymd(), "2026-07-20");
+        assert_eq!(one_year_start.to_ymd(), "2025-08-19");
+        assert_eq!(all_start, origin);
+        let late_origin = CalendarDate::parse("2026-08-10").expect("late");
+        let (clipped_start, clipped_end) =
+            resolve_period(&AnalyticsPeriodDto::OneMonth, late_origin, today).expect("clip");
+        assert_eq!(clipped_start, late_origin);
+        assert_eq!(clipped_end, last_closed);
+        assert!(period_span_days(clipped_start, clipped_end) < 30);
+    }
+
+    #[test]
+    fn preset_bounds_follow_history_origin_timezone_local_today() {
+        let origin = CalendarDate::parse("2020-01-01").expect("origin");
+        let timestamp = Timestamp::parse("2026-08-20T02:00:00.000Z").expect("ts");
+        let ny = HistoryTimezone::parse("America/New_York")
+            .expect("ny")
+            .local_date(&timestamp);
+        let singapore = HistoryTimezone::parse("Asia/Singapore")
+            .expect("sg")
+            .local_date(&timestamp);
+        let (_, ny_end) = resolve_period(&AnalyticsPeriodDto::OneMonth, origin, ny).expect("ny");
+        let (_, sg_end) =
+            resolve_period(&AnalyticsPeriodDto::OneMonth, origin, singapore).expect("sg");
+        assert_ne!(ny.to_ymd(), singapore.to_ymd());
+        assert_ne!(ny_end.to_ymd(), sg_end.to_ymd());
+        assert_eq!(ny_end, ny.pred().expect("ny closed"));
+        assert_eq!(sg_end, singapore.pred().expect("sg closed"));
+    }
+
+    #[test]
+    fn lot_cursors_retain_fragments_of_the_same_lot_ref() {
+        let left = sample_lot(BROKERAGE);
+        let right = sample_lot("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee");
+        assert_eq!(left.lot_ref.source_id, right.lot_ref.source_id);
+        assert_ne!(encode_lot_cursor(&left), encode_lot_cursor(&right));
+        assert_ne!(lot_dto_sort_key(&left), lot_dto_sort_key(&right));
+        let decoded = decode_lot_cursor(&encode_lot_cursor(&left)).expect("cursor");
+        assert_eq!(decoded.3, BROKERAGE);
+    }
+
+    #[test]
+    fn gain_summary_period_excludes_sales_outside_the_selected_dates() {
+        tauri::async_runtime::block_on(async {
+            let (state, path) = load_v013("gain-period").await;
+            let lifetime = get_gain_summary(
+                &state,
+                GetGainSummaryInput {
+                    scope: AnalyticsScopeDto::Instrument {
+                        instrument_id: VOO.to_owned(),
+                    },
+                    period: AnalyticsPeriodDto::All,
+                },
+            )
+            .await
+            .expect("lifetime");
+            let before_sale = get_gain_summary(
+                &state,
+                GetGainSummaryInput {
+                    scope: AnalyticsScopeDto::Instrument {
+                        instrument_id: VOO.to_owned(),
+                    },
+                    period: custom_period("2026-01-02", "2026-01-05"),
+                },
+            )
+            .await
+            .expect("before");
+            let sale_day = get_gain_summary(
+                &state,
+                GetGainSummaryInput {
+                    scope: AnalyticsScopeDto::Instrument {
+                        instrument_id: VOO.to_owned(),
+                    },
+                    period: custom_period("2026-01-06", "2026-01-06"),
+                },
+            )
+            .await
+            .expect("sale day");
+            match (
+                &lifetime.realized_gross,
+                &before_sale.realized_gross,
+                &sale_day.realized_gross,
+            ) {
+                (
+                    SignedMoneyAvailabilityDto::Available { value: lifetime },
+                    SignedMoneyAvailabilityDto::Available { value: before },
+                    SignedMoneyAvailabilityDto::Available { value: sale },
+                ) => {
+                    assert_eq!(before.amount, "0");
+                    assert_ne!(lifetime.amount, "0");
+                    assert_eq!(sale.amount, lifetime.amount);
+                    assert_ne!(sale.amount, before.amount);
+                }
+                _ => panic!("expected available realized gain for known VOO sales"),
+            }
+            assert_eq!(lifetime.unrealized_as_of, UNREALIZED_AS_OF_CURRENT_SNAPSHOT);
+            assert_eq!(
+                before_sale.unrealized_as_of,
+                UNREALIZED_AS_OF_CURRENT_SNAPSHOT
+            );
+            let household_before_income = get_gain_summary(
+                &state,
+                GetGainSummaryInput {
+                    scope: household_scope(),
+                    period: custom_period("2026-01-02", "2026-01-14"),
+                },
+            )
+            .await
+            .expect("before income");
+            let dividend_day = get_gain_summary(
+                &state,
+                GetGainSummaryInput {
+                    scope: household_scope(),
+                    period: custom_period("2026-01-15", "2026-01-15"),
+                },
+            )
+            .await
+            .expect("dividend");
+            let bank_fee_day = get_gain_summary(
+                &state,
+                GetGainSummaryInput {
+                    scope: household_scope(),
+                    period: custom_period("2026-01-16", "2026-01-16"),
+                },
+            )
+            .await
+            .expect("bank fee");
+            assert!(household_before_income.income.is_empty());
+            assert!(household_before_income
+                .fees
+                .iter()
+                .all(|bucket| bucket.fee_kind != "bank_fee"));
+            assert_eq!(dividend_day.income.len(), 1);
+            assert_eq!(dividend_day.income[0].amount.amount, "10");
+            assert!(bank_fee_day.income.is_empty());
+            assert!(bank_fee_day
+                .fees
+                .iter()
+                .any(|bucket| bucket.fee_kind == "bank_fee"));
+            match (
+                &before_sale.instrument_movement,
+                &sale_day.instrument_movement,
+            ) {
+                (
+                    SignedMoneyAvailabilityDto::Available { value: before },
+                    SignedMoneyAvailabilityDto::Available { value: sale },
+                ) => {
+                    assert_ne!(sale.amount, before.amount);
+                }
+                _ => panic!("sale-day currency decomposition must remain available"),
+            }
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn realized_availability_distinguishes_no_sale_from_unknown_basis() {
+        tauri::async_runtime::block_on(async {
+            let (state, path) = load_v013("gain-availability").await;
+            let known_no_sale = get_gain_summary(
+                &state,
+                GetGainSummaryInput {
+                    scope: AnalyticsScopeDto::Instrument {
+                        instrument_id: VOO.to_owned(),
+                    },
+                    period: custom_period("2026-01-02", "2026-01-05"),
+                },
+            )
+            .await
+            .expect("voo before sale");
+            let unknown_no_sale = get_gain_summary(
+                &state,
+                GetGainSummaryInput {
+                    scope: AnalyticsScopeDto::Instrument {
+                        instrument_id: QQQ.to_owned(),
+                    },
+                    period: AnalyticsPeriodDto::All,
+                },
+            )
+            .await
+            .expect("qqq");
+            let known_sale = get_gain_summary(
+                &state,
+                GetGainSummaryInput {
+                    scope: AnalyticsScopeDto::Instrument {
+                        instrument_id: VOO.to_owned(),
+                    },
+                    period: AnalyticsPeriodDto::All,
+                },
+            )
+            .await
+            .expect("voo");
+            match known_no_sale.realized_gross {
+                SignedMoneyAvailabilityDto::Available { value } => {
+                    assert_eq!(value.amount, "0");
+                    assert_eq!(value.currency, "USD");
+                }
+                SignedMoneyAvailabilityDto::Unavailable { reason, .. } => {
+                    panic!("known basis with no sale must not be {reason}")
+                }
+            }
+            match unknown_no_sale.realized_gross {
+                SignedMoneyAvailabilityDto::Available { value } => assert_eq!(value.amount, "0"),
+                SignedMoneyAvailabilityDto::Unavailable { reason, .. } => {
+                    panic!("unknown basis with no sale is zero realized, not {reason}")
+                }
+            }
+            match unknown_no_sale.unrealized_gross {
+                SignedMoneyAvailabilityDto::Unavailable { reason, .. } => {
+                    assert_eq!(reason, REASON_UNKNOWN_BASIS);
+                }
+                SignedMoneyAvailabilityDto::Available { .. } => {
+                    panic!("unknown-basis open lots must not report known unrealized")
+                }
+            }
+            match known_sale.realized_gross {
+                SignedMoneyAvailabilityDto::Available { value } => {
+                    assert_ne!(value.amount, "0");
+                }
+                SignedMoneyAvailabilityDto::Unavailable { reason, .. } => {
+                    panic!("known VOO sale must be available, not {reason}")
+                }
+            }
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn household_mixed_quote_currencies_do_not_fail_and_report_base() {
+        tauri::async_runtime::block_on(async {
+            let (state, path) = load_v013("mixed-fx").await;
+            let household = get_gain_summary(
+                &state,
+                GetGainSummaryInput {
+                    scope: AnalyticsScopeDto::Household,
+                    period: AnalyticsPeriodDto::All,
+                },
+            )
+            .await
+            .expect("household");
+            let voo = get_gain_summary(
+                &state,
+                GetGainSummaryInput {
+                    scope: AnalyticsScopeDto::Instrument {
+                        instrument_id: VOO.to_owned(),
+                    },
+                    period: AnalyticsPeriodDto::All,
+                },
+            )
+            .await
+            .expect("voo");
+            let es3 = get_gain_summary(
+                &state,
+                GetGainSummaryInput {
+                    scope: AnalyticsScopeDto::Instrument {
+                        instrument_id: ES3.to_owned(),
+                    },
+                    period: AnalyticsPeriodDto::All,
+                },
+            )
+            .await
+            .expect("es3");
+            let portfolio = get_gain_summary(
+                &state,
+                GetGainSummaryInput {
+                    scope: AnalyticsScopeDto::Portfolio,
+                    period: AnalyticsPeriodDto::All,
+                },
+            )
+            .await
+            .expect("portfolio");
+            match household.unrealized_gross {
+                SignedMoneyAvailabilityDto::Available { value } => {
+                    assert_eq!(value.currency, "CNY");
+                }
+                SignedMoneyAvailabilityDto::Unavailable { reason, .. } => {
+                    panic!("fixture household unrealized should be available, not {reason}")
+                }
+            }
+            match voo.unrealized_gross {
+                SignedMoneyAvailabilityDto::Available { value } => {
+                    assert_eq!(value.currency, "USD");
+                }
+                SignedMoneyAvailabilityDto::Unavailable { .. } => {}
+            }
+            match es3.unrealized_gross {
+                SignedMoneyAvailabilityDto::Available { value } => {
+                    assert_eq!(value.currency, "SGD");
+                }
+                SignedMoneyAvailabilityDto::Unavailable { .. } => {}
+            }
+            match portfolio.unrealized_gross {
+                SignedMoneyAvailabilityDto::Available { value } => {
+                    assert_eq!(value.currency, "CNY");
+                }
+                SignedMoneyAvailabilityDto::Unavailable { reason, .. } => {
+                    panic!("fixture portfolio unrealized should be available, not {reason}")
+                }
+            }
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn partial_transfer_fragments_remain_visible_in_each_scope() {
+        tauri::async_runtime::block_on(async {
+            let (state, path) = load_v013("lot-fragments").await;
+            let instrument_lots = list_holding_lots(
+                &state,
+                ListHoldingLotsInput {
+                    scope: AnalyticsScopeDto::Instrument {
+                        instrument_id: XLF.to_owned(),
+                    },
+                    cursor: None,
+                    limit: Some(100),
+                },
+            )
+            .await
+            .expect("instrument lots");
+            let opening_fragments: Vec<_> = instrument_lots
+                .items
+                .iter()
+                .filter(|lot| lot.lot_ref.source_id == OPENING_XLF_LEG)
+                .collect();
+            assert_eq!(opening_fragments.len(), 2);
+            let accounts: HashSet<_> = opening_fragments
+                .iter()
+                .map(|lot| lot.account_id.as_str())
+                .collect();
+            assert_eq!(accounts, HashSet::from([BROKERAGE, TRANSFER_DEST]));
+            let brokerage = list_holding_lots(
+                &state,
+                ListHoldingLotsInput {
+                    scope: AnalyticsScopeDto::Account {
+                        account_id: BROKERAGE.to_owned(),
+                    },
+                    cursor: None,
+                    limit: Some(100),
+                },
+            )
+            .await
+            .expect("brokerage");
+            let dest = list_holding_lots(
+                &state,
+                ListHoldingLotsInput {
+                    scope: AnalyticsScopeDto::Account {
+                        account_id: TRANSFER_DEST.to_owned(),
+                    },
+                    cursor: None,
+                    limit: Some(100),
+                },
+            )
+            .await
+            .expect("dest");
+            assert!(brokerage.items.iter().any(|lot| {
+                lot.lot_ref.source_id == OPENING_XLF_LEG && lot.account_id == BROKERAGE
+            }));
+            assert!(dest.items.iter().any(|lot| {
+                lot.lot_ref.source_id == OPENING_XLF_LEG && lot.account_id == TRANSFER_DEST
+            }));
+            assert!(!dest.items.iter().any(|lot| lot.account_id == BROKERAGE));
+            let status = get_analytics_status(
+                &state,
+                GetAnalyticsStatusInput {
+                    scope: AnalyticsScopeDto::Instrument {
+                        instrument_id: XLF.to_owned(),
+                    },
+                },
+            )
+            .await
+            .expect("status");
+            let worklist = list_unknown_basis_lots(
+                &state,
+                ListUnknownBasisLotsInput {
+                    scope: AnalyticsScopeDto::Instrument {
+                        instrument_id: XLF.to_owned(),
+                    },
+                    cursor: None,
+                    limit: Some(100),
+                },
+            )
+            .await
+            .expect("worklist");
+            assert_eq!(
+                i64::from(status.unknown_basis_lot_count),
+                instrument_lots.items.len() as i64
+            );
+            assert_eq!(worklist.items.len(), instrument_lots.items.len());
+            let mut cursor = None;
+            let mut paged = Vec::new();
+            loop {
+                let page = list_holding_lots(
+                    &state,
+                    ListHoldingLotsInput {
+                        scope: AnalyticsScopeDto::Instrument {
+                            instrument_id: XLF.to_owned(),
+                        },
+                        cursor,
+                        limit: Some(1),
+                    },
+                )
+                .await
+                .expect("page");
+                paged.extend(page.items);
+                if !page.has_more {
+                    break;
+                }
+                cursor = page.next_cursor;
+            }
+            assert_eq!(paged.len(), instrument_lots.items.len());
+            let paged_opening = paged
+                .iter()
+                .filter(|lot| lot.lot_ref.source_id == OPENING_XLF_LEG)
+                .count();
+            assert_eq!(paged_opening, 2);
+
+            let database = state.writable_db().expect("writable");
+            let mut tx = begin_write_tx(database).await.expect("tx");
+            let household_id = require_household_id_tx(&mut tx).await.expect("household");
+            analytics_repositories::insert_declaration(
+                &mut tx,
+                &CostBasisDeclarationRecord {
+                    id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa9".to_owned(),
+                    household_id,
+                    origin_holding_id: None,
+                    activity_leg_id: Some(OPENING_XLF_LEG.to_owned()),
+                    instrument_id: XLF.to_owned(),
+                    declared_cost: Some("100".to_owned()),
+                    declared_currency: Some("USD".to_owned()),
+                    acquired_on: None,
+                    revokes: None,
+                    is_revocation: false,
+                    note: None,
+                    created_at: "2026-08-19T00:00:00.000Z".to_owned(),
+                },
+            )
+            .await
+            .expect("insert");
+            let _ = tx.commit().await;
+            for scope in [
+                household_scope(),
+                AnalyticsScopeDto::Instrument {
+                    instrument_id: XLF.to_owned(),
+                },
+                AnalyticsScopeDto::Account {
+                    account_id: BROKERAGE.to_owned(),
+                },
+                AnalyticsScopeDto::Account {
+                    account_id: TRANSFER_DEST.to_owned(),
+                },
+            ] {
+                let page = list_cost_basis_declarations(
+                    &state,
+                    ListCostBasisDeclarationsInput {
+                        scope,
+                        cursor: None,
+                        limit: Some(100),
+                    },
+                )
+                .await
+                .expect("declarations");
+                assert!(
+                    page.items
+                        .iter()
+                        .any(|item| item.lot_ref.source_id == OPENING_XLF_LEG),
+                    "declaration must remain visible for every fragment scope"
+                );
+            }
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn list_holding_gain_summaries_is_one_bounded_query_family() {
+        tauri::async_runtime::block_on(async {
+            let (state, path) = load_v013("holding-gains").await;
+            let (result, families) = query_count::capture_async(|| {
+                list_holding_gain_summaries(
+                    &state,
+                    ListHoldingGainSummariesInput {
+                        period: AnalyticsPeriodDto::All,
+                    },
+                )
+            })
+            .await;
+            let list = result.expect("holdings");
+            assert!(!list.items.is_empty());
+            assert_eq!(family_count(&families, "holding_gains"), 1);
+            assert_eq!(family_count(&families, "gain_summary"), 0);
+            assert_bounded_families(&families);
+            let keys: HashSet<_> = list
+                .items
+                .iter()
+                .map(|item| format!("{}:{}", item.account_id, item.instrument_id))
+                .collect();
+            assert_eq!(keys.len(), list.items.len());
+            cleanup(&path);
+        });
     }
 }

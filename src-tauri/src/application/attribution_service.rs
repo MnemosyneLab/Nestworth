@@ -518,24 +518,30 @@ fn accumulate_ledger_components(
             basis_complete = false;
         }
 
-        match fx_conversion::overlay_for_activity_from_loaded(
-            &series.household_id,
-            series.base.as_str(),
-            activity,
-            &series.fx_quotes,
-            &series.fx_observations,
-            &series.current_preferences,
-        )? {
-            None => {}
-            Some(overlay) => match fx_conversion::signed_spread(&overlay)? {
-                ConversionSpread::Unconvertible => {
-                    unconvertible.push(date_key.clone());
-                    unconvertible_count += 1;
-                }
-                ConversionSpread::Signed(amount) => {
-                    spread = checked_add(spread, amount)?;
-                }
-            },
+        let activity_in_scope = classified
+            .legs()
+            .iter()
+            .any(|classification| !matches!(classification, LegFlowClassification::NotInScope));
+        if activity_in_scope || matches!(scope, AnalyticsScope::Household) {
+            match fx_conversion::overlay_for_activity_from_loaded(
+                &series.household_id,
+                series.base.as_str(),
+                activity,
+                &series.fx_quotes,
+                &series.fx_observations,
+                &series.current_preferences,
+            )? {
+                None => {}
+                Some(overlay) => match fx_conversion::signed_spread(&overlay)? {
+                    ConversionSpread::Unconvertible => {
+                        unconvertible.push(date_key.clone());
+                        unconvertible_count += 1;
+                    }
+                    ConversionSpread::Signed(amount) => {
+                        spread = checked_add(spread, amount)?;
+                    }
+                },
+            }
         }
 
         for (index, (leg, classification)) in
@@ -1844,6 +1850,174 @@ mod tests {
             let result = attribution_at(&state, &t0.to_ymd(), &t1.to_ymd()).await;
             let value = available(&result);
             assert_eq!(value.conversion_spread.amount, "-9.43");
+            cleanup(&path);
+        });
+    }
+
+    async fn attribution_at_scope(
+        state: &AppState,
+        scope: AnalyticsScope,
+        start_on: &str,
+        end_on: &str,
+    ) -> NetWorthAttributionDto {
+        let db = state.writable_db().expect("db");
+        let mut tx = begin_read_tx(db).await.expect("tx");
+        let now = Timestamp::parse(NOW).expect("now");
+        let result =
+            get_net_worth_attribution_at_in_tx(&mut tx, scope, start_on, end_on, &now).await;
+        finish_read_tx(tx, result).await.expect("attribution")
+    }
+
+    async fn fx_transfer(state: &AppState, source_id: &str, dest_id: &str, local_date: &str) {
+        create_activity(
+            state,
+            CreateActivityInput::Transfer {
+                local_date: local_date.to_owned(),
+                local_time: "10:00".to_owned(),
+                ambiguous_offset: None,
+                note: None,
+                source_account_id: source_id.to_owned(),
+                source_component: "account_value".to_owned(),
+                source_amount: "1000".to_owned(),
+                source_currency: "CNY".to_owned(),
+                destination_account_id: dest_id.to_owned(),
+                destination_component: "account_value".to_owned(),
+                destination_amount: "186.9".to_owned(),
+                destination_currency: "SGD".to_owned(),
+                source_holding_id: None,
+                destination_holding_id: None,
+                quantity: None,
+                fee_amount: None,
+                fee_kind: None,
+            },
+        )
+        .await
+        .expect("transfer");
+    }
+
+    #[test]
+    fn conversion_spread_is_scoped_to_in_scope_legs_and_keeps_residual() {
+        tauri::async_runtime::block_on(async {
+            let (state, path) = onboarded_state("p6-spread-scope").await;
+            confirm_tz(&state).await;
+            let timezone = HistoryTimezone::parse(
+                &history_query_service::get_history_origin(&state)
+                    .await
+                    .expect("origin")
+                    .timezone,
+            )
+            .expect("tz");
+            let today = timezone.local_date(&Timestamp::now());
+            let last_closed = today.pred().expect("yesterday");
+            let t0 = last_closed.checked_add_days(-2).expect("t0");
+            let t1 = last_closed;
+            let flow_on = last_closed.checked_add_days(-1).expect("flow");
+            let walt = member_id(&state).await;
+            quote_service::append_manual_fx_quote(
+                &state,
+                AppendManualFxQuoteInput {
+                    base_currency: "SGD".to_owned(),
+                    quote_currency: "CNY".to_owned(),
+                    rate: "5.3".to_owned(),
+                    quoted_at: None,
+                },
+            )
+            .await
+            .expect("fx");
+            let a_cny =
+                account_service::create_account(&state, bank_input("A CNY", &walt, "1000", "CNY"))
+                    .await
+                    .expect("a cny");
+            let a_sgd =
+                account_service::create_account(&state, bank_input("A SGD", &walt, "0", "SGD"))
+                    .await
+                    .expect("a sgd");
+            let b_cny =
+                account_service::create_account(&state, bank_input("B CNY", &walt, "1000", "CNY"))
+                    .await
+                    .expect("b cny");
+            let b_sgd =
+                account_service::create_account(&state, bank_input("B SGD", &walt, "0", "SGD"))
+                    .await
+                    .expect("b sgd");
+            let idle = account_service::create_account(
+                &state,
+                bank_input("Idle CNY", &walt, "500", "CNY"),
+            )
+            .await
+            .expect("idle");
+            let origin_at = set_origin_on(&state, &t0.to_ymd()).await;
+            backdate_facts_to(&state, &origin_at).await;
+            sync_origin_account_values(&state).await;
+            rebuild_all(&state, "rebuild-before-scoped-transfer").await;
+            fx_transfer(&state, &a_cny.id, &a_sgd.id, &flow_on.to_ymd()).await;
+            fx_transfer(&state, &b_cny.id, &b_sgd.id, &flow_on.to_ymd()).await;
+            rebuild_all(&state, "rebuild-after-scoped-transfer").await;
+            let household_dto = attribution_at_scope(
+                &state,
+                AnalyticsScope::Household,
+                &t0.to_ymd(),
+                &t1.to_ymd(),
+            )
+            .await;
+            let account_a_dto = attribution_at_scope(
+                &state,
+                AnalyticsScope::Account(crate::domain::AccountId::parse(&a_cny.id).expect("a")),
+                &t0.to_ymd(),
+                &t1.to_ymd(),
+            )
+            .await;
+            let entering_dto = attribution_at_scope(
+                &state,
+                AnalyticsScope::Account(crate::domain::AccountId::parse(&a_sgd.id).expect("sgd")),
+                &t0.to_ymd(),
+                &t1.to_ymd(),
+            )
+            .await;
+            let unrelated_dto = attribution_at_scope(
+                &state,
+                AnalyticsScope::Account(crate::domain::AccountId::parse(&b_cny.id).expect("b")),
+                &t0.to_ymd(),
+                &t1.to_ymd(),
+            )
+            .await;
+            let idle_dto = attribution_at_scope(
+                &state,
+                AnalyticsScope::Account(crate::domain::AccountId::parse(&idle.id).expect("idle")),
+                &t0.to_ymd(),
+                &t1.to_ymd(),
+            )
+            .await;
+            let household = available(&household_dto);
+            let account_a = available(&account_a_dto);
+            let entering = available(&entering_dto);
+            let unrelated = available(&unrelated_dto);
+            let idle_attr = available(&idle_dto);
+            assert_eq!(household.conversion_spread.amount, "-18.86");
+            assert_eq!(account_a.conversion_spread.amount, "-9.43");
+            assert_eq!(entering.conversion_spread.amount, "-9.43");
+            assert_eq!(unrelated.conversion_spread.amount, "-9.43");
+            assert_eq!(idle_attr.conversion_spread.amount, "0");
+            assert_ne!(
+                account_a.conversion_spread.amount,
+                household.conversion_spread.amount
+            );
+            for value in [household, account_a, entering, unrelated, idle_attr] {
+                assert!(!value.unexplained.amount.is_empty());
+                let named = [
+                    &value.external_contributions.amount,
+                    &value.external_withdrawals.amount,
+                    &value.instrument_movement.amount,
+                    &value.currency_movement.amount,
+                    &value.income.amount,
+                    &value.fees.amount,
+                    &value.debt_principal_movement.amount,
+                    &value.conversion_spread.amount,
+                    &value.unknown_basis_flow.amount,
+                    &value.unexplained.amount,
+                ];
+                assert!(named.iter().all(|amount| !amount.is_empty()));
+            }
             cleanup(&path);
         });
     }

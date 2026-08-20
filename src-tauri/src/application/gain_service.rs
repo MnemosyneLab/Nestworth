@@ -18,9 +18,9 @@ use super::{
 };
 use crate::{
     domain::{
-        checked_add, checked_sub, endpoint_in_scope, holding_native_value, AnalyticsScope,
-        BasisStatus, ComponentKind, ConsumptionKind, CurrencyCode, LotLedger, Money, Quantity,
-        SignedMoney, Timestamp,
+        checked_add, checked_sub, endpoint_in_scope, holding_native_value, ActivityId,
+        AnalyticsScope, BasisStatus, CalendarDate, ComponentKind, ConsumptionKind, CurrencyCode,
+        LotLedger, Money, Quantity, SignedMoney, Timestamp,
     },
     error::AppError,
     state::AppState,
@@ -44,6 +44,15 @@ pub struct GainSummaryDto {
     pub input_complete: bool,
     pub unknown_basis_quantity: String,
     pub unknown_basis_value: Option<MoneyDto>,
+    pub unknown_realized: bool,
+    pub reporting_currency: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct GainPeriod {
+    pub start: CalendarDate,
+    pub end: CalendarDate,
+    pub activity_dates: HashMap<ActivityId, CalendarDate>,
 }
 
 pub async fn get_gain_summary(
@@ -52,20 +61,28 @@ pub async fn get_gain_summary(
 ) -> Result<GainSummaryDto, AppError> {
     let database = state.writable_db()?;
     let mut tx = begin_read_tx(database).await?;
-    let result = get_gain_summary_in_tx(&mut tx, scope).await;
+    let result = get_gain_summary_in_tx(&mut tx, scope, None).await;
     finish_read_tx(tx, result).await
 }
 
 pub async fn get_gain_summary_in_tx(
     tx: &mut Transaction<'_, Sqlite>,
     scope: AnalyticsScope,
+    period: Option<&GainPeriod>,
 ) -> Result<GainSummaryDto, AppError> {
     query_count::record("gain_summary");
     let household = require_household_tx(tx).await?;
     let ledger = cost_basis_service::load_effective_lot_ledger_in_tx(tx, &household.id).await?;
     let accounts = account_service::list_account_records_in_tx(tx, &household.id, true).await?;
     let snapshot = ValuationSnapshot::load(tx, &household.id, &household.base_currency).await?;
-    summarize_gain(&ledger, &snapshot, &accounts, scope, &Timestamp::now())
+    summarize_gain(
+        &ledger,
+        &snapshot,
+        &accounts,
+        scope,
+        &Timestamp::now(),
+        period,
+    )
 }
 
 pub(crate) fn summarize_gain(
@@ -74,6 +91,7 @@ pub(crate) fn summarize_gain(
     accounts: &[AccountRecordDto],
     scope: AnalyticsScope,
     now: &Timestamp,
+    period: Option<&GainPeriod>,
 ) -> Result<GainSummaryDto, AppError> {
     if ledger.has_quantity_shortfall() {
         return Err(AppError::Internal);
@@ -83,19 +101,18 @@ pub(crate) fn summarize_gain(
         .iter()
         .map(|account| (account.id.as_str(), account))
         .collect();
+    let reporting = reporting_currency(scope, snapshot);
 
     let mut basis_complete = true;
     let mut input_complete = true;
     let mut realized_gross = Decimal::ZERO;
     let mut allocated_fees = Decimal::ZERO;
     let mut has_realized = false;
-    let mut realized_currency: Option<CurrencyCode> = None;
+    let mut unknown_realized = false;
     let mut unrealized_gross = Decimal::ZERO;
     let mut has_unrealized = false;
-    let mut unrealized_currency: Option<CurrencyCode> = None;
     let mut unexplained = Decimal::ZERO;
     let mut has_unexplained = false;
-    let mut unexplained_currency: Option<CurrencyCode> = None;
     let mut unknown_qty = Decimal::ZERO;
     let mut unknown_value = Decimal::ZERO;
     let mut has_unknown_value = false;
@@ -128,13 +145,17 @@ pub(crate) fn summarize_gain(
         }
         match known_unrealized(snapshot, lot, now)? {
             Some((amount, currency)) => {
-                add_amount(
+                if add_converted(
                     &mut unrealized_gross,
-                    &mut has_unrealized,
-                    &mut unrealized_currency,
+                    snapshot,
                     amount,
                     currency,
-                )?;
+                    reporting,
+                    now,
+                    &mut input_complete,
+                )? {
+                    has_unrealized = true;
+                }
             }
             None => input_complete = false,
         }
@@ -147,6 +168,9 @@ pub(crate) fn summarize_gain(
             consumption.instrument_id(),
             &accounts_by_id,
         )? {
+            continue;
+        }
+        if !consumption_in_period(consumption.activity_id(), period) {
             continue;
         }
         let unknown = consumption.consumed_cost().is_none();
@@ -164,16 +188,21 @@ pub(crate) fn summarize_gain(
                 };
                 let currency = quote_currency(snapshot, consumption.instrument_id())
                     .unwrap_or(snapshot.base_currency());
-                add_amount(
+                if add_converted(
                     &mut unexplained,
-                    &mut has_unexplained,
-                    &mut unexplained_currency,
+                    snapshot,
                     cost,
                     currency,
-                )?;
+                    reporting,
+                    now,
+                    &mut input_complete,
+                )? {
+                    has_unexplained = true;
+                }
             }
             ConsumptionKind::Realized => {
                 if unknown {
+                    unknown_realized = true;
                     continue;
                 }
                 let Some(proceeds) = consumption.proceeds_share() else {
@@ -190,36 +219,46 @@ pub(crate) fn summarize_gain(
                 let gross = checked_sub(proceeds, cost)?;
                 let currency = quote_currency(snapshot, consumption.instrument_id())
                     .unwrap_or(snapshot.base_currency());
-                add_amount(
+                if add_converted(
                     &mut realized_gross,
-                    &mut has_realized,
-                    &mut realized_currency,
+                    snapshot,
                     gross,
                     currency,
-                )?;
-                allocated_fees = match realized_currency {
-                    Some(existing) if existing == currency => checked_add(allocated_fees, fees)?,
-                    Some(_) => {
-                        return Err(AppError::validation(
-                            "currency",
-                            "Gain components must use the same currency.",
-                        ))
+                    reporting,
+                    now,
+                    &mut input_complete,
+                )? {
+                    has_realized = true;
+                    if add_converted(
+                        &mut allocated_fees,
+                        snapshot,
+                        fees,
+                        currency,
+                        reporting,
+                        now,
+                        &mut input_complete,
+                    )? {
+                        // Fees share the realized reporting currency.
                     }
-                    None => fees,
-                };
+                }
             }
         }
     }
 
     let realized = if has_realized {
-        let currency = realized_currency.expect("realized currency");
         Some(rounded_gross_net_fees(
             realized_gross,
             allocated_fees,
-            currency,
+            reporting,
         )?)
-    } else {
+    } else if unknown_realized {
         None
+    } else {
+        Some(rounded_gross_net_fees(
+            Decimal::ZERO,
+            Decimal::ZERO,
+            reporting,
+        )?)
     };
     let unknown_basis_quantity = Quantity::from_canonical(unknown_qty)?.canonical();
     let unknown_basis_value = if unknown_qty.is_zero() {
@@ -235,25 +274,23 @@ pub(crate) fn summarize_gain(
         realized_net: realized.as_ref().map(|value| value.1.clone()),
         allocated_fees: realized.as_ref().map(|value| value.2.clone()),
         unrealized_gross: if has_unrealized {
-            Some(signed_dto(
-                unrealized_gross,
-                unrealized_currency.expect("unrealized currency"),
-            )?)
+            Some(signed_dto(unrealized_gross, reporting)?)
+        } else if input_complete && unknown_qty.is_zero() {
+            Some(signed_dto(Decimal::ZERO, reporting)?)
         } else {
             None
         },
         unexplained_disposal_value: if has_unexplained {
-            Some(signed_dto(
-                unexplained,
-                unexplained_currency.expect("unexplained currency"),
-            )?)
+            Some(signed_dto(unexplained, reporting)?)
         } else {
-            None
+            Some(signed_dto(Decimal::ZERO, reporting)?)
         },
         basis_complete,
         input_complete,
         unknown_basis_quantity,
         unknown_basis_value,
+        unknown_realized,
+        reporting_currency: reporting.as_str().to_owned(),
     })
 }
 
@@ -294,27 +331,68 @@ pub(crate) fn analytics_scope_facts(
     })
 }
 
-fn add_amount(
+fn reporting_currency(scope: AnalyticsScope, snapshot: &ValuationSnapshot) -> CurrencyCode {
+    match scope {
+        AnalyticsScope::Instrument(instrument_id)
+        | AnalyticsScope::Holding { instrument_id, .. } => {
+            quote_currency(snapshot, instrument_id).unwrap_or(snapshot.base_currency())
+        }
+        AnalyticsScope::Household | AnalyticsScope::Portfolio | AnalyticsScope::Account(_) => {
+            snapshot.base_currency()
+        }
+    }
+}
+
+fn consumption_in_period(activity_id: ActivityId, period: Option<&GainPeriod>) -> bool {
+    let Some(period) = period else {
+        return true;
+    };
+    if period.start > period.end {
+        return false;
+    }
+    let Some(date) = period.activity_dates.get(&activity_id) else {
+        return false;
+    };
+    *date >= period.start && *date <= period.end
+}
+
+fn add_converted(
     total: &mut Decimal,
-    present: &mut bool,
-    currency: &mut Option<CurrencyCode>,
+    snapshot: &ValuationSnapshot,
     amount: Decimal,
     amount_currency: CurrencyCode,
-) -> Result<(), AppError> {
-    if let Some(existing) = *currency {
-        if existing != amount_currency {
-            return Err(AppError::validation(
-                "currency",
-                "Gain components must use the same currency.",
-            ));
+    reporting: CurrencyCode,
+    now: &Timestamp,
+    input_complete: &mut bool,
+) -> Result<bool, AppError> {
+    match convert_to_reporting(snapshot, amount, amount_currency, reporting, now)? {
+        Some(converted) => {
+            *total = checked_add(*total, converted)?;
+            Ok(true)
         }
-        *total = checked_add(*total, amount)?;
-    } else {
-        *currency = Some(amount_currency);
-        *total = amount;
+        None => {
+            *input_complete = false;
+            Ok(false)
+        }
     }
-    *present = true;
-    Ok(())
+}
+
+fn convert_to_reporting(
+    snapshot: &ValuationSnapshot,
+    amount: Decimal,
+    amount_currency: CurrencyCode,
+    reporting: CurrencyCode,
+    now: &Timestamp,
+) -> Result<Option<Decimal>, AppError> {
+    if amount_currency == reporting {
+        return Ok(Some(amount));
+    }
+    let native = Money::from_unrounded(amount, amount_currency);
+    let converted = valuation_service::convert_amount(snapshot, native, now)?;
+    match converted.base {
+        Some(base) if converted.complete && base.currency() == reporting => Ok(Some(base.amount())),
+        _ => Ok(None),
+    }
 }
 
 enum UnknownValue {
@@ -417,7 +495,7 @@ fn money_dto(amount: Decimal, currency: CurrencyCode) -> Result<MoneyDto, AppErr
 
 #[cfg(test)]
 mod tests {
-    use super::{get_gain_summary, summarize_gain, GainSummaryDto, SignedMoneyDto};
+    use super::{get_gain_summary, summarize_gain, GainPeriod, GainSummaryDto, SignedMoneyDto};
     use crate::{
         application::{
             account_service::{get_account, AccountRecordDto, MoneyDto},
@@ -431,8 +509,8 @@ mod tests {
             valuation_service::{self, ValuationSnapshot},
         },
         domain::{
-            replay, ActivityLedgerEvent, AnalyticsScope, BasisStatus, CurrencyCode, LedgerEvent,
-            LotEffect, LotRef, Money, Quantity, Timestamp,
+            replay, ActivityLedgerEvent, AnalyticsScope, BasisStatus, CalendarDate, CurrencyCode,
+            LedgerEvent, LotEffect, LotRef, Money, Quantity, Timestamp,
         },
         infrastructure::{database::connect_writable, database_bootstrap::MIGRATOR},
         state::AppState,
@@ -454,9 +532,14 @@ mod tests {
     const BUY1_LEG: &str = "01a0188f-861c-7b20-8609-5363bbc99c48";
     const BUY2_ACTIVITY: &str = "01a0188f-861e-7e70-930b-5f4e2d6cda2d";
     const BUY2_LEG: &str = "01a0188f-861e-7e70-930b-5f578c9baeea";
+    const BUY3_ACTIVITY: &str = "01a0188f-86a1-7b20-8609-535e345b7c01";
+    const BUY3_LEG: &str = "01a0188f-86a1-7b20-8609-535e345b7c02";
     const SELL_ACTIVITY: &str = "01a0188f-861f-7c20-83d1-4abb57f8ddc0";
     const SELL_LEG: &str = "01a0188f-861f-7c20-83d1-4ac8ea0f6396";
+    const SELL2_ACTIVITY: &str = "01a0188f-86a2-7c20-83d1-4abb57f8dd01";
+    const SELL2_LEG: &str = "01a0188f-86a2-7c20-83d1-4abb57f8dd02";
     const ZERO_GROSS_LEG: &str = "01a0188f-8621-7a61-a206-bf66455312f8";
+    const ES3: &str = "21212121-2121-4212-8212-212121212121";
 
     fn voo_scope() -> AnalyticsScope {
         AnalyticsScope::Instrument(crate::domain::InstrumentId::parse(VOO).expect("voo"))
@@ -558,6 +641,24 @@ mod tests {
         }
     }
 
+    fn sgd(amount: &str) -> SignedMoneyDto {
+        SignedMoneyDto {
+            amount: amount.to_owned(),
+            currency: "SGD".to_owned(),
+        }
+    }
+
+    fn cny(amount: &str) -> SignedMoneyDto {
+        SignedMoneyDto {
+            amount: amount.to_owned(),
+            currency: "CNY".to_owned(),
+        }
+    }
+
+    fn date(value: &str) -> CalendarDate {
+        CalendarDate::parse(value).expect("date")
+    }
+
     fn ts(value: &str) -> Timestamp {
         Timestamp::parse(value).expect("timestamp")
     }
@@ -568,6 +669,10 @@ mod tests {
 
     fn usd_money(value: &str) -> Money {
         Money::parse(value, CurrencyCode::USD).expect("money")
+    }
+
+    fn sgd_money(value: &str) -> Money {
+        Money::parse(value, CurrencyCode::SGD).expect("money")
     }
 
     fn activity_id(value: &str) -> crate::domain::ActivityId {
@@ -630,6 +735,24 @@ mod tests {
         }
     }
 
+    fn dest_account() -> AccountRecordDto {
+        let mut account = brokerage_account();
+        account.id = TRANSFER_DEST.to_owned();
+        account.name = "Transfer dest".to_owned();
+        account
+    }
+
+    fn holding_scope(account: &str, instrument: &str) -> AnalyticsScope {
+        AnalyticsScope::Holding {
+            account_id: account_id(account),
+            instrument_id: instrument_id(instrument),
+        }
+    }
+
+    fn es3_scope() -> AnalyticsScope {
+        AnalyticsScope::Instrument(instrument_id(ES3))
+    }
+
     fn instrument_dto(
         id: &str,
         currency: &str,
@@ -679,6 +802,18 @@ mod tests {
         fx_rate: Option<&str>,
         base: CurrencyCode,
     ) -> ValuationSnapshot {
+        let fx = fx_rate
+            .map(|rate| vec![("USD", "CNY", rate)])
+            .unwrap_or_default();
+        snapshot_with_fx(instruments, quotes, &fx, base)
+    }
+
+    fn snapshot_with_fx(
+        instruments: Vec<crate::application::instrument_service::InstrumentRecordDto>,
+        quotes: Vec<crate::application::quote_service::InstrumentQuoteRecordDto>,
+        fx: &[(&str, &str, &str)],
+        base: CurrencyCode,
+    ) -> ValuationSnapshot {
         let mut instrument_map = HashMap::new();
         for instrument in instruments {
             instrument_map.insert(instrument.id.clone(), instrument);
@@ -692,14 +827,18 @@ mod tests {
         }
         let mut fx_quotes = HashMap::new();
         let mut fx_preferences = HashMap::new();
-        if let Some(rate) = fx_rate {
+        for (index, (fx_base, fx_quote, rate)) in fx.iter().enumerate() {
             fx_quotes.insert(
-                ("USD".to_owned(), "CNY".to_owned(), "manual".to_owned()),
+                (
+                    (*fx_base).to_owned(),
+                    (*fx_quote).to_owned(),
+                    "manual".to_owned(),
+                ),
                 crate::application::quote_service::FxQuoteRecordDto {
-                    id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1".to_owned(),
-                    base_currency: "USD".to_owned(),
-                    quote_currency: "CNY".to_owned(),
-                    rate: rate.to_owned(),
+                    id: format!("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb{index:02}"),
+                    base_currency: (*fx_base).to_owned(),
+                    quote_currency: (*fx_quote).to_owned(),
+                    rate: (*rate).to_owned(),
                     source_kind: "manual".to_owned(),
                     source_key: "manual".to_owned(),
                     delayed: false,
@@ -708,7 +847,11 @@ mod tests {
                 },
             );
             fx_preferences.insert(
-                crate::domain::FxPair::new(CurrencyCode::CNY, CurrencyCode::USD).expect("pair"),
+                crate::domain::FxPair::new(
+                    CurrencyCode::parse(fx_base).expect("base"),
+                    CurrencyCode::parse(fx_quote).expect("quote"),
+                )
+                .expect("pair"),
                 crate::domain::QuoteSourceKind::Manual,
             );
         }
@@ -861,6 +1004,8 @@ mod tests {
             let (state, path) = load_v013("unknown-qqq").await;
             let summary = get_gain_summary(&state, qqq_scope()).await.expect("gain");
             assert!(summary.unrealized_gross.is_none());
+            assert_eq!(summary.realized_gross.as_ref(), Some(&usd("0")));
+            assert!(!summary.unknown_realized);
             assert_eq!(summary.unknown_basis_quantity, "3");
             assert_eq!(
                 summary
@@ -990,6 +1135,7 @@ mod tests {
             &[brokerage_account()],
             voo_scope(),
             &ts("2026-01-18T02:00:00.000Z"),
+            None,
         )
         .expect("gain");
         assert_eq!(summary.realized_gross.as_ref(), Some(&usd("100")));
@@ -1056,6 +1202,7 @@ mod tests {
             &[brokerage_account()],
             voo_scope(),
             &ts("2026-01-18T02:00:00.000Z"),
+            None,
         )
         .expect("gain");
         assert_eq!(summary.realized_gross.as_ref(), Some(&usd("160")));
@@ -1121,17 +1268,10 @@ mod tests {
                 "23232323-2323-4323-8323-232323232323",
                 "27272727-2727-4272-8272-272727272727",
             ];
-            let mut instrument_sum = GainSummaryDto {
-                realized_gross: None,
-                realized_net: None,
-                allocated_fees: None,
-                unrealized_gross: None,
-                unexplained_disposal_value: None,
-                basis_complete: true,
-                input_complete: true,
-                unknown_basis_quantity: "0".to_owned(),
-                unknown_basis_value: None,
-            };
+            let mut unknown_qty = Quantity::parse("0").expect("qty");
+            let mut unknown_value = None;
+            let mut basis_complete = true;
+            let mut input_complete = true;
             for instrument in instruments {
                 let part = get_gain_summary(
                     &state,
@@ -1141,41 +1281,23 @@ mod tests {
                 )
                 .await
                 .expect("instrument");
-                instrument_sum.realized_gross = signed_add(
-                    instrument_sum.realized_gross.as_ref(),
-                    part.realized_gross.as_ref(),
-                );
-                instrument_sum.realized_net = signed_add(
-                    instrument_sum.realized_net.as_ref(),
-                    part.realized_net.as_ref(),
-                );
-                instrument_sum.allocated_fees = signed_add(
-                    instrument_sum.allocated_fees.as_ref(),
-                    part.allocated_fees.as_ref(),
-                );
-                instrument_sum.unrealized_gross = signed_add(
-                    instrument_sum.unrealized_gross.as_ref(),
-                    part.unrealized_gross.as_ref(),
-                );
-                instrument_sum.unexplained_disposal_value = signed_add(
-                    instrument_sum.unexplained_disposal_value.as_ref(),
-                    part.unexplained_disposal_value.as_ref(),
-                );
-                instrument_sum.unknown_basis_value = money_add(
-                    instrument_sum.unknown_basis_value.as_ref(),
+                unknown_value = money_add(
+                    unknown_value.as_ref(),
                     part.unknown_basis_value
                         .as_ref()
                         .filter(|value| value.amount != "0"),
                 );
-                instrument_sum.basis_complete &= part.basis_complete;
-                instrument_sum.input_complete &= part.input_complete;
-                let qty = Quantity::parse(&instrument_sum.unknown_basis_quantity).expect("qty");
+                basis_complete &= part.basis_complete;
+                input_complete &= part.input_complete;
                 let add = Quantity::parse(&part.unknown_basis_quantity).expect("add");
-                instrument_sum.unknown_basis_quantity = Quantity::from_canonical(
-                    crate::domain::checked_add(qty.amount(), add.amount()).expect("sum"),
+                unknown_qty = Quantity::from_canonical(
+                    crate::domain::checked_add(unknown_qty.amount(), add.amount()).expect("sum"),
                 )
-                .expect("qty")
-                .canonical();
+                .expect("qty");
+                match part.reporting_currency.as_str() {
+                    "USD" | "SGD" | "CNY" => {}
+                    other => panic!("unexpected instrument reporting currency {other}"),
+                }
             }
             let mut account_sum_qty =
                 Quantity::parse(&brokerage.unknown_basis_quantity).expect("b");
@@ -1193,21 +1315,17 @@ mod tests {
             assert_eq!(household.realized_net, portfolio.realized_net);
             assert_eq!(household.allocated_fees, portfolio.allocated_fees);
             assert_eq!(household.unrealized_gross, portfolio.unrealized_gross);
-            assert_eq!(household.realized_gross, instrument_sum.realized_gross);
-            assert_eq!(household.unrealized_gross, instrument_sum.unrealized_gross);
-            assert_eq!(
-                household.unknown_basis_quantity,
-                instrument_sum.unknown_basis_quantity
-            );
+            assert_eq!(household.reporting_currency, "CNY");
+            assert_eq!(portfolio.reporting_currency, "CNY");
+            assert_eq!(brokerage.reporting_currency, "CNY");
+            assert_eq!(household.unknown_basis_quantity, unknown_qty.canonical());
             assert_eq!(
                 household.unknown_basis_quantity,
                 account_sum_qty.canonical()
             );
-            assert_eq!(
-                household.unknown_basis_value,
-                instrument_sum.unknown_basis_value
-            );
-            assert_eq!(household.basis_complete, instrument_sum.basis_complete);
+            assert_eq!(household.unknown_basis_value, unknown_value);
+            assert_eq!(household.basis_complete, basis_complete);
+            assert_eq!(household.input_complete, input_complete);
             assert_eq!(
                 signed_add(
                     brokerage.realized_gross.as_ref(),
@@ -1272,6 +1390,7 @@ mod tests {
             &[brokerage_account()],
             voo_scope(),
             &ts("2026-01-18T02:00:00.000Z"),
+            None,
         )
         .expect("gain");
         assert_eq!(summary.realized_gross.as_ref(), Some(&usd("6.6667")));
@@ -1408,6 +1527,7 @@ mod tests {
             &[brokerage_account()],
             voo_scope(),
             &ts("2026-01-18T02:00:00.000Z"),
+            None,
         )
         .expect("gain");
         assert_eq!(summary.realized_gross.as_ref(), Some(&usd("160")));
@@ -1415,5 +1535,442 @@ mod tests {
         assert_eq!(summary.allocated_fees.as_ref(), Some(&usd("14")));
         assert_eq!(summary.realized_net.as_ref(), Some(&usd("146")));
         assert_gross_minus_net_equals_fees(&summary);
+    }
+
+    fn mixed_usd_sgd_events() -> Vec<LedgerEvent> {
+        vec![
+            activity_event(
+                BUY1_ACTIVITY,
+                "2026-01-04T02:00:00.000Z",
+                "2026-01-04T02:00:00.000Z",
+                LotEffect::Buy {
+                    holding_leg_id: leg_id(BUY1_LEG),
+                    instrument_id: instrument_id(VOO),
+                    account_id: account_id(BROKERAGE),
+                    quantity: qty("2"),
+                    gross_settlement: Some(usd_money("200")),
+                    acquisition_fee: None,
+                },
+            ),
+            activity_event(
+                BUY3_ACTIVITY,
+                "2026-01-04T03:00:00.000Z",
+                "2026-01-04T03:00:00.000Z",
+                LotEffect::Buy {
+                    holding_leg_id: leg_id(BUY3_LEG),
+                    instrument_id: instrument_id(ES3),
+                    account_id: account_id(BROKERAGE),
+                    quantity: qty("1"),
+                    gross_settlement: Some(sgd_money("10")),
+                    acquisition_fee: None,
+                },
+            ),
+            activity_event(
+                SELL_ACTIVITY,
+                "2026-01-06T02:00:00.000Z",
+                "2026-01-06T02:00:00.000Z",
+                LotEffect::Sell {
+                    holding_leg_id: leg_id(SELL_LEG),
+                    instrument_id: instrument_id(VOO),
+                    account_id: account_id(BROKERAGE),
+                    quantity: qty("1"),
+                    proceeds_gross: Some(usd_money("150")),
+                    disposal_fee: Some(usd_money("1")),
+                },
+            ),
+            activity_event(
+                SELL2_ACTIVITY,
+                "2026-01-10T02:00:00.000Z",
+                "2026-01-10T02:00:00.000Z",
+                LotEffect::Sell {
+                    holding_leg_id: leg_id(SELL2_LEG),
+                    instrument_id: instrument_id(VOO),
+                    account_id: account_id(BROKERAGE),
+                    quantity: qty("1"),
+                    proceeds_gross: Some(usd_money("160")),
+                    disposal_fee: None,
+                },
+            ),
+        ]
+    }
+
+    fn mixed_snapshot(include_sgd_fx: bool) -> ValuationSnapshot {
+        let mut fx = vec![("USD", "CNY", "6.9")];
+        if include_sgd_fx {
+            fx.push(("SGD", "CNY", "5.3"));
+        }
+        snapshot_with_fx(
+            vec![instrument_dto(VOO, "USD"), instrument_dto(ES3, "SGD")],
+            vec![quote_dto(VOO, "160", "USD"), quote_dto(ES3, "12", "SGD")],
+            &fx,
+            CurrencyCode::CNY,
+        )
+    }
+
+    fn gain_period(start: &str, end: &str, dates: &[(&str, &str)]) -> GainPeriod {
+        GainPeriod {
+            start: date(start),
+            end: date(end),
+            activity_dates: dates
+                .iter()
+                .map(|(activity, on)| (activity_id(activity), date(on)))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn household_aggregates_known_usd_and_sgd_gains_in_base_currency() {
+        let ledger = replay(mixed_usd_sgd_events()).expect("replay");
+        let snapshot = mixed_snapshot(true);
+        let now = ts("2026-01-18T02:00:00.000Z");
+        let household = summarize_gain(
+            &ledger,
+            &snapshot,
+            &[brokerage_account()],
+            AnalyticsScope::Household,
+            &now,
+            None,
+        )
+        .expect("household");
+        let voo = summarize_gain(
+            &ledger,
+            &snapshot,
+            &[brokerage_account()],
+            voo_scope(),
+            &now,
+            None,
+        )
+        .expect("voo");
+        let es3 = summarize_gain(
+            &ledger,
+            &snapshot,
+            &[brokerage_account()],
+            es3_scope(),
+            &now,
+            None,
+        )
+        .expect("es3");
+        let account = summarize_gain(
+            &ledger,
+            &snapshot,
+            &[brokerage_account()],
+            brokerage_scope(),
+            &now,
+            None,
+        )
+        .expect("account");
+        let portfolio = summarize_gain(
+            &ledger,
+            &snapshot,
+            &[brokerage_account()],
+            AnalyticsScope::Portfolio,
+            &now,
+            None,
+        )
+        .expect("portfolio");
+        assert_eq!(household.reporting_currency, "CNY");
+        assert_eq!(account.reporting_currency, "CNY");
+        assert_eq!(portfolio.reporting_currency, "CNY");
+        assert_eq!(voo.reporting_currency, "USD");
+        assert_eq!(es3.reporting_currency, "SGD");
+        assert_eq!(voo.realized_gross.as_ref(), Some(&usd("110")));
+        assert_eq!(voo.allocated_fees.as_ref(), Some(&usd("1")));
+        assert_eq!(es3.realized_gross.as_ref(), Some(&sgd("0")));
+        assert_eq!(es3.unrealized_gross.as_ref(), Some(&sgd("2")));
+        assert_eq!(household.realized_gross.as_ref(), Some(&cny("759")));
+        assert_eq!(household.allocated_fees.as_ref(), Some(&cny("6.9")));
+        assert_eq!(household.unrealized_gross.as_ref(), Some(&cny("10.6")));
+        assert!(household.basis_complete);
+        assert!(household.input_complete);
+        assert!(!household.unknown_realized);
+        assert_eq!(household.realized_gross, account.realized_gross);
+        assert_eq!(household.realized_gross, portfolio.realized_gross);
+    }
+
+    #[test]
+    fn missing_fx_marks_only_the_affected_component_incomplete() {
+        let ledger = replay(mixed_usd_sgd_events()).expect("replay");
+        let snapshot = mixed_snapshot(false);
+        let now = ts("2026-01-18T02:00:00.000Z");
+        let household = summarize_gain(
+            &ledger,
+            &snapshot,
+            &[brokerage_account()],
+            AnalyticsScope::Household,
+            &now,
+            None,
+        )
+        .expect("household");
+        let voo = summarize_gain(
+            &ledger,
+            &snapshot,
+            &[brokerage_account()],
+            voo_scope(),
+            &now,
+            None,
+        )
+        .expect("voo");
+        assert_eq!(voo.realized_gross.as_ref(), Some(&usd("110")));
+        assert_eq!(household.realized_gross.as_ref(), Some(&cny("759")));
+        assert!(household.unrealized_gross.is_none());
+        assert_ne!(
+            household
+                .unrealized_gross
+                .as_ref()
+                .map(|value| value.amount.as_str()),
+            Some("0")
+        );
+        assert!(!household.input_complete);
+        assert!(household.basis_complete);
+        assert_eq!(household.reporting_currency, "CNY");
+    }
+
+    #[test]
+    fn selected_period_includes_boundary_sales_and_excludes_outside_sales() {
+        let ledger = replay(mixed_usd_sgd_events()).expect("replay");
+        let snapshot = mixed_snapshot(true);
+        let now = ts("2026-01-18T02:00:00.000Z");
+        let dates = [
+            (BUY1_ACTIVITY, "2026-01-04"),
+            (BUY3_ACTIVITY, "2026-01-04"),
+            (SELL_ACTIVITY, "2026-01-06"),
+            (SELL2_ACTIVITY, "2026-01-10"),
+        ];
+        let before = summarize_gain(
+            &ledger,
+            &snapshot,
+            &[brokerage_account()],
+            voo_scope(),
+            &now,
+            Some(&gain_period("2026-01-01", "2026-01-05", &dates)),
+        )
+        .expect("before");
+        let on_start = summarize_gain(
+            &ledger,
+            &snapshot,
+            &[brokerage_account()],
+            voo_scope(),
+            &now,
+            Some(&gain_period("2026-01-06", "2026-01-06", &dates)),
+        )
+        .expect("start");
+        let inside = summarize_gain(
+            &ledger,
+            &snapshot,
+            &[brokerage_account()],
+            voo_scope(),
+            &now,
+            Some(&gain_period("2026-01-06", "2026-01-10", &dates)),
+        )
+        .expect("inside");
+        let after = summarize_gain(
+            &ledger,
+            &snapshot,
+            &[brokerage_account()],
+            voo_scope(),
+            &now,
+            Some(&gain_period("2026-01-11", "2026-01-18", &dates)),
+        )
+        .expect("after");
+        assert_eq!(before.realized_gross.as_ref(), Some(&usd("0")));
+        assert!(!before.unknown_realized);
+        assert_eq!(on_start.realized_gross.as_ref(), Some(&usd("50")));
+        assert_eq!(inside.realized_gross.as_ref(), Some(&usd("110")));
+        assert_eq!(after.realized_gross.as_ref(), Some(&usd("0")));
+        assert_ne!(inside.realized_gross, before.realized_gross);
+        assert_eq!(inside.unrealized_gross.as_ref(), Some(&usd("0")));
+    }
+
+    #[test]
+    fn known_basis_without_a_sale_is_zero_realized_not_unknown() {
+        let events = vec![activity_event(
+            BUY1_ACTIVITY,
+            "2026-01-04T02:00:00.000Z",
+            "2026-01-04T02:00:00.000Z",
+            LotEffect::Buy {
+                holding_leg_id: leg_id(BUY1_LEG),
+                instrument_id: instrument_id(VOO),
+                account_id: account_id(BROKERAGE),
+                quantity: qty("1"),
+                gross_settlement: Some(usd_money("100")),
+                acquisition_fee: None,
+            },
+        )];
+        let ledger = replay(events).expect("replay");
+        let snapshot = snapshot_with_quotes(
+            vec![instrument_dto(VOO, "USD")],
+            vec![quote_dto(VOO, "160", "USD")],
+            None,
+            CurrencyCode::USD,
+        );
+        let summary = summarize_gain(
+            &ledger,
+            &snapshot,
+            &[brokerage_account()],
+            voo_scope(),
+            &ts("2026-01-18T02:00:00.000Z"),
+            None,
+        )
+        .expect("gain");
+        assert_eq!(summary.realized_gross.as_ref(), Some(&usd("0")));
+        assert_eq!(summary.unrealized_gross.as_ref(), Some(&usd("60")));
+        assert!(summary.basis_complete);
+        assert!(summary.input_complete);
+        assert!(!summary.unknown_realized);
+    }
+
+    #[test]
+    fn unknown_basis_without_a_sale_keeps_realized_zero_and_unrealized_unknown() {
+        let events = vec![LedgerEvent::OriginBaseline {
+            origin_id: crate::domain::HistoryOriginId::parse(
+                "a0a0a0a0-a0a0-4a0a-8a0a-a0a0a0a0a0a0",
+            )
+            .expect("origin"),
+            holding_id: crate::domain::HoldingId::parse(ORIGIN_QQQ_HOLDING).expect("holding"),
+            instrument_id: instrument_id(QQQ),
+            account_id: account_id(BROKERAGE),
+            quantity: qty("3"),
+            origin_at: ts("2026-01-02T00:00:00.000Z"),
+        }];
+        let ledger = replay(events).expect("replay");
+        let snapshot = snapshot_with_quotes(
+            vec![instrument_dto(QQQ, "USD")],
+            vec![quote_dto(QQQ, "160", "USD")],
+            None,
+            CurrencyCode::USD,
+        );
+        let summary = summarize_gain(
+            &ledger,
+            &snapshot,
+            &[brokerage_account()],
+            qqq_scope(),
+            &ts("2026-01-18T02:00:00.000Z"),
+            None,
+        )
+        .expect("gain");
+        assert_eq!(summary.realized_gross.as_ref(), Some(&usd("0")));
+        assert!(summary.unrealized_gross.is_none());
+        assert!(!summary.basis_complete);
+        assert!(!summary.unknown_realized);
+        assert_eq!(summary.unknown_basis_quantity, "3");
+    }
+
+    #[test]
+    fn missing_quote_marks_unrealized_incomplete_without_zeroing_realized() {
+        let events = vec![
+            activity_event(
+                BUY1_ACTIVITY,
+                "2026-01-04T02:00:00.000Z",
+                "2026-01-04T02:00:00.000Z",
+                LotEffect::Buy {
+                    holding_leg_id: leg_id(BUY1_LEG),
+                    instrument_id: instrument_id(VOO),
+                    account_id: account_id(BROKERAGE),
+                    quantity: qty("2"),
+                    gross_settlement: Some(usd_money("200")),
+                    acquisition_fee: None,
+                },
+            ),
+            activity_event(
+                SELL_ACTIVITY,
+                "2026-01-06T02:00:00.000Z",
+                "2026-01-06T02:00:00.000Z",
+                LotEffect::Sell {
+                    holding_leg_id: leg_id(SELL_LEG),
+                    instrument_id: instrument_id(VOO),
+                    account_id: account_id(BROKERAGE),
+                    quantity: qty("1"),
+                    proceeds_gross: Some(usd_money("150")),
+                    disposal_fee: None,
+                },
+            ),
+        ];
+        let ledger = replay(events).expect("replay");
+        let snapshot = snapshot_with_quotes(
+            vec![instrument_dto(VOO, "USD")],
+            Vec::new(),
+            None,
+            CurrencyCode::USD,
+        );
+        let summary = summarize_gain(
+            &ledger,
+            &snapshot,
+            &[brokerage_account()],
+            voo_scope(),
+            &ts("2026-01-18T02:00:00.000Z"),
+            None,
+        )
+        .expect("gain");
+        assert_eq!(summary.realized_gross.as_ref(), Some(&usd("50")));
+        assert!(summary.unrealized_gross.is_none());
+        assert!(!summary.input_complete);
+        assert!(summary.basis_complete);
+    }
+
+    #[test]
+    fn holding_scope_returns_per_account_gain_for_the_same_instrument() {
+        let events = vec![
+            activity_event(
+                BUY1_ACTIVITY,
+                "2026-01-04T02:00:00.000Z",
+                "2026-01-04T02:00:00.000Z",
+                LotEffect::Buy {
+                    holding_leg_id: leg_id(BUY1_LEG),
+                    instrument_id: instrument_id(VOO),
+                    account_id: account_id(BROKERAGE),
+                    quantity: qty("2"),
+                    gross_settlement: Some(usd_money("200")),
+                    acquisition_fee: None,
+                },
+            ),
+            activity_event(
+                BUY2_ACTIVITY,
+                "2026-01-05T02:00:00.000Z",
+                "2026-01-05T02:00:00.000Z",
+                LotEffect::Buy {
+                    holding_leg_id: leg_id(BUY2_LEG),
+                    instrument_id: instrument_id(VOO),
+                    account_id: account_id(TRANSFER_DEST),
+                    quantity: qty("2"),
+                    gross_settlement: Some(usd_money("100")),
+                    acquisition_fee: None,
+                },
+            ),
+        ];
+        let ledger = replay(events).expect("replay");
+        let snapshot = snapshot_with_quotes(
+            vec![instrument_dto(VOO, "USD")],
+            vec![quote_dto(VOO, "160", "USD")],
+            None,
+            CurrencyCode::USD,
+        );
+        let now = ts("2026-01-18T02:00:00.000Z");
+        let accounts = [brokerage_account(), dest_account()];
+        let brokerage = summarize_gain(
+            &ledger,
+            &snapshot,
+            &accounts,
+            holding_scope(BROKERAGE, VOO),
+            &now,
+            None,
+        )
+        .expect("brokerage holding");
+        let dest = summarize_gain(
+            &ledger,
+            &snapshot,
+            &accounts,
+            holding_scope(TRANSFER_DEST, VOO),
+            &now,
+            None,
+        )
+        .expect("dest holding");
+        let instrument = summarize_gain(&ledger, &snapshot, &accounts, voo_scope(), &now, None)
+            .expect("instrument");
+        assert_eq!(brokerage.unrealized_gross.as_ref(), Some(&usd("120")));
+        assert_eq!(dest.unrealized_gross.as_ref(), Some(&usd("220")));
+        assert_eq!(instrument.unrealized_gross.as_ref(), Some(&usd("340")));
+        assert_ne!(brokerage.unrealized_gross, dest.unrealized_gross);
+        assert_eq!(brokerage.reporting_currency, "USD");
+        assert_eq!(dest.reporting_currency, "USD");
     }
 }

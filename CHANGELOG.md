@@ -21,9 +21,9 @@ v0.1.4 is development-complete and is undergoing release-candidate validation. P
 
 - Migration `004` creates `cost_basis_declarations` only and rewrites no v0.1.3 business row
 - Application-layer analytics modules of free functions, `SignedMoney`/`ReturnRate` output types, and `rust_decimal` `maths` for annualization and XIRR
-- Frozen 80-command allowlist; analytics reads write nothing; declaration and revocation are the only new writes
+- Frozen 81-command allowlist; analytics reads write nothing; declaration and revocation are the only new writes
 - Golden v0.1.1, v0.1.2, and v0.1.3 fixtures keep Overview and portfolio totals after migrate to schema 4
-- Zero-write coverage for unsupported future databases, including version `5`, across bootstrap, Activity/history, and all nine analytics commands
+- Zero-write coverage for unsupported future databases, including version `5`, across bootstrap, Activity/history, and analytics commands
 - `delete_all_data` coverage for schema-4 databases, WAL/SHM sidecars, and `.pre-migrate-*` snapshots including a stray `.pre-migrate-3`
 
 ### Accepted v0.1.4 Limitations

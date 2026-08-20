@@ -130,7 +130,7 @@ Rust is authoritative for:
 - Decimal annualization and XIRR using the `rust_decimal` `maths` feature; `f32` and `f64` remain prohibited
 - Database compatibility and integrity checks
 - Media validation and normalization
-- Stable command errors for the 80-command allowlist
+- Stable command errors for the 81-command allowlist
 - Quote and FX provider adapters; the frontend never calls a market-data endpoint
 
 Application services return complete DTOs needed by the frontend. A command wrapper should not contain SQL or business branching.
@@ -190,7 +190,7 @@ Use React Hook Form with a feature-owned Zod schema for immediate user feedback.
 | Command and binding | Command errors are safe and the generated TypeScript surface matches Rust |
 | Frontend | User flows, forms, pending state, errors, empty states, URL restoration, navigation context, and accessibility semantics |
 | Golden | Complete Household fixtures produce exact Overview and portfolio totals, including the CNY/SGD/USD `62190` holdings case after migrate to schema 4 |
-| Compatibility | Unsupported future databases remain byte-for-byte unchanged by application startup, Activity/history commands, and all nine analytics commands; `delete_all_data` removes schema-4 databases, WAL/SHM, and `.pre-migrate-*` snapshots |
+| Compatibility | Unsupported future databases remain byte-for-byte unchanged by application startup, Activity/history commands, and analytics commands; `delete_all_data` removes schema-4 databases, WAL/SHM, and `.pre-migrate-*` snapshots |
 | Activity and history | Kind-specific posting, atomic projections, origin baseline with zero fabricated Activities, quote cutoff, snapshot revisions, current ValuationService versus historical current-point agreement, and locale key identity |
 | Analytics | FIFO lot replay, declaration immutability, gain and decomposition identities, return availability, attribution bridge balance, scope consistency, and query bounds |
 

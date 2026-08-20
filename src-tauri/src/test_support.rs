@@ -10,10 +10,11 @@ use crate::{
         analytics_query_service::{
             declare_lot_cost_basis, get_analytics_status, get_gain_summary,
             get_net_worth_attribution, get_performance_summary, list_cost_basis_declarations,
-            list_holding_lots, list_unknown_basis_lots, revoke_lot_cost_basis, AnalyticsPeriodDto,
-            AnalyticsScopeDto, DeclareLotCostBasisInput, GetAnalyticsStatusInput,
-            GetGainSummaryInput, GetNetWorthAttributionInput, GetPerformanceSummaryInput,
-            ListCostBasisDeclarationsInput, ListHoldingLotsInput, ListUnknownBasisLotsInput,
+            list_holding_gain_summaries, list_holding_lots, list_unknown_basis_lots,
+            revoke_lot_cost_basis, AnalyticsPeriodDto, AnalyticsScopeDto, DeclareLotCostBasisInput,
+            GetAnalyticsStatusInput, GetGainSummaryInput, GetNetWorthAttributionInput,
+            GetPerformanceSummaryInput, ListCostBasisDeclarationsInput,
+            ListHoldingGainSummariesInput, ListHoldingLotsInput, ListUnknownBasisLotsInput,
             LotRefDto, LotRefSourceKind, RevokeLotCostBasisInput,
         },
         history_query_service::{
@@ -269,6 +270,18 @@ pub async fn assert_activity_history_commands_write_nothing(
                 state,
                 GetGainSummaryInput {
                     scope: AnalyticsScopeDto::Household,
+                    period: AnalyticsPeriodDto::All,
+                },
+            )
+            .await
+            .err(),
+        ),
+        (
+            "list_holding_gain_summaries",
+            list_holding_gain_summaries(
+                state,
+                ListHoldingGainSummariesInput {
+                    period: AnalyticsPeriodDto::All,
                 },
             )
             .await

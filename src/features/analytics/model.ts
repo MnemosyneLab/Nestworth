@@ -45,14 +45,15 @@ export async function invalidateAnalyticsQueries(queryClient: QueryClient) {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: ["analytics-status"] }),
     queryClient.invalidateQueries({ queryKey: ["gain-summary"] }),
+    queryClient.invalidateQueries({ queryKey: ["holding-gains"] }),
     queryClient.invalidateQueries({ queryKey: ["holding-lots"] }),
     queryClient.invalidateQueries({ queryKey: ["unknown-basis-lots"] }),
     queryClient.invalidateQueries({ queryKey: ["cost-basis-declarations"] }),
   ]);
 }
 
-export function lotKey(lot: { lotRef: LotRefDto }): string {
-  return `${lot.lotRef.sourceKind}:${lot.lotRef.sourceId}`;
+export function lotKey(lot: { lotRef: LotRefDto; accountId: string }): string {
+  return `${lot.lotRef.sourceKind}:${lot.lotRef.sourceId}:${lot.accountId}`;
 }
 
 export function declarationKey(item: CostBasisDeclarationIpcDto): string {

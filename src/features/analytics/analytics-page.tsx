@@ -91,9 +91,15 @@ export function AnalyticsPage() {
     enabled: scopeReady && periodReady,
   });
   const gainQuery = useQuery({
-    queryKey: ["gain-summary", scopeDto],
-    queryFn: () => unwrapResult(commands.getGainSummary({ scope: scopeDto })),
-    enabled: scopeReady,
+    queryKey: ["gain-summary", scopeDto, periodDto],
+    queryFn: () =>
+      unwrapResult(
+        commands.getGainSummary({
+          scope: scopeDto,
+          period: periodDto!,
+        }),
+      ),
+    enabled: scopeReady && periodReady,
   });
   const attributionQuery = useQuery({
     queryKey: ["net-worth-attribution", scopeDto, periodDto],

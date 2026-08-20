@@ -822,7 +822,9 @@
       "linkedDays": "Linked days",
       "fractionHelp": "Rates are fractions of 1, not percentages.",
       "twrTitle": "Time-weighted return",
-      "xirrTitle": "Money-weighted return"
+      "xirrTitle": "Money-weighted return",
+      "annualRate": "Annual rate",
+      "xirrHelp": "XIRR is the annual money-weighted rate. Nestworth does not treat it as a cumulative return or annualize it a second time."
     },
     "gain": {
       "title": "Gain",
@@ -832,6 +834,9 @@
       "realizedNet": "Realized net",
       "allocatedFees": "Allocated fees",
       "unrealizedGross": "Unrealized gross",
+      "unrealizedAsOf": "Unrealized gain is as of the {{asOf}}, not the selected period.",
+      "unrealizedAsOfLabel": "Unrealized as of",
+      "unrealizedAsOfCurrentSnapshot": "current snapshot",
       "unexplainedDisposal": "Unexplained disposal",
       "income": "Income",
       "fees": "Fees",
@@ -856,6 +861,7 @@
       "chart": "Currency decomposition chart",
       "instrumentMovement": "Instrument movement",
       "currencyMovement": "Currency movement",
+      "periodHelp": "Realized currency movement uses the selected period. Unrealized lot movement is as of the current snapshot.",
       "incomplete": "Some lots are undecomposed because an acquisition FX quote or declared acquisition date is missing. Those lots report base gain only."
     },
     "attribution": {

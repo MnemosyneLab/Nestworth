@@ -241,6 +241,29 @@ mod tests {
     }
 
     #[test]
+    fn two_year_ten_percent_compounding_is_annual_not_cumulative() {
+        let rate = solve_xirr(&[flow(0, "-100"), flow(730, "121")]).expect("xirr");
+        assert_eq!(
+            ReturnRate::from_canonical(rate).expect("round").canonical(),
+            "0.1"
+        );
+        assert_ne!(
+            ReturnRate::from_canonical(rate).expect("round").canonical(),
+            "0.21"
+        );
+    }
+
+    #[test]
+    fn irregular_intermediate_flow_converges() {
+        let rate =
+            solve_xirr(&[flow(0, "-1000"), flow(40, "-200"), flow(400, "1400")]).expect("xirr");
+        let rounded = ReturnRate::from_canonical(rate).expect("round").canonical();
+        let parsed = Decimal::from_str(&rounded).expect("decimal");
+        assert!(parsed > Decimal::ZERO);
+        assert_ne!(rounded, "0.21");
+    }
+
+    #[test]
     fn two_annual_outlays_converge_to_six_fractional_digits() {
         let rate = solve_xirr(&[
             flow(0, "-100000"),
@@ -258,6 +281,15 @@ mod tests {
     fn same_date_net_zero_is_zero_not_the_seed_rate() {
         let rate = solve_xirr(&[flow(0, "-63190"), flow(0, "63190")]).expect("zero");
         assert_eq!(rate, Decimal::ZERO);
+    }
+
+    #[test]
+    fn fewer_than_two_cashflows_is_not_computable() {
+        assert_eq!(solve_xirr(&[]), Err(XirrError::NotComputable));
+        assert_eq!(
+            solve_xirr(&[flow(0, "-100")]),
+            Err(XirrError::NotComputable)
+        );
     }
 
     #[test]

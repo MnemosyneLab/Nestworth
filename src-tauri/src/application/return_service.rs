@@ -61,11 +61,7 @@ pub enum TwrResultDto {
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum XirrResultDto {
     #[serde(rename_all = "camelCase")]
-    Available {
-        method: String,
-        cumulative: String,
-        annualized: Option<String>,
-    },
+    Available { method: String, annual_rate: String },
     #[serde(rename_all = "camelCase")]
     Unavailable {
         reason: String,
@@ -247,7 +243,7 @@ pub(crate) async fn get_performance_summary_at_in_tx(
         });
     }
     let xirr = match solve_xirr(&cashflows) {
-        Ok(rate) => available_xirr(rate, period_days)?,
+        Ok(rate) => available_xirr(rate)?,
         Err(XirrError::NoSignChange | XirrError::NotComputable) => XirrResultDto::Unavailable {
             reason: REASON_NOT_COMPUTABLE.to_owned(),
             blocking_dates: Vec::new(),
@@ -328,16 +324,11 @@ fn available_twr(chain: &TwrChain, period_days: i64) -> Result<TwrResultDto, App
     })
 }
 
-fn available_xirr(rate: Decimal, period_days: i64) -> Result<XirrResultDto, AppError> {
-    let cumulative = ReturnRate::from_canonical(rate)?;
-    let annualized = annualize_return(rate, period_days)?
-        .map(ReturnRate::from_canonical)
-        .transpose()?
-        .map(ReturnRate::canonical);
+fn available_xirr(rate: Decimal) -> Result<XirrResultDto, AppError> {
+    let annual_rate = ReturnRate::from_canonical(rate)?;
     Ok(XirrResultDto::Available {
         method: METHOD_XIRR.to_owned(),
-        cumulative: cumulative.canonical(),
-        annualized,
+        annual_rate: annual_rate.canonical(),
     })
 }
 
@@ -777,9 +768,9 @@ pub(crate) fn parse_decimal(value: &str) -> Result<Decimal, AppError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        annualize_return, chain_daily_returns, chain_linked_days, daily_linked_return,
-        get_performance_summary, get_performance_summary_at_in_tx, LinkedDay, TwrResultDto,
-        XirrResultDto, FLOW_ASSUMPTION_START_OF_DAY, METHOD_TWR, METHOD_XIRR,
+        annualize_return, available_xirr, chain_daily_returns, chain_linked_days,
+        daily_linked_return, get_performance_summary, get_performance_summary_at_in_tx, LinkedDay,
+        TwrResultDto, XirrResultDto, FLOW_ASSUMPTION_START_OF_DAY, METHOD_TWR, METHOD_XIRR,
         REASON_NOT_COMPUTABLE, REASON_PERIOD_UNAVAILABLE,
     };
     use crate::{
@@ -1214,8 +1205,8 @@ mod tests {
                 }
             }
             match summary.xirr {
-                XirrResultDto::Available { cumulative, .. } => {
-                    assert_eq!(cumulative, "0");
+                XirrResultDto::Available { annual_rate, .. } => {
+                    assert_eq!(annual_rate, "0");
                 }
                 XirrResultDto::Unavailable {
                     reason,
@@ -1266,5 +1257,53 @@ mod tests {
         );
         assert_eq!(METHOD_XIRR, "xirr");
         assert_eq!(REASON_NOT_COMPUTABLE, "RETURN_NOT_COMPUTABLE");
+    }
+
+    #[test]
+    fn xirr_available_dto_exposes_solver_annual_rate_without_reannualizing() {
+        let two_year = solve_xirr(&[
+            XirrCashflow {
+                date: date("2020-01-01"),
+                amount: dec("-100"),
+            },
+            XirrCashflow {
+                date: date("2021-12-31"),
+                amount: dec("121"),
+            },
+        ])
+        .expect("two-year");
+        let dto = available_xirr(two_year).expect("dto");
+        match dto {
+            XirrResultDto::Available {
+                method,
+                annual_rate,
+            } => {
+                assert_eq!(method, METHOD_XIRR);
+                assert_eq!(annual_rate, "0.1");
+            }
+            XirrResultDto::Unavailable { reason, .. } => {
+                panic!("expected available XIRR, got {reason}")
+            }
+        }
+        assert!(annualize_return(two_year, 730)
+            .expect("annualize")
+            .is_some());
+        let one_year = solve_xirr(&[
+            XirrCashflow {
+                date: date("2020-01-01"),
+                amount: dec("-100"),
+            },
+            XirrCashflow {
+                date: date("2020-12-31"),
+                amount: dec("110"),
+            },
+        ])
+        .expect("one-year");
+        match available_xirr(one_year).expect("one") {
+            XirrResultDto::Available { annual_rate, .. } => assert_eq!(annual_rate, "0.1"),
+            XirrResultDto::Unavailable { reason, .. } => {
+                panic!("expected available XIRR, got {reason}")
+            }
+        }
     }
 }

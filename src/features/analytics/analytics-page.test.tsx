@@ -86,6 +86,25 @@ describe("analytics page", () => {
     expect(within(table).queryByText("CNY 0")).not.toBeInTheDocument();
   });
 
+  it("shows XIRR as an annual rate rather than a cumulative return", async () => {
+    mockAnalyticsCatalog();
+    mockAvailableAnalytics();
+    await openAnalytics();
+    const table = await screen.findByRole("table", { name: "Return results" });
+    expect(within(table).getByText("0.100000")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /XIRR is the annual money-weighted rate/,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText(/current snapshot/).length).toBeGreaterThan(0);
+    expect(
+      screen.getByText(
+        /Realized currency movement uses the selected period/,
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("shows unknown-basis lots and explains their exclusion", async () => {
     mockAnalyticsCatalog();
     mockAvailableAnalytics();
@@ -257,12 +276,28 @@ describe("analytics page", () => {
         scope: { kind: "account", accountId: "a-1" },
         period: { kind: "oneYear" },
       });
+      expect(commands.getGainSummary).toHaveBeenCalledWith({
+        scope: { kind: "account", accountId: "a-1" },
+        period: { kind: "oneYear" },
+      });
     });
     await user.click(screen.getByRole("radio", { name: "3 months" }));
     await waitFor(() => {
       expect(router.state.location.search).toEqual(
         expect.objectContaining({ period: "threeMonths", scope: "account" }),
       );
+      expect(commands.getGainSummary).toHaveBeenCalledWith({
+        scope: { kind: "account", accountId: "a-1" },
+        period: { kind: "threeMonths" },
+      });
+      expect(commands.getPerformanceSummary).toHaveBeenCalledWith({
+        scope: { kind: "account", accountId: "a-1" },
+        period: { kind: "threeMonths" },
+      });
+      expect(commands.getNetWorthAttribution).toHaveBeenCalledWith({
+        scope: { kind: "account", accountId: "a-1" },
+        period: { kind: "threeMonths" },
+      });
     });
     router.history.back();
     await waitFor(() => {
@@ -271,6 +306,100 @@ describe("analytics page", () => {
       );
     });
     await router.navigate({ to: "/analytics", search: {}, replace: true });
+  });
+
+  it("labels zero realized, unknown basis, and missing input distinctly", async () => {
+    mockAnalyticsCatalog();
+    mockAvailableAnalytics();
+    vi.mocked(commands.getGainSummary).mockResolvedValue({
+      status: "ok",
+      data: {
+        ...availableGain(),
+        basisComplete: true,
+        inputComplete: true,
+        realizedGross: availableSigned("0.0000"),
+        realizedNet: availableSigned("0.0000"),
+        allocatedFees: availableSigned("0.0000"),
+        unrealizedGross: availableSigned("80.0000"),
+        unknownBasisQuantity: "0",
+        unknownBasisValue: {
+          kind: "available",
+          value: { amount: "0.0000", currency: "CNY" },
+        },
+        income: [],
+        fees: [],
+      },
+    });
+    await openAnalytics();
+    const known = await screen.findByRole("table", { name: "Gain results" });
+    expect(within(known).getAllByText("USD 0.0000").length).toBeGreaterThan(0);
+    expect(within(known).queryByText("Unknown")).not.toBeInTheDocument();
+    expect(
+      within(known).queryByText(
+        "This amount is unavailable because the lot has unknown cost basis.",
+      ),
+    ).not.toBeInTheDocument();
+
+    vi.mocked(commands.getGainSummary).mockResolvedValue({
+      status: "ok",
+      data: {
+        ...availableGain(),
+        basisComplete: false,
+        inputComplete: true,
+        realizedGross: availableSigned("0.0000"),
+        realizedNet: availableSigned("0.0000"),
+        unrealizedGross: {
+          kind: "unavailable",
+          reason: "UNKNOWN_BASIS",
+          blockingDates: [],
+        },
+      },
+    });
+    await router.navigate({
+      to: "/analytics",
+      search: { period: "oneYear" },
+      replace: true,
+    });
+    await waitFor(() => {
+      const unknown = screen.getByRole("table", { name: "Gain results" });
+      expect(within(unknown).getAllByText("USD 0.0000").length).toBeGreaterThan(
+        0,
+      );
+      expect(
+        within(unknown).getByText(
+          "This amount is unavailable because the lot has unknown cost basis.",
+        ),
+      ).toBeInTheDocument();
+    });
+
+    vi.mocked(commands.getGainSummary).mockResolvedValue({
+      status: "ok",
+      data: {
+        ...availableGain(),
+        basisComplete: true,
+        inputComplete: false,
+        realizedGross: availableSigned("160.0000"),
+        realizedNet: availableSigned("146.0000"),
+        unrealizedGross: {
+          kind: "unavailable",
+          reason: "ANALYTICS_INPUT_INCOMPLETE",
+          blockingDates: [],
+        },
+      },
+    });
+    await router.navigate({
+      to: "/analytics",
+      search: { period: "threeMonths" },
+      replace: true,
+    });
+    await waitFor(() => {
+      const incomplete = screen.getByRole("table", { name: "Gain results" });
+      expect(
+        within(incomplete).getByText(
+          "This result is incomplete because a required quote or FX rate is missing.",
+        ),
+      ).toBeInTheDocument();
+    });
   });
 
   it("can tab to scope and period controls", async () => {
@@ -366,8 +495,7 @@ function availablePerformance(): PerformanceSummaryDto {
     xirr: {
       kind: "available",
       method: "xirr",
-      cumulative: "0.100000",
-      annualized: "0.100000",
+      annualRate: "0.100000",
     },
   };
 }
@@ -396,6 +524,7 @@ function availableGain(): GainSummaryIpcDto {
     },
     instrumentMovement: availableSigned("650.0000", "CNY"),
     currencyMovement: availableSigned("120.0000", "CNY"),
+    unrealizedAsOf: "currentSnapshot",
     income: [
       {
         incomeKind: "dividend",

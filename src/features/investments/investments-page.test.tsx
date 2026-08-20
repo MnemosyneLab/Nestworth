@@ -192,9 +192,9 @@ describe("investments page", () => {
   it("shows unknown-basis positions as unknown rather than zero", async () => {
     const user = userEvent.setup();
     mockPortfolio(qqqPortfolio());
-    vi.mocked(commands.getGainSummary).mockResolvedValue({
+    vi.mocked(commands.listHoldingGainSummaries).mockResolvedValue({
       status: "ok",
-      data: unknownBasisGain(),
+      data: unknownBasisHoldingGains(),
     });
     await renderReadyApp();
     await user.click(await screen.findByRole("link", { name: "Investments" }));
@@ -207,9 +207,10 @@ describe("investments page", () => {
     ).toHaveAttribute("role", "status");
     expect(screen.queryByText("USD 0")).not.toBeInTheDocument();
     expect(screen.queryByText("CNY 0")).not.toBeInTheDocument();
-    expect(commands.getGainSummary).toHaveBeenCalledWith({
-      scope: { kind: "instrument", instrumentId: "ins-1" },
+    expect(commands.listHoldingGainSummaries).toHaveBeenCalledWith({
+      period: { kind: "all" },
     });
+    expect(commands.getGainSummary).not.toHaveBeenCalled();
   });
 
   it("links a position into instrument-scoped analytics", async () => {
@@ -236,10 +237,10 @@ describe("investments page", () => {
   it("shows loading, error, and incomplete gain states accessibly", async () => {
     const pending = deferred<{
       status: "ok";
-      data: GainSummaryIpcDto;
+      data: { items: Array<{ accountId: string; instrumentId: string; gain: GainSummaryIpcDto }> };
     }>();
     mockPortfolio(qqqPortfolio());
-    vi.mocked(commands.getGainSummary).mockReturnValue(pending.promise);
+    vi.mocked(commands.listHoldingGainSummaries).mockReturnValue(pending.promise);
     await renderReadyApp();
     await router.navigate({ to: "/investments" });
     expect(await screen.findByRole("heading", { name: "Portfolio" })).toBeInTheDocument();
@@ -248,13 +249,21 @@ describe("investments page", () => {
     pending.resolve({
       status: "ok",
       data: {
-        ...emptyGainSummary(),
-        inputComplete: false,
-        unrealizedGross: {
-          kind: "unavailable",
-          reason: "ANALYTICS_INPUT_INCOMPLETE",
-          blockingDates: ["2026-08-17"],
-        },
+        items: [
+          {
+            accountId: "a-1",
+            instrumentId: "ins-1",
+            gain: {
+              ...emptyGainSummary(),
+              inputComplete: false,
+              unrealizedGross: {
+                kind: "unavailable",
+                reason: "ANALYTICS_INPUT_INCOMPLETE",
+                blockingDates: ["2026-08-17"],
+              },
+            },
+          },
+        ],
       },
     });
     expect(await screen.findByText("This result is incomplete.")).toHaveAttribute(
@@ -271,7 +280,7 @@ describe("investments page", () => {
   it("shows a gain command error accessibly", async () => {
     const user = userEvent.setup();
     mockPortfolio(qqqPortfolio());
-    vi.mocked(commands.getGainSummary).mockResolvedValue({
+    vi.mocked(commands.listHoldingGainSummaries).mockResolvedValue({
       status: "error",
       error: commandError("DATABASE_UNAVAILABLE", "The database is unavailable."),
     });
@@ -298,9 +307,132 @@ describe("investments page", () => {
     expect(vi.mocked(commands.getHistoryStatus).mock.calls.length).toBe(
       historyCalls,
     );
-    expect(vi.mocked(commands.listActivities).mock.calls.length).toBe(
-      activityCalls,
+    expect(
+      vi.mocked(commands.listActivities).mock.calls.length,
+    ).toBe(activityCalls);
+  });
+
+  it("shows per-holding gain when the same instrument is held in two accounts", async () => {
+    const user = userEvent.setup();
+    const first = qqqPosition("h-1", "a-1", "3");
+    const second = qqqPosition("h-2", "a-2", "1");
+    mockPortfolio({
+      ...qqqPortfolio(),
+      positions: [first, second],
+    });
+    vi.mocked(commands.listHoldingGainSummaries).mockResolvedValue({
+      status: "ok",
+      data: {
+        items: [
+          {
+            accountId: "a-1",
+            instrumentId: "ins-1",
+            gain: {
+              ...emptyGainSummary(),
+              basisComplete: true,
+              inputComplete: true,
+              unrealizedGross: {
+                kind: "available",
+                value: { amount: "120.0000", currency: "USD" },
+              },
+            },
+          },
+          {
+            accountId: "a-2",
+            instrumentId: "ins-1",
+            gain: {
+              ...emptyGainSummary(),
+              basisComplete: true,
+              inputComplete: true,
+              unrealizedGross: {
+                kind: "available",
+                value: { amount: "40.0000", currency: "USD" },
+              },
+            },
+          },
+        ],
+      },
+    });
+    await renderReadyApp();
+    await user.click(await screen.findByRole("link", { name: "Investments" }));
+    expect(await screen.findByText("USD 120.0000")).toBeInTheDocument();
+    expect(screen.getByText("USD 40.0000")).toBeInTheDocument();
+    expect(commands.listHoldingGainSummaries).toHaveBeenCalledTimes(1);
+    expect(commands.getGainSummary).not.toHaveBeenCalled();
+    expect(
+      screen.getAllByRole("link", { name: "View analytics for QQQ" }),
+    ).toHaveLength(2);
+  });
+
+  it("shows zero realized for a known holding and incomplete for missing quotes", async () => {
+    const user = userEvent.setup();
+    mockPortfolio(qqqPortfolio());
+    vi.mocked(commands.listHoldingGainSummaries).mockResolvedValue({
+      status: "ok",
+      data: {
+        items: [
+          {
+            accountId: "a-1",
+            instrumentId: "ins-1",
+            gain: {
+              ...emptyGainSummary(),
+              basisComplete: true,
+              inputComplete: true,
+              realizedNet: {
+                kind: "available",
+                value: { amount: "0.0000", currency: "USD" },
+              },
+              unrealizedGross: {
+                kind: "available",
+                value: { amount: "80.0000", currency: "USD" },
+              },
+            },
+          },
+        ],
+      },
+    });
+    await renderReadyApp();
+    await user.click(await screen.findByRole("link", { name: "Investments" }));
+    expect(await screen.findByText("USD 80.0000")).toBeInTheDocument();
+    expect(screen.queryByText("Unknown")).not.toBeInTheDocument();
+
+    vi.mocked(commands.listHoldingGainSummaries).mockResolvedValue({
+      status: "ok",
+      data: {
+        items: [
+          {
+            accountId: "a-1",
+            instrumentId: "ins-1",
+            gain: {
+              ...emptyGainSummary(),
+              basisComplete: true,
+              inputComplete: false,
+              realizedNet: {
+                kind: "available",
+                value: { amount: "50.0000", currency: "USD" },
+              },
+              unrealizedGross: {
+                kind: "unavailable",
+                reason: "ANALYTICS_INPUT_INCOMPLETE",
+                blockingDates: [],
+              },
+            },
+          },
+        ],
+      },
+    });
+    await user.click(await screen.findByRole("link", { name: "Overview" }));
+    await user.click(await screen.findByRole("link", { name: "Investments" }));
+    expect(
+      await screen.findByText(
+        "This result is incomplete because a required quote or FX rate is missing.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("This result is incomplete.")).toHaveAttribute(
+      "role",
+      "status",
     );
+    expect(screen.queryByText("Unknown")).not.toBeInTheDocument();
   });
 });
 
@@ -317,25 +449,7 @@ function qqqPortfolio(): PortfolioDto {
     total: { amount: "62190", currency: "CNY" },
     isComplete: true,
     coverageBps: 10_000,
-    positions: [
-      {
-        holdingId: "h-1",
-        accountId: "a-1",
-        instrumentId: "ins-1",
-        instrumentName: "QQQ",
-        instrumentSymbol: "QQQ",
-        instrumentType: "etf",
-        countryCode: "US",
-        quantity: "3",
-        native: { amount: "2100", currency: "USD" },
-        base: { amount: "14490", currency: "CNY" },
-        complete: true,
-        freshness: "manual",
-        quotedAt: "2026-08-17T00:00:00.000Z",
-        sourceKind: "manual",
-        missingReason: null,
-      },
-    ],
+    positions: [qqqPosition("h-1", "a-1", "3")],
     cash: [{ amount: "5000", currency: "SGD" }],
     byCurrency: [
       {
@@ -345,6 +459,30 @@ function qqqPortfolio(): PortfolioDto {
         shareBps: 2330,
       },
     ],
+  };
+}
+
+function qqqPosition(
+  holdingId: string,
+  accountId: string,
+  quantity: string,
+): PortfolioDto["positions"][number] {
+  return {
+    holdingId,
+    accountId,
+    instrumentId: "ins-1",
+    instrumentName: "QQQ",
+    instrumentSymbol: "QQQ",
+    instrumentType: "etf",
+    countryCode: "US",
+    quantity,
+    native: { amount: "2100", currency: "USD" },
+    base: { amount: "14490", currency: "CNY" },
+    complete: true,
+    freshness: "manual",
+    quotedAt: "2026-08-17T00:00:00.000Z",
+    sourceKind: "manual",
+    missingReason: null,
   };
 }
 
@@ -359,5 +497,17 @@ function unknownBasisGain(): GainSummaryIpcDto {
       reason: "UNKNOWN_BASIS",
       blockingDates: [],
     },
+  };
+}
+
+function unknownBasisHoldingGains() {
+  return {
+    items: [
+      {
+        accountId: "a-1",
+        instrumentId: "ins-1",
+        gain: unknownBasisGain(),
+      },
+    ],
   };
 }

@@ -86,9 +86,12 @@ pub(crate) struct DecompositionView<'a> {
     pub current_preferences: &'a HashMap<FxPair, QuoteSourceKind>,
     pub timezone: HistoryTimezone,
     pub disposal_at: &'a HashMap<ActivityId, Timestamp>,
+    pub disposal_dates: &'a HashMap<ActivityId, CalendarDate>,
     pub now: &'a Timestamp,
     pub base: CurrencyCode,
     pub scope: AnalyticsScope,
+    pub start: Option<CalendarDate>,
+    pub end: Option<CalendarDate>,
 }
 
 /// Exact decomposition identity. Inputs stay at full checked precision.
@@ -122,13 +125,15 @@ pub async fn get_currency_decomposition(
 ) -> Result<CurrencyDecompositionSummaryDto, AppError> {
     let database = state.writable_db()?;
     let mut tx = begin_read_tx(database).await?;
-    let result = get_currency_decomposition_in_tx(&mut tx, scope).await;
+    let result = get_currency_decomposition_in_tx(&mut tx, scope, None, None).await;
     finish_read_tx(tx, result).await
 }
 
 pub async fn get_currency_decomposition_in_tx(
     tx: &mut Transaction<'_, Sqlite>,
     scope: AnalyticsScope,
+    start: Option<CalendarDate>,
+    end: Option<CalendarDate>,
 ) -> Result<CurrencyDecompositionSummaryDto, AppError> {
     query_count::record("currency_decomposition");
     let household = require_household_tx(tx).await?;
@@ -152,6 +157,10 @@ pub async fn get_currency_decomposition_in_tx(
         .iter()
         .map(|activity| (activity.id(), activity.effective_at().clone()))
         .collect();
+    let disposal_dates = activities
+        .iter()
+        .map(|activity| (activity.id(), activity.effective_local_date()))
+        .collect();
     summarize_decomposition(DecompositionView {
         ledger: &ledger,
         snapshot: &snapshot,
@@ -161,9 +170,12 @@ pub async fn get_currency_decomposition_in_tx(
         current_preferences: &current_preferences,
         timezone,
         disposal_at: &disposal_at,
+        disposal_dates: &disposal_dates,
         now: &Timestamp::now(),
         base: snapshot.base_currency(),
         scope,
+        start,
+        end,
     })
 }
 
@@ -250,6 +262,9 @@ pub(crate) fn summarize_decomposition(
         if consumption.kind() != ConsumptionKind::Realized {
             continue;
         }
+        if !disposal_in_period(&view, consumption.activity_id()) {
+            continue;
+        }
         if consumption.consumed_cost().is_none() {
             basis_complete = false;
             continue;
@@ -308,6 +323,17 @@ pub(crate) fn summarize_decomposition(
         basis_complete,
         input_complete,
     })
+}
+
+fn disposal_in_period(view: &DecompositionView<'_>, activity_id: ActivityId) -> bool {
+    match (view.start, view.end) {
+        (Some(start), Some(end)) if start <= end => view
+            .disposal_dates
+            .get(&activity_id)
+            .is_some_and(|date| *date >= start && *date <= end),
+        (Some(start), Some(end)) if start > end => false,
+        _ => true,
+    }
 }
 
 fn accounts_map(accounts: &[AccountRecordDto]) -> HashMap<&str, &AccountRecordDto> {
@@ -405,7 +431,7 @@ fn acquisition_fx(
     let Some(cutoff) = acquisition_cutoff(opening, view.timezone)? else {
         return Ok(None);
     };
-    native_to_base_rate(
+    acquisition_native_to_base_rate(
         view.quotes,
         view.preference_observations,
         view.current_preferences,
@@ -465,6 +491,25 @@ fn start_of_local_day(
     .map(|(timestamp, _)| timestamp)
 }
 
+pub(crate) fn acquisition_native_to_base_rate(
+    quotes: &[FxQuoteRecordDto],
+    observations: &[FxPreferenceObservationRecord],
+    current_preferences: &HashMap<FxPair, QuoteSourceKind>,
+    native: CurrencyCode,
+    household_base: CurrencyCode,
+    cutoff: &Timestamp,
+) -> Result<Option<Decimal>, AppError> {
+    native_to_base_rate_with(
+        quotes,
+        observations,
+        current_preferences,
+        native,
+        household_base,
+        cutoff,
+        false,
+    )
+}
+
 pub(crate) fn native_to_base_rate(
     quotes: &[FxQuoteRecordDto],
     observations: &[FxPreferenceObservationRecord],
@@ -472,6 +517,26 @@ pub(crate) fn native_to_base_rate(
     native: CurrencyCode,
     household_base: CurrencyCode,
     cutoff: &Timestamp,
+) -> Result<Option<Decimal>, AppError> {
+    native_to_base_rate_with(
+        quotes,
+        observations,
+        current_preferences,
+        native,
+        household_base,
+        cutoff,
+        true,
+    )
+}
+
+fn native_to_base_rate_with(
+    quotes: &[FxQuoteRecordDto],
+    observations: &[FxPreferenceObservationRecord],
+    current_preferences: &HashMap<FxPair, QuoteSourceKind>,
+    native: CurrencyCode,
+    household_base: CurrencyCode,
+    cutoff: &Timestamp,
+    allow_reciprocal: bool,
 ) -> Result<Option<Decimal>, AppError> {
     if native == household_base {
         return Ok(Some(Decimal::ONE));
@@ -487,17 +552,19 @@ pub(crate) fn native_to_base_rate(
     ) {
         return Ok(Some(FxRate::parse(&direct.rate)?.amount()));
     }
-    if let Some(inverse) = select_fx_quote_at(
-        quotes,
-        household_base.as_str(),
-        native.as_str(),
-        source.as_str(),
-        cutoff,
-    ) {
-        return Ok(Some(checked_div(
-            Decimal::ONE,
-            FxRate::parse(&inverse.rate)?.amount(),
-        )?));
+    if allow_reciprocal {
+        if let Some(inverse) = select_fx_quote_at(
+            quotes,
+            household_base.as_str(),
+            native.as_str(),
+            source.as_str(),
+            cutoff,
+        ) {
+            return Ok(Some(checked_div(
+                Decimal::ONE,
+                FxRate::parse(&inverse.rate)?.amount(),
+            )?));
+        }
     }
     Ok(None)
 }
@@ -569,8 +636,9 @@ fn signed_dto(amount: Decimal, currency: CurrencyCode) -> Result<SignedMoneyDto,
 #[cfg(test)]
 mod tests {
     use super::{
-        decompose_identity, get_currency_decomposition, native_to_base_rate, start_of_local_day,
-        summarize_decomposition, DecompositionView, STATUS_AVAILABLE, STATUS_UNAVAILABLE,
+        acquisition_native_to_base_rate, decompose_identity, get_currency_decomposition,
+        native_to_base_rate, start_of_local_day, summarize_decomposition, DecompositionView,
+        STATUS_AVAILABLE, STATUS_UNAVAILABLE,
     };
     use crate::{
         application::{
@@ -744,6 +812,16 @@ mod tests {
         )
         .expect("rate");
         assert_eq!(rate, Some(Decimal::ONE));
+        let acquisition = acquisition_native_to_base_rate(
+            &[],
+            &observations,
+            &current,
+            CurrencyCode::CNY,
+            CurrencyCode::CNY,
+            &ts("2026-01-04T02:00:00.000Z"),
+        )
+        .expect("acquisition identity");
+        assert_eq!(acquisition, Some(Decimal::ONE));
         let result =
             decompose_identity(dec("200"), dec("300"), Decimal::ONE, Decimal::ONE).expect("id");
         assert_eq!(result.currency_movement, Decimal::ZERO);
@@ -799,6 +877,64 @@ mod tests {
         )
         .expect("later");
         assert_eq!(later, Some(dec("6.9")));
+    }
+
+    #[test]
+    fn eligible_inverse_only_quote_is_not_used_for_acquisition_fx() {
+        let quotes = vec![fx_quote(
+            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa5",
+            "CNY",
+            "USD",
+            "0.153846153846",
+            "2026-01-04T01:00:00.000Z",
+            "manual",
+        )];
+        let (observations, current) = empty_preferences();
+        let cutoff = ts("2026-01-04T02:00:00.000Z");
+        let acquisition = acquisition_native_to_base_rate(
+            &quotes,
+            &observations,
+            &current,
+            CurrencyCode::USD,
+            CurrencyCode::CNY,
+            &cutoff,
+        )
+        .expect("acquisition");
+        assert_eq!(acquisition, None);
+        let valuation = native_to_base_rate(
+            &quotes,
+            &observations,
+            &current,
+            CurrencyCode::USD,
+            CurrencyCode::CNY,
+            &cutoff,
+        )
+        .expect("valuation");
+        assert!(valuation.is_some());
+        assert_ne!(valuation, Some(Decimal::ONE));
+    }
+
+    #[test]
+    fn direct_quote_at_or_before_cutoff_is_selected_for_acquisition() {
+        let quotes = vec![fx_quote(
+            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6",
+            "USD",
+            "CNY",
+            "6.5",
+            "2026-01-04T02:00:00.000Z",
+            "manual",
+        )];
+        let (observations, current) = empty_preferences();
+        let f0 = acquisition_native_to_base_rate(
+            &quotes,
+            &observations,
+            &current,
+            CurrencyCode::USD,
+            CurrencyCode::CNY,
+            &ts("2026-01-04T02:00:00.000Z"),
+        )
+        .expect("f0");
+        assert_eq!(f0, Some(dec("6.5")));
     }
 
     #[test]
@@ -1013,6 +1149,7 @@ mod tests {
             ActivityId::parse(BUY1_ACTIVITY).expect("a"),
             ts("2026-01-04T02:00:00.000Z"),
         );
+        let disposal_dates = HashMap::new();
         let summary = summarize_decomposition(DecompositionView {
             ledger: &ledger,
             snapshot: &snapshot,
@@ -1022,9 +1159,12 @@ mod tests {
             current_preferences: &current,
             timezone: HistoryTimezone::parse("Asia/Singapore").expect("tz"),
             disposal_at: &disposal_at,
+            disposal_dates: &disposal_dates,
             now: &ts("2026-01-18T02:00:00.000Z"),
             base: CurrencyCode::CNY,
             scope: voo_scope(),
+            start: None,
+            end: None,
         })
         .expect("summary");
         let early = summary

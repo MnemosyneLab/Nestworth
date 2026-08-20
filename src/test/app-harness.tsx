@@ -356,6 +356,7 @@ export function emptyGainSummary(): GainSummaryIpcDto {
     unknownBasisValue: unavailableMoney(),
     instrumentMovement: unavailableSignedMoney(),
     currencyMovement: unavailableSignedMoney(),
+    unrealizedAsOf: "currentSnapshot",
     income: [],
     fees: [],
   };
@@ -546,6 +547,10 @@ export function resetCommandMocks() {
   vi.mocked(commands.getGainSummary).mockResolvedValue({
     status: "ok",
     data: emptyGainSummary(),
+  });
+  vi.mocked(commands.listHoldingGainSummaries).mockResolvedValue({
+    status: "ok",
+    data: { items: [] },
   });
   vi.mocked(commands.getNetWorthAttribution).mockResolvedValue({
     status: "ok",

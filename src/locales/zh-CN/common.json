@@ -822,7 +822,9 @@
       "linkedDays": "链接的天数",
       "fractionHelp": "收益率以 1 的小数表示，不是百分比。",
       "twrTitle": "时间加权收益率",
-      "xirrTitle": "资金加权收益率"
+      "xirrTitle": "资金加权收益率",
+      "annualRate": "年化利率",
+      "xirrHelp": "XIRR 是年化资金加权收益率。Nestworth 不会把它当作累计收益，也不会再次年化。"
     },
     "gain": {
       "title": "损益",
@@ -832,6 +834,9 @@
       "realizedNet": "已实现净收益",
       "allocatedFees": "分摊费用",
       "unrealizedGross": "未实现毛收益",
+      "unrealizedAsOf": "未实现收益以{{asOf}}为准，不受所选期间限制。",
+      "unrealizedAsOfLabel": "未实现收益时点",
+      "unrealizedAsOfCurrentSnapshot": "当前快照",
       "unexplainedDisposal": "未解释处置",
       "income": "收入",
       "fees": "费用",
@@ -856,6 +861,7 @@
       "chart": "货币分解图",
       "instrumentMovement": "标的变动",
       "currencyMovement": "货币变动",
+      "periodHelp": "已实现货币变动遵循所选期间。未实现批次变动以当前快照为准。",
       "incomplete": "部分批次因缺少买入时汇率或申报买入日期而无法分解。这些批次只报告基础货币损益。"
     },
     "attribution": {

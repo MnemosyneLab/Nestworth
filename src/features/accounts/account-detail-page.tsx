@@ -242,11 +242,12 @@ function AccountGainSummary({
 }) {
   const { t } = useTranslation();
   const gainQuery = useQuery({
-    queryKey: ["gain-summary", { kind: "account", accountId }],
+    queryKey: ["gain-summary", { kind: "account", accountId }, { kind: "all" }],
     queryFn: () =>
       unwrapResult(
         commands.getGainSummary({
           scope: { kind: "account", accountId },
+          period: { kind: "all" },
         }),
       ),
   });

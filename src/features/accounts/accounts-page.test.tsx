@@ -305,6 +305,7 @@ describe("accounts page", () => {
     expect(screen.getByText("USD 80.0000")).toBeInTheDocument();
     expect(commands.getGainSummary).toHaveBeenCalledWith({
       scope: { kind: "account", accountId: "a-1" },
+      period: { kind: "all" },
     });
     expect(commands.getAccount).toHaveBeenCalledWith({ id: "a-1" });
   });

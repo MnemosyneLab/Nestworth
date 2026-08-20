@@ -1,4 +1,4 @@
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -319,20 +319,18 @@ function PositionList({
   portfolio: PortfolioDto;
 }) {
   const { t } = useTranslation();
-  const instrumentIds = uniqueInstrumentIds(portfolio.positions);
-  const gainQueries = useQueries({
-    queries: instrumentIds.map((instrumentId) => ({
-      queryKey: ["gain-summary", { kind: "instrument" as const, instrumentId }],
-      queryFn: () =>
-        unwrapResult(
-          commands.getGainSummary({
-            scope: { kind: "instrument", instrumentId },
-          }),
-        ),
-    })),
+  const holdingsGainQuery = useQuery({
+    queryKey: ["holding-gains", { kind: "all" }],
+    queryFn: () =>
+      unwrapResult(
+        commands.listHoldingGainSummaries({ period: { kind: "all" } }),
+      ),
   });
-  const gainByInstrument = new Map(
-    instrumentIds.map((instrumentId, index) => [instrumentId, gainQueries[index]]),
+  const gainByHolding = new Map(
+    (holdingsGainQuery.data?.items ?? []).map((item) => [
+      `${item.accountId}:${item.instrumentId}`,
+      item.gain,
+    ]),
   );
   if (portfolio.positions.length === 0 && portfolio.cash.length === 0) {
     return null;
@@ -342,7 +340,9 @@ function PositionList({
       <h2 className="text-lg font-medium">{t("investments.positions")}</h2>
       <ul className="mt-4 space-y-3">
         {portfolio.positions.map((position) => {
-          const gainQuery = gainByInstrument.get(position.instrumentId);
+          const gain = gainByHolding.get(
+            `${position.accountId}:${position.instrumentId}`,
+          );
           return (
             <li
               className="rounded-xl border border-border bg-card px-4 py-3"
@@ -370,9 +370,9 @@ function PositionList({
               </p>
               <GainSnippet
                 catalog={catalog}
-                error={gainQuery?.error}
-                gain={gainQuery?.data}
-                loading={gainQuery?.isPending ?? false}
+                error={holdingsGainQuery.error}
+                gain={gain}
+                loading={holdingsGainQuery.isPending}
               />
               <InstrumentAnalyticsLink
                 instrumentId={position.instrumentId}
@@ -397,18 +397,6 @@ function PositionList({
       </ul>
     </section>
   );
-}
-
-function uniqueInstrumentIds(
-  positions: PortfolioDto["positions"],
-): string[] {
-  const ids: string[] = [];
-  for (const position of positions) {
-    if (!ids.includes(position.instrumentId)) {
-      ids.push(position.instrumentId);
-    }
-  }
-  return ids;
 }
 
 function AllocationList({

@@ -598,6 +598,14 @@ async getGainSummary(input: GetGainSummaryInput) : Promise<Result<GainSummaryIpc
     else return { status: "error", error: e  as any };
 }
 },
+async listHoldingGainSummaries(input: ListHoldingGainSummariesInput) : Promise<Result<HoldingGainSummaryListDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_holding_gain_summaries", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async getNetWorthAttribution(input: GetNetWorthAttributionInput) : Promise<Result<NetWorthAttributionIpcDto, CommandError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_net_worth_attribution", { input }) };
@@ -671,7 +679,7 @@ export type ActivityPageDto = { items: ActivityDetailDto[]; nextCursor: string |
 export type ActivityPreviewDto = { activity: ActivityDetailDto; resulting: ResultingEndpointDto[] }
 export type AllocationRowDto = { key: string; name: string | null; amount: MoneyDto; shareBps: number }
 export type AnalyticsPeriodDto = { kind: "oneMonth" } | { kind: "threeMonths" } | { kind: "oneYear" } | { kind: "all" } | { kind: "custom"; startLocalDate: string; endLocalDate: string }
-export type AnalyticsScopeDto = { kind: "household" } | { kind: "portfolio" } | { kind: "account"; accountId: string } | { kind: "instrument"; instrumentId: string }
+export type AnalyticsScopeDto = { kind: "household" } | { kind: "portfolio" } | { kind: "account"; accountId: string } | { kind: "instrument"; instrumentId: string } | { kind: "holding"; accountId: string; instrumentId: string }
 export type AnalyticsStatusDto = { usableHistory: DateRangeAvailabilityDto; earliestCompleteSnapshotOn: DateAvailabilityDto; blockingDates: string[]; unknownBasisLotCount: number; unknownBasisValue: MoneyAvailabilityDto }
 export type AppSettingsDto = { language: string; appearance: string; lastHouseholdId: string | null }
 export type AppendAccountCashInput = { accountId: string; amount: string; currency: string }
@@ -702,10 +710,10 @@ export type ErrorCode = "VALIDATION_ERROR" | "NOT_FOUND" | "CONFLICT" | "ALREADY
 export type FeeBucketDto = { feeKind: string; attributedInstrumentId: string | null; amount: MoneyDto }
 export type FxPairStatusDto = { currencyA: string; currencyB: string; quotePreference: string; selectedQuote: FxQuoteRecordDto | null; selectedRate: string | null }
 export type FxQuoteRecordDto = { id: string; baseCurrency: string; quoteCurrency: string; rate: string; sourceKind: string; sourceKey: string; delayed: boolean; quotedAt: string; createdAt: string }
-export type GainSummaryIpcDto = { realizedGross: SignedMoneyAvailabilityDto; realizedNet: SignedMoneyAvailabilityDto; allocatedFees: SignedMoneyAvailabilityDto; unrealizedGross: SignedMoneyAvailabilityDto; unexplainedDisposal: SignedMoneyAvailabilityDto; basisComplete: boolean; inputComplete: boolean; decompositionComplete: boolean; unknownBasisQuantity: string; unknownBasisValue: MoneyAvailabilityDto; instrumentMovement: SignedMoneyAvailabilityDto; currencyMovement: SignedMoneyAvailabilityDto; income: IncomeBucketDto[]; fees: FeeBucketDto[] }
+export type GainSummaryIpcDto = { realizedGross: SignedMoneyAvailabilityDto; realizedNet: SignedMoneyAvailabilityDto; allocatedFees: SignedMoneyAvailabilityDto; unrealizedGross: SignedMoneyAvailabilityDto; unexplainedDisposal: SignedMoneyAvailabilityDto; basisComplete: boolean; inputComplete: boolean; decompositionComplete: boolean; unknownBasisQuantity: string; unknownBasisValue: MoneyAvailabilityDto; instrumentMovement: SignedMoneyAvailabilityDto; currencyMovement: SignedMoneyAvailabilityDto; unrealizedAsOf: string; income: IncomeBucketDto[]; fees: FeeBucketDto[] }
 export type GetAccountTimelineInput = { accountId: string; cursor: string | null; limit: number | null }
 export type GetAnalyticsStatusInput = { scope: AnalyticsScopeDto }
-export type GetGainSummaryInput = { scope: AnalyticsScopeDto }
+export type GetGainSummaryInput = { scope: AnalyticsScopeDto; period: AnalyticsPeriodDto }
 export type GetMediaInput = { assetId: string }
 export type GetNetWorthAttributionInput = { scope: AnalyticsScopeDto; period: AnalyticsPeriodDto }
 export type GetNetWorthTrendInput = { range: string }
@@ -713,6 +721,8 @@ export type GetPerformanceSummaryInput = { scope: AnalyticsScopeDto; period: Ana
 export type GroupRecordDto = { id: string; name: string; iconKey: string | null; color: string | null; description: string | null; logoAssetId: string | null; sortOrder: number; createdAt: string; updatedAt: string; archivedAt: string | null }
 export type HistoryOriginDto = { id: string; timezone: string; timezoneConfirmed: boolean; originAt: string; originLocalDate: string; source: string; schemaVersion: number; createdAt: string; accountValues: OriginComponentDto[]; cashValues: OriginComponentDto[]; holdings: OriginHoldingDto[] }
 export type HistoryStatusDto = { timezone: string; timezoneConfirmed: boolean; originAt: string; originLocalDate: string; dirtyFrom: string | null; lastCompletedOn: string | null; lastClosedOn: string | null; rebuildStatus: string; rebuildCursorOn: string | null }
+export type HoldingGainSummaryDto = { accountId: string; instrumentId: string; gain: GainSummaryIpcDto }
+export type HoldingGainSummaryListDto = { items: HoldingGainSummaryDto[] }
 export type HoldingLotDto = { lotRef: LotRefDto; accountId: string; instrumentId: string; acquiredAt: string; quantityRemaining: string; originalQuantity: string; cost: MoneyAvailabilityDto; basis: string; isDeclared: boolean; currentValue: MoneyAvailabilityDto; unrealizedGross: SignedMoneyAvailabilityDto }
 export type HoldingLotPageDto = { items: HoldingLotDto[]; nextCursor: string | null; hasMore: boolean }
 export type HoldingRecordDto = { id: string; accountId: string; instrumentId: string; instrumentName: string; instrumentSymbol: string | null; quoteCurrency: string; quantity: string; note: string | null; sortOrder: number; createdAt: string; updatedAt: string; archivedAt: string | null }
@@ -728,6 +738,7 @@ export type ListActivitiesInput = { cursor: string | null; limit: number | null;
 export type ListCostBasisDeclarationsInput = { scope: AnalyticsScopeDto; cursor: string | null; limit: number | null }
 export type ListFilterInput = { includeArchived: boolean }
 export type ListFxQuotesInput = { baseCurrency: string; quoteCurrency: string }
+export type ListHoldingGainSummariesInput = { period: AnalyticsPeriodDto }
 export type ListHoldingLotsInput = { scope: AnalyticsScopeDto; cursor: string | null; limit: number | null }
 export type ListHoldingsInput = { accountId: string; includeArchived: boolean }
 export type ListInstrumentQuotesInput = { instrumentId: string }
@@ -778,7 +789,7 @@ export type UpdateInstitutionInput = { id: string; name: string; institutionType
 export type UpdateInstrumentInput = { id: string; name: string; symbol: string | null; instrumentType: string; marketCode: string | null; countryCode: string | null; isin: string | null; providerKey: string | null; providerSymbol: string | null; quotePreference: string | null; note: string | null }
 export type UpdateMemberInput = { id: string; name: string; note: string | null }
 export type UpdateSettingsInput = { language: string; appearance: string }
-export type XirrResultDto = { kind: "available"; method: string; cumulative: string; annualized: string | null } | { kind: "unavailable"; reason: string; blockingDates: string[] }
+export type XirrResultDto = { kind: "available"; method: string; annualRate: string } | { kind: "unavailable"; reason: string; blockingDates: string[] }
 
 /** tauri-specta globals **/
 

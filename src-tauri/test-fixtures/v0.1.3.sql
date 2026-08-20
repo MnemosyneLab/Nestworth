@@ -320,4 +320,3 @@ INSERT INTO daily_valuation_snapshot_items (id, snapshot_id, account_id, holding
 
 INSERT INTO history_snapshot_state (household_id, dirty_from, last_completed_on, rebuild_status, rebuild_cursor_on, updated_at) VALUES
   ('11111111-1111-4111-8111-111111111111', '2026-01-05', '2026-01-04', 'idle', NULL, '2026-08-19T05:47:34.355Z');
-

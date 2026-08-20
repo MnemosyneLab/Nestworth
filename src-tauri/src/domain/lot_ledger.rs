@@ -1629,6 +1629,116 @@ mod tests {
     }
 
     #[test]
+    fn partial_position_transfer_leaves_open_fragments_in_both_accounts() {
+        let buy_leg = "cccccccc-cccc-4ccc-8ccc-ccccccccccc1";
+        let dest = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+        let events = vec![
+            activity_event(
+                "cccccccc-cccc-4ccc-8ccc-cccccccccca1",
+                "2026-01-09T02:00:00.000Z",
+                "2026-01-09T02:00:00.000Z",
+                LotEffect::Buy {
+                    holding_leg_id: leg_id(buy_leg),
+                    instrument_id: instrument_id(VOO),
+                    account_id: account_id(BROKERAGE),
+                    quantity: qty("2"),
+                    gross_settlement: Some(usd("200")),
+                    acquisition_fee: None,
+                },
+            ),
+            activity_event(
+                "cccccccc-cccc-4ccc-8ccc-cccccccccca2",
+                "2026-01-10T02:00:00.000Z",
+                "2026-01-10T02:00:00.000Z",
+                LotEffect::PositionTransfer {
+                    source_leg_id: leg_id("cccccccc-cccc-4ccc-8ccc-ccccccccccc2"),
+                    destination_leg_id: leg_id("cccccccc-cccc-4ccc-8ccc-ccccccccccc3"),
+                    instrument_id: instrument_id(VOO),
+                    source_account_id: account_id(BROKERAGE),
+                    destination_account_id: account_id(dest),
+                    quantity: qty("1"),
+                },
+            ),
+        ];
+        let ledger = replay(events).expect("replay");
+        assert_eq!(ledger.open_lots().len(), 2);
+        let lot_ref = LotRef::Acquisition(leg_id(buy_leg));
+        let source = ledger
+            .open_lots()
+            .iter()
+            .find(|lot| lot.account_id() == account_id(BROKERAGE))
+            .expect("source");
+        let destination = ledger
+            .open_lots()
+            .iter()
+            .find(|lot| lot.account_id() == account_id(dest))
+            .expect("destination");
+        assert_eq!(source.lot_ref(), lot_ref);
+        assert_eq!(destination.lot_ref(), lot_ref);
+        assert_eq!(source.quantity_remaining().canonical(), "1");
+        assert_eq!(destination.quantity_remaining().canonical(), "1");
+        assert_eq!(source.cost_remaining_canonical().as_deref(), Some("100"));
+        assert_eq!(
+            destination.cost_remaining_canonical().as_deref(),
+            Some("100")
+        );
+    }
+
+    #[test]
+    fn repeated_transfer_merges_into_the_existing_destination_fragment() {
+        let buy_leg = "cccccccc-cccc-4ccc-8ccc-ccccccccccc1";
+        let dest = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+        let events = vec![
+            activity_event(
+                "cccccccc-cccc-4ccc-8ccc-cccccccccca1",
+                "2026-01-09T02:00:00.000Z",
+                "2026-01-09T02:00:00.000Z",
+                LotEffect::Buy {
+                    holding_leg_id: leg_id(buy_leg),
+                    instrument_id: instrument_id(VOO),
+                    account_id: account_id(BROKERAGE),
+                    quantity: qty("2"),
+                    gross_settlement: Some(usd("200")),
+                    acquisition_fee: None,
+                },
+            ),
+            activity_event(
+                "cccccccc-cccc-4ccc-8ccc-cccccccccca2",
+                "2026-01-10T02:00:00.000Z",
+                "2026-01-10T02:00:00.000Z",
+                LotEffect::PositionTransfer {
+                    source_leg_id: leg_id("cccccccc-cccc-4ccc-8ccc-ccccccccccc2"),
+                    destination_leg_id: leg_id("cccccccc-cccc-4ccc-8ccc-ccccccccccc3"),
+                    instrument_id: instrument_id(VOO),
+                    source_account_id: account_id(BROKERAGE),
+                    destination_account_id: account_id(dest),
+                    quantity: qty("1"),
+                },
+            ),
+            activity_event(
+                "cccccccc-cccc-4ccc-8ccc-cccccccccca3",
+                "2026-01-11T02:00:00.000Z",
+                "2026-01-11T02:00:00.000Z",
+                LotEffect::PositionTransfer {
+                    source_leg_id: leg_id("cccccccc-cccc-4ccc-8ccc-ccccccccccc4"),
+                    destination_leg_id: leg_id("cccccccc-cccc-4ccc-8ccc-ccccccccccc5"),
+                    instrument_id: instrument_id(VOO),
+                    source_account_id: account_id(BROKERAGE),
+                    destination_account_id: account_id(dest),
+                    quantity: qty("1"),
+                },
+            ),
+        ];
+        let ledger = replay(events).expect("replay");
+        assert_eq!(ledger.open_lots().len(), 1);
+        let open = &ledger.open_lots()[0];
+        assert_eq!(open.account_id(), account_id(dest));
+        assert_eq!(open.lot_ref(), LotRef::Acquisition(leg_id(buy_leg)));
+        assert_eq!(open.quantity_remaining().canonical(), "2");
+        assert_eq!(open.cost_remaining_canonical().as_deref(), Some("200"));
+    }
+
+    #[test]
     fn origin_opening_and_position_increase_open_unknown_basis_lots() {
         let origin_holding = "30303030-3030-4303-8303-303030303030";
         let opening_leg = "dddddddd-dddd-4ddd-8ddd-ddddddddddd1";

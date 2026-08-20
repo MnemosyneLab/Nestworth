@@ -92,6 +92,7 @@ vi.mock("@/generated/tauri-bindings", async (importOriginal) => {
       getAnalyticsStatus: vi.fn(),
       getPerformanceSummary: vi.fn(),
       getGainSummary: vi.fn(),
+      listHoldingGainSummaries: vi.fn(),
       getNetWorthAttribution: vi.fn(),
       listHoldingLots: vi.fn(),
       listUnknownBasisLots: vi.fn(),

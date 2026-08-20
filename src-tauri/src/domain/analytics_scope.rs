@@ -11,6 +11,10 @@ pub enum AnalyticsScope {
     Portfolio,
     Account(AccountId),
     Instrument(InstrumentId),
+    Holding {
+        account_id: AccountId,
+        instrument_id: InstrumentId,
+    },
 }
 
 /// Effective-dated facts needed to decide whether an endpoint is inside a scope.
@@ -123,6 +127,14 @@ pub fn endpoint_in_scope(scope: AnalyticsScope, endpoint: &ScopeEndpointFacts) -
         AnalyticsScope::Account(account_id) => endpoint.account_id == account_id,
         AnalyticsScope::Instrument(instrument_id) => {
             endpoint.component_kind == ComponentKind::HoldingQuantity
+                && endpoint.instrument_id == Some(instrument_id)
+        }
+        AnalyticsScope::Holding {
+            account_id,
+            instrument_id,
+        } => {
+            endpoint.account_id == account_id
+                && endpoint.component_kind == ComponentKind::HoldingQuantity
                 && endpoint.instrument_id == Some(instrument_id)
         }
     }
@@ -367,5 +379,18 @@ mod tests {
             ..holding
         };
         assert!(!endpoint_in_scope(AnalyticsScope::Instrument(qqq), &cash));
+        let holding_scope = AnalyticsScope::Holding {
+            account_id: brokerage,
+            instrument_id: qqq,
+        };
+        assert!(endpoint_in_scope(holding_scope, &holding));
+        assert!(!endpoint_in_scope(
+            AnalyticsScope::Holding {
+                account_id: account(9),
+                instrument_id: qqq,
+            },
+            &holding
+        ));
+        assert!(!endpoint_in_scope(holding_scope, &cash));
     }
 }

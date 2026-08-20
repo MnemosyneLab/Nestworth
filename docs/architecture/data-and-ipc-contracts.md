@@ -149,11 +149,11 @@ The command surface is grouped by use case:
 | Activities | `preview_activity`, `list_activities`, `get_activity`, `create_activity`, `reverse_activity`, `correct_activity` |
 | Timeline | `get_account_timeline` |
 | History | `get_history_status`, `rebuild_history_snapshots`, `get_net_worth_trend` |
-| Analytics | `get_analytics_status`, `get_performance_summary`, `get_gain_summary`, `get_net_worth_attribution`, `list_holding_lots`, `list_unknown_basis_lots`, `list_cost_basis_declarations`, `declare_lot_cost_basis`, `revoke_lot_cost_basis` |
+| Analytics | `get_analytics_status`, `get_performance_summary`, `get_gain_summary`, `list_holding_gain_summaries`, `get_net_worth_attribution`, `list_holding_lots`, `list_unknown_basis_lots`, `list_cost_basis_declarations`, `declare_lot_cost_basis`, `revoke_lot_cost_basis` |
 
 The application does not expose `get_household`, `update_household`, or media-clear commands. Household name and base currency are displayed from bootstrap; language and appearance are the mutable settings. `delete_all_data` is an explicitly confirmed destructive reset: it is available only for a writable supported database, closes SQLite, removes the database, WAL/SHM sidecars, and pre-migration snapshots including schema-4 `.pre-migrate-*` files, and restarts into onboarding. It cannot delete an unsupported future-version database. Activity commands accept tagged kind-specific inputs only; `preview_activity` performs no writes. Analytics reads are read-only over the ledger; `declare_lot_cost_basis` and `revoke_lot_cost_basis` are the only v0.1.4 writes and persist no lot, gain, or valuation state. Production quote adapters are unconfigured, so production UI does not offer provider preference, provider search, or automatic refresh controls. Backend search and refresh remain available for deterministic fake-adapter tests and future integration, returning safe provider-unavailable errors with the production adapters.
 
-The frozen allowlist contains 80 commands.
+The frozen allowlist contains 81 commands.
 
 Command adapters remain thin. Application services own transactions and domain conversion. Frontend code calls the generated `commands` client rather than using raw Tauri invoke names.
 
@@ -172,7 +172,7 @@ Run binding generation after any command or DTO change, then run the binding che
 
 ## Compatibility Evidence
 
-The repository contains a deterministic sanitized released v0.1.1 fixture at `src-tauri/test-fixtures/v0.1.1.sql`, a v0.1.2 fixture at `src-tauri/test-fixtures/v0.1.2.sql`, and a v0.1.3 fixture at `src-tauri/test-fixtures/v0.1.3.sql`. Migration tests capture pre-migration Overview, apply schema version 4, verify representative rows, retained archived references, History Origin baseline capture, close and reopen idempotently, and pass `foreign_key_check` and `integrity_check`. Unsupported future-version tests, including version `5`, verify zero application writes from bootstrap, Activity/history commands, and all nine analytics commands.
+The repository contains a deterministic sanitized released v0.1.1 fixture at `src-tauri/test-fixtures/v0.1.1.sql`, a v0.1.2 fixture at `src-tauri/test-fixtures/v0.1.2.sql`, and a v0.1.3 fixture at `src-tauri/test-fixtures/v0.1.3.sql`. Migration tests capture pre-migration Overview, apply schema version 4, verify representative rows, retained archived references, History Origin baseline capture, close and reopen idempotently, and pass `foreign_key_check` and `integrity_check`. Unsupported future-version tests, including version `5`, verify zero application writes from bootstrap, Activity/history commands, and analytics commands.
 
 ## Error Contract
 

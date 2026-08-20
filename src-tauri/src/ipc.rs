@@ -10,8 +10,9 @@ use crate::{
             AnalyticsStatusDto, CostBasisDeclarationIpcDto, CostBasisDeclarationPageDto,
             DeclareLotCostBasisInput, GainSummaryIpcDto, GetAnalyticsStatusInput,
             GetGainSummaryInput, GetNetWorthAttributionInput, GetPerformanceSummaryInput,
-            HoldingLotPageDto, ListCostBasisDeclarationsInput, ListHoldingLotsInput,
-            ListUnknownBasisLotsInput, NetWorthAttributionIpcDto, RevokeLotCostBasisInput,
+            HoldingGainSummaryListDto, HoldingLotPageDto, ListCostBasisDeclarationsInput,
+            ListHoldingGainSummariesInput, ListHoldingLotsInput, ListUnknownBasisLotsInput,
+            NetWorthAttributionIpcDto, RevokeLotCostBasisInput,
         },
         cash_service::{AccountCashRecordDto, AppendAccountCashInput, ListAccountCashInput},
         group_service::{CreateGroupInput, GroupRecordDto, UpdateGroupInput},
@@ -59,8 +60,8 @@ use crate::{
         analytics::{
             declare_lot_cost_basis_impl, get_analytics_status_impl, get_gain_summary_impl,
             get_net_worth_attribution_impl, get_performance_summary_impl,
-            list_cost_basis_declarations_impl, list_holding_lots_impl,
-            list_unknown_basis_lots_impl, revoke_lot_cost_basis_impl,
+            list_cost_basis_declarations_impl, list_holding_gain_summaries_impl,
+            list_holding_lots_impl, list_unknown_basis_lots_impl, revoke_lot_cost_basis_impl,
         },
         bootstrap::{bootstrap_impl, BootstrapDto},
         cash::{append_account_cash_impl, list_account_cash_impl},
@@ -772,6 +773,15 @@ pub async fn get_gain_summary(
 
 #[tauri::command]
 #[specta::specta]
+pub async fn list_holding_gain_summaries(
+    state: State<'_, AppState>,
+    input: ListHoldingGainSummariesInput,
+) -> Result<HoldingGainSummaryListDto, crate::error::CommandError> {
+    list_holding_gain_summaries_impl(&state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn get_net_worth_attribution(
     state: State<'_, AppState>,
     input: GetNetWorthAttributionInput,
@@ -900,6 +910,7 @@ pub fn command_builder() -> Builder<tauri::Wry> {
         get_analytics_status,
         get_performance_summary,
         get_gain_summary,
+        list_holding_gain_summaries,
         get_net_worth_attribution,
         list_holding_lots,
         list_unknown_basis_lots,

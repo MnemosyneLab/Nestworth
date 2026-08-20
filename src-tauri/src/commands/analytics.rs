@@ -4,8 +4,9 @@ use crate::{
             self, AnalyticsStatusDto, CostBasisDeclarationIpcDto, CostBasisDeclarationPageDto,
             DeclareLotCostBasisInput, GainSummaryIpcDto, GetAnalyticsStatusInput,
             GetGainSummaryInput, GetNetWorthAttributionInput, GetPerformanceSummaryInput,
-            HoldingLotPageDto, ListCostBasisDeclarationsInput, ListHoldingLotsInput,
-            ListUnknownBasisLotsInput, NetWorthAttributionIpcDto, RevokeLotCostBasisInput,
+            HoldingGainSummaryListDto, HoldingLotPageDto, ListCostBasisDeclarationsInput,
+            ListHoldingGainSummariesInput, ListHoldingLotsInput, ListUnknownBasisLotsInput,
+            NetWorthAttributionIpcDto, RevokeLotCostBasisInput,
         },
         return_service::PerformanceSummaryDto,
     },
@@ -36,6 +37,15 @@ pub async fn get_gain_summary_impl(
     input: GetGainSummaryInput,
 ) -> Result<GainSummaryIpcDto, CommandError> {
     analytics_query_service::get_gain_summary(state, input)
+        .await
+        .map_err(CommandError::from)
+}
+
+pub async fn list_holding_gain_summaries_impl(
+    state: &AppState,
+    input: ListHoldingGainSummariesInput,
+) -> Result<HoldingGainSummaryListDto, CommandError> {
+    analytics_query_service::list_holding_gain_summaries(state, input)
         .await
         .map_err(CommandError::from)
 }

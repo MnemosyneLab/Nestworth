@@ -316,6 +316,9 @@ export function ReturnPanel({ summary }: { summary: PerformanceSummaryDto }) {
       <p className="text-sm text-muted-foreground">
         {t("analytics.return.fractionHelp")}
       </p>
+      <p className="text-sm text-muted-foreground">
+        {t("analytics.return.xirrHelp")}
+      </p>
       {twr.kind === "unavailable" ? (
         <UnavailableNotice
           blockingDates={twr.blockingDates}
@@ -380,15 +383,10 @@ export function ReturnPanel({ summary }: { summary: PerformanceSummaryDto }) {
                   : t("analytics.return.xirrTitle")}
               </td>
               <td className="py-2 pr-3">—</td>
+              <td className="py-2 pr-3">—</td>
               <td className="py-2 pr-3">
                 {xirr.kind === "available"
-                  ? xirr.cumulative
-                  : t("analytics.availability.unavailable")}
-              </td>
-              <td className="py-2 pr-3">
-                {xirr.kind === "available"
-                  ? (xirr.annualized ??
-                    t("analytics.availability.withheldAnnualization"))
+                  ? xirr.annualRate
                   : t("analytics.availability.unavailable")}
               </td>
               <td className="py-2 pr-3">—</td>
@@ -421,6 +419,11 @@ export function GainPanel({
     <section className="mt-10 space-y-4">
       <h2 className="text-lg font-medium">{t("analytics.gain.title")}</h2>
       <p className="text-sm">{t("analytics.lots.policy")}</p>
+      <p className="text-sm text-muted-foreground">
+        {t("analytics.gain.unrealizedAsOf", {
+          asOf: t("analytics.gain.unrealizedAsOfCurrentSnapshot"),
+        })}
+      </p>
       {!gain.basisComplete ? (
         <p role="status">{t("analytics.gain.unknownBasisExclusion")}</p>
       ) : null}
@@ -475,6 +478,9 @@ export function CurrencyPanel({
   return (
     <section className="mt-10 space-y-4">
       <h2 className="text-lg font-medium">{t("analytics.currency.title")}</h2>
+      <p className="text-sm text-muted-foreground">
+        {t("analytics.currency.periodHelp")}
+      </p>
       {!gain.decompositionComplete ? (
         <p role="status">{t("analytics.currency.incomplete")}</p>
       ) : null}
@@ -1109,6 +1115,10 @@ function gainRows(
     {
       label: t("analytics.gain.unrealizedGross"),
       value: signedMoneyCell(t, catalog, gain.unrealizedGross),
+    },
+    {
+      label: t("analytics.gain.unrealizedAsOfLabel"),
+      value: t("analytics.gain.unrealizedAsOfCurrentSnapshot"),
     },
     {
       label: t("analytics.gain.unexplainedDisposal"),
