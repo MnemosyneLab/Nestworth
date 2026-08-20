@@ -94,6 +94,8 @@ pub enum AppError {
     DataResetFailed,
     #[error("history origin initialization failed")]
     HistoryInitializationFailed,
+    #[error("freshness policy initialization failed")]
+    PolicyInitializationFailed,
     #[error("history timezone confirmation is required")]
     HistoryTimezoneConfirmationRequired,
     #[error("history snapshots need to be rebuilt")]
@@ -289,6 +291,7 @@ impl AppError {
             DatabaseBootstrapStatus::HistoryInitializationFailed => {
                 Self::HistoryInitializationFailed
             }
+            DatabaseBootstrapStatus::PolicyInitializationFailed => Self::PolicyInitializationFailed,
             DatabaseBootstrapStatus::Unavailable => Self::DatabaseUnavailable,
             DatabaseBootstrapStatus::Corrupt => Self::CorruptDatabase,
         }
@@ -501,6 +504,10 @@ impl AppError {
             Self::HistoryInitializationFailed => CommandError::new(
                 ErrorCode::HistoryInitializationFailed,
                 "History origin could not be initialized.",
+            ),
+            Self::PolicyInitializationFailed => CommandError::new(
+                ErrorCode::DatabaseUnavailable,
+                "Freshness policies could not be initialized.",
             ),
             Self::HistoryTimezoneConfirmationRequired => CommandError::new(
                 ErrorCode::HistoryTimezoneConfirmationRequired,

@@ -702,7 +702,7 @@ mod tests {
                 error,
                 AppError::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 4
+                    supported: 5
                 }
             ));
             let error = update_member(

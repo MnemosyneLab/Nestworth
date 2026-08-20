@@ -19,6 +19,7 @@ pub enum DatabaseBootstrapStatus {
     UnsupportedNewerDatabase { found: i64, supported: i64 },
     MigrationFailed,
     HistoryInitializationFailed,
+    PolicyInitializationFailed,
     Unavailable,
     Corrupt,
 }
@@ -138,6 +139,17 @@ pub async fn initialize_database(path: PathBuf) -> DatabaseBootstrapResult {
         );
         pool.close().await;
         return blocked(DatabaseBootstrapStatus::HistoryInitializationFailed);
+    }
+
+    if let Err(_error) =
+        crate::application::freshness_policy_service::initialize_default_policies(&pool).await
+    {
+        tracing::error!(
+            event = "freshness.policy_init_failed",
+            "freshness policy initialization failed"
+        );
+        pool.close().await;
+        return blocked(DatabaseBootstrapStatus::PolicyInitializationFailed);
     }
 
     tracing::info!(
@@ -307,6 +319,34 @@ mod tests {
             .await
             .expect("analytics schema query should succeed");
             assert_eq!(analytics_tables, 1);
+            let sustainable_tables: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN (
+                    'recurring_activity_rules', 'pending_activities', 'freshness_policies',
+                    'maintenance_snoozes', 'import_batches', 'import_items', 'benchmarks',
+                    'benchmark_observations', 'household_benchmark_preferences'
+                )",
+            )
+            .fetch_one(&first_pool)
+            .await
+            .expect("sustainable schema query should succeed");
+            assert_eq!(sustainable_tables, 9);
+            for table in [
+                "recurring_activity_rules",
+                "pending_activities",
+                "freshness_policies",
+                "maintenance_snoozes",
+                "import_batches",
+                "import_items",
+                "benchmarks",
+                "benchmark_observations",
+                "household_benchmark_preferences",
+            ] {
+                let count: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table}"))
+                    .fetch_one(&first_pool)
+                    .await
+                    .expect("sustainable table count");
+                assert_eq!(count, 0, "migration must not seed {table}");
+            }
             let declarations: i64 =
                 sqlx::query_scalar("SELECT COUNT(*) FROM cost_basis_declarations")
                     .fetch_one(&first_pool)
@@ -317,7 +357,7 @@ mod tests {
                 .fetch_one(&first_pool)
                 .await
                 .expect("version");
-            assert_eq!(version, 4);
+            assert_eq!(version, 5);
             let foreign_keys: i64 = sqlx::query_scalar("PRAGMA foreign_keys")
                 .fetch_one(&first_pool)
                 .await
@@ -376,7 +416,7 @@ mod tests {
                 read_migration_version(&path)
                     .await
                     .expect("migrated database should be readable"),
-                4
+                5
             );
 
             remove_database(&path);
@@ -480,7 +520,7 @@ mod tests {
                 result.status,
                 DatabaseBootstrapStatus::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 4,
+                    supported: 5,
                 }
             );
             assert!(result.pool.is_none());
@@ -494,7 +534,7 @@ mod tests {
                 crate::state::DatabaseRuntime::Blocked {
                     status: DatabaseBootstrapStatus::UnsupportedNewerDatabase {
                         found: 999,
-                        supported: 4,
+                        supported: 5,
                     },
                     ..
                 }
@@ -503,7 +543,7 @@ mod tests {
                 app_state.writable_db(),
                 Err(crate::error::AppError::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 4,
+                    supported: 5,
                 })
             ));
 
@@ -582,7 +622,7 @@ mod tests {
                 .fetch_one(&pool)
                 .await
                 .expect("version");
-            assert_eq!(version, 4);
+            assert_eq!(version, 5);
             let declarations: i64 =
                 sqlx::query_scalar("SELECT COUNT(*) FROM cost_basis_declarations")
                     .fetch_one(&pool)
@@ -794,7 +834,7 @@ mod tests {
                 .fetch_one(&pool)
                 .await
                 .expect("migrated version");
-            assert_eq!(version, 4);
+            assert_eq!(version, 5);
             let declarations: i64 =
                 sqlx::query_scalar("SELECT COUNT(*) FROM cost_basis_declarations")
                     .fetch_one(&pool)
@@ -1052,7 +1092,7 @@ mod tests {
     }
 
     #[test]
-    fn released_v013_fixture_migrates_to_4_with_zero_declarations_and_unchanged_ids() {
+    fn released_v013_fixture_migrates_to_5_with_zero_declarations_and_unchanged_ids() {
         tauri::async_runtime::block_on(async {
             let path = test_path("v013-migrate-004");
             remove_database(&path);
@@ -1133,7 +1173,7 @@ mod tests {
                 .fetch_one(&pool)
                 .await
                 .expect("version");
-            assert_eq!(version, 4);
+            assert_eq!(version, 5);
             let declarations: i64 =
                 sqlx::query_scalar("SELECT COUNT(*) FROM cost_basis_declarations")
                     .fetch_one(&pool)
@@ -1421,7 +1461,7 @@ mod tests {
                 read_migration_version(&path)
                     .await
                     .expect("migrated database should be readable"),
-                4
+                5
             );
 
             remove_database(&path);
@@ -1475,15 +1515,15 @@ mod tests {
     }
 
     #[test]
-    fn future_version_5_is_unchanged_and_writes_no_origin_snapshot_or_declaration() {
+    fn future_version_6_is_unchanged_and_writes_no_origin_snapshot_or_declaration() {
         tauri::async_runtime::block_on(async {
             let path = test_path("future-v5");
             remove_database(&path);
             let migrated = initialize_database(path.clone()).await;
             assert_eq!(migrated.status, DatabaseBootstrapStatus::Migrated);
-            let pool = migrated.pool.expect("schema 4 database");
+            let pool = migrated.pool.expect("schema 5 database");
             sqlx::query(
-                "INSERT INTO _sqlx_migrations (version, description, installed_on, success, checksum, execution_time) VALUES (5, 'future', CURRENT_TIMESTAMP, 1, zeroblob(32), 1)",
+                "INSERT INTO _sqlx_migrations (version, description, installed_on, success, checksum, execution_time) VALUES (6, 'future', CURRENT_TIMESTAMP, 1, zeroblob(32), 1)",
             )
             .execute(&pool)
             .await
@@ -1498,8 +1538,8 @@ mod tests {
             assert_eq!(
                 result.status,
                 DatabaseBootstrapStatus::UnsupportedNewerDatabase {
-                    found: 5,
-                    supported: 4,
+                    found: 6,
+                    supported: 5,
                 }
             );
             assert!(result.pool.is_none());
@@ -1560,8 +1600,8 @@ mod tests {
             assert!(matches!(
                 declare,
                 crate::error::AppError::UnsupportedNewerDatabase {
-                    found: 5,
-                    supported: 4
+                    found: 6,
+                    supported: 5
                 }
             ));
             let revoke = crate::application::cost_basis_service::revoke_lot_cost_basis(
@@ -1576,8 +1616,8 @@ mod tests {
             assert!(matches!(
                 revoke,
                 crate::error::AppError::UnsupportedNewerDatabase {
-                    found: 5,
-                    supported: 4
+                    found: 6,
+                    supported: 5
                 }
             ));
             assert_eq!(stable_sqlite_hash(&path).await, before_hash);
