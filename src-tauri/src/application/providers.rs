@@ -245,6 +245,14 @@ impl QuoteAdapter {
             Self::Fake(fake) => fake.fetch_quote(provider_symbol).await,
         }
     }
+
+    pub fn is_fake(&self) -> bool {
+        matches!(self, Self::Fake(_))
+    }
+
+    pub fn is_unconfigured(&self) -> bool {
+        matches!(self, Self::Unconfigured)
+    }
 }
 
 #[derive(Clone, Default)]
@@ -264,6 +272,14 @@ impl FxAdapter {
             Self::Unconfigured => Err(unconfigured()),
             Self::Fake(fake) => fake.fetch_pair(base, quote).await,
         }
+    }
+
+    pub fn is_fake(&self) -> bool {
+        matches!(self, Self::Fake(_))
+    }
+
+    pub fn is_unconfigured(&self) -> bool {
+        matches!(self, Self::Unconfigured)
     }
 }
 

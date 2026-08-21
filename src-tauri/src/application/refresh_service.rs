@@ -5,6 +5,7 @@ use specta::Type;
 use super::{
     account_service,
     instrument_service::{self, InstrumentRecordDto},
+    market_data::{FxMarketIdentity, InstrumentMarketIdentity},
     providers::ProviderInstrument,
     quote_service::{insert_fx_quote, insert_instrument_quote},
     reference::{
@@ -72,7 +73,10 @@ pub async fn search_provider_instruments(
     input: SearchProviderInstrumentsInput,
 ) -> Result<Vec<ProviderInstrumentDto>, AppError> {
     let _ = state.writable_db()?;
-    let found = state.quote_provider().search(&input.query).await?;
+    let found = state
+        .market_data()
+        .search_instruments(state.market_data().default_provider_id(), &input.query)
+        .await?;
     Ok(found.into_iter().map(provider_instrument_dto).collect())
 }
 
@@ -197,6 +201,12 @@ async fn refresh_one_instrument(
             message: None,
         };
     }
+    let Some(provider_id) = instrument.provider_key.clone() else {
+        return failed_item(
+            &key,
+            &AppError::market_data_unsupported("This instrument has no registered provider."),
+        );
+    };
     let Some(symbol) = instrument.provider_symbol.clone() else {
         return failed_item(
             &key,
@@ -205,9 +215,19 @@ async fn refresh_one_instrument(
             },
         );
     };
+    let currency = match crate::domain::CurrencyCode::parse(&instrument.quote_currency) {
+        Ok(currency) => currency,
+        Err(error) => return failed_item(&key, &error),
+    };
     let fetched = tokio::time::timeout(
         PROVIDER_TIMEOUT,
-        state.quote_provider().fetch_quote(&symbol),
+        state
+            .market_data()
+            .fetch_latest_instrument(InstrumentMarketIdentity {
+                provider_id,
+                provider_symbol: symbol,
+                expected_currency: currency,
+            }),
     )
     .await;
     let quote = match fetched {
@@ -266,9 +286,11 @@ async fn refresh_one_fx(state: &AppState, pair: FxPair) -> RefreshItemResultDto 
     };
     let fetched = tokio::time::timeout(
         PROVIDER_TIMEOUT,
-        state
-            .fx_provider()
-            .fetch_pair(pair.currency_a(), pair.currency_b()),
+        state.market_data().fetch_latest_fx(FxMarketIdentity {
+            provider_id: state.market_data().default_provider_id().to_owned(),
+            base_currency: pair.currency_a(),
+            quote_currency: pair.currency_b(),
+        }),
     )
     .await;
     let quote = match fetched {
@@ -837,7 +859,7 @@ mod tests {
             )
             .await
             .expect_err("unconfigured");
-            assert!(matches!(error, AppError::ProviderUnavailable { .. }));
+            assert!(matches!(error, AppError::MarketDataUnsupported { .. }));
             cleanup(&path);
         });
     }

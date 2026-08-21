@@ -12,10 +12,22 @@ use sqlx::SqlitePool;
 use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 
 use crate::{
-    application::providers::{FxAdapter, QuoteAdapter},
+    application::{
+        market_data::{MarketDataProvider, MarketDataRegistry, YAHOO_FINANCE_PROVIDER},
+        providers::{FxAdapter, QuoteAdapter},
+    },
     error::{AppError, RestartReason},
     infrastructure::database_bootstrap::{initialize_database, DatabaseBootstrapStatus},
+    infrastructure::yahoo::YahooChartProvider,
 };
+
+fn production_market_data() -> MarketDataRegistry {
+    MarketDataRegistry::new(
+        [Arc::new(YahooChartProvider::new()) as Arc<dyn MarketDataProvider>],
+        YAHOO_FINANCE_PROVIDER,
+    )
+    .expect("production market-data registry must be valid")
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeState {
@@ -157,8 +169,7 @@ pub struct AppState {
     database: DatabaseRuntime,
     status: DatabaseBootstrapStatus,
     db_path: PathBuf,
-    quote_provider: QuoteAdapter,
-    fx_provider: FxAdapter,
+    market_data: MarketDataRegistry,
     operation_gate: Arc<OperationGate>,
     backup_inspections: Mutex<HashMap<String, StoredBackupInspection>>,
     csv_previews: Mutex<HashMap<String, StoredCsvPreview>>,
@@ -168,12 +179,7 @@ pub struct AppState {
 
 impl AppState {
     pub async fn initialize(db_path: PathBuf) -> Self {
-        Self::initialize_with_providers(
-            db_path,
-            QuoteAdapter::Unconfigured,
-            FxAdapter::Unconfigured,
-        )
-        .await
+        Self::initialize_with_registry(db_path, production_market_data()).await
     }
 
     pub async fn initialize_with_providers(
@@ -181,6 +187,14 @@ impl AppState {
         quote_provider: QuoteAdapter,
         fx_provider: FxAdapter,
     ) -> Self {
+        Self::initialize_with_registry(
+            db_path,
+            MarketDataRegistry::from_legacy(quote_provider, fx_provider),
+        )
+        .await
+    }
+
+    async fn initialize_with_registry(db_path: PathBuf, market_data: MarketDataRegistry) -> Self {
         let result = initialize_database(db_path.clone()).await;
         let status = result.status.clone();
         let database = match result.pool {
@@ -195,8 +209,7 @@ impl AppState {
             database,
             status,
             db_path,
-            quote_provider,
-            fx_provider,
+            market_data,
             operation_gate: Arc::new(OperationGate::new()),
             backup_inspections: Mutex::new(HashMap::new()),
             csv_previews: Mutex::new(HashMap::new()),
@@ -213,8 +226,7 @@ impl AppState {
             },
             status,
             db_path,
-            quote_provider: QuoteAdapter::Unconfigured,
-            fx_provider: FxAdapter::Unconfigured,
+            market_data: production_market_data(),
             operation_gate: Arc::new(OperationGate::new()),
             backup_inspections: Mutex::new(HashMap::new()),
             csv_previews: Mutex::new(HashMap::new()),
@@ -257,12 +269,8 @@ impl AppState {
         self.operation_gate.runtime_state()
     }
 
-    pub fn quote_provider(&self) -> &QuoteAdapter {
-        &self.quote_provider
-    }
-
-    pub fn fx_provider(&self) -> &FxAdapter {
-        &self.fx_provider
+    pub fn market_data(&self) -> &MarketDataRegistry {
+        &self.market_data
     }
 
     pub(crate) fn issue_backup_inspection(&self, inspection: StoredBackupInspection) -> String {
