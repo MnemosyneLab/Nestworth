@@ -132,6 +132,15 @@ pub(crate) struct StoredBackupInspection {
     pub expires_at: Instant,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum RestoreFault {
+    #[default]
+    None,
+    Close,
+    Rename,
+    Fsync,
+}
+
 pub struct AppState {
     database: DatabaseRuntime,
     status: DatabaseBootstrapStatus,
@@ -140,6 +149,8 @@ pub struct AppState {
     fx_provider: FxAdapter,
     operation_gate: Arc<OperationGate>,
     backup_inspections: Mutex<HashMap<String, StoredBackupInspection>>,
+    #[cfg(test)]
+    restore_fault: Mutex<RestoreFault>,
 }
 
 impl AppState {
@@ -175,6 +186,8 @@ impl AppState {
             fx_provider,
             operation_gate: Arc::new(OperationGate::new()),
             backup_inspections: Mutex::new(HashMap::new()),
+            #[cfg(test)]
+            restore_fault: Mutex::new(RestoreFault::None),
         }
     }
     pub fn unavailable(db_path: PathBuf) -> Self {
@@ -190,6 +203,8 @@ impl AppState {
             fx_provider: FxAdapter::Unconfigured,
             operation_gate: Arc::new(OperationGate::new()),
             backup_inspections: Mutex::new(HashMap::new()),
+            #[cfg(test)]
+            restore_fault: Mutex::new(RestoreFault::None),
         }
     }
 
@@ -247,7 +262,6 @@ impl AppState {
         token
     }
 
-    #[allow(dead_code)]
     pub(crate) fn backup_inspection(&self, token: &str) -> Option<StoredBackupInspection> {
         let now = Instant::now();
         let mut inspections = self
@@ -256,6 +270,39 @@ impl AppState {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         inspections.retain(|_, value| value.expires_at > now);
         inspections.get(token).cloned()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn expire_backup_inspection(&self, token: &str) {
+        let mut inspections = self
+            .backup_inspections
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(inspection) = inspections.get_mut(token) {
+            inspection.expires_at = Instant::now() - std::time::Duration::from_secs(1);
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_restore_fault(&self, fault: RestoreFault) {
+        *self
+            .restore_fault
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = fault;
+    }
+
+    pub(crate) fn restore_fault(&self) -> RestoreFault {
+        #[cfg(test)]
+        {
+            *self
+                .restore_fault
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+        }
+        #[cfg(not(test))]
+        {
+            RestoreFault::None
+        }
     }
 
     #[cfg(test)]

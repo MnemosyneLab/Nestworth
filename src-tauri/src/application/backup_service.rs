@@ -70,25 +70,25 @@ pub struct BackupInspectionDto {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct FileDigest {
-    byte_length: u64,
-    sha256: String,
+pub(crate) struct FileDigest {
+    pub byte_length: u64,
+    pub sha256: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct DatabaseFacts {
-    migration: i64,
-    household_id: Option<String>,
-    household_name: Option<String>,
-    database_valid: bool,
+pub(crate) struct DatabaseFacts {
+    pub migration: i64,
+    pub household_id: Option<String>,
+    pub household_name: Option<String>,
+    pub database_valid: bool,
 }
 
-struct OwnedTempDir {
+pub(crate) struct OwnedTempDir {
     path: PathBuf,
 }
 
 impl OwnedTempDir {
-    fn new(parent: &Path, label: &str) -> Result<Self, AppError> {
+    pub(crate) fn new(parent: &Path, label: &str) -> Result<Self, AppError> {
         for _ in 0..8 {
             let path = parent.join(format!(".nestworth-{label}-{}", Uuid::now_v7()));
             match fs::create_dir(&path) {
@@ -106,7 +106,25 @@ impl OwnedTempDir {
         ))
     }
 
-    fn path(&self) -> &Path {
+    pub(crate) fn new_with_prefix(parent: &Path, prefix: &str) -> Result<Self, AppError> {
+        for _ in 0..8 {
+            let path = parent.join(format!("{prefix}{}", Uuid::now_v7()));
+            match fs::create_dir(&path) {
+                Ok(()) => return Ok(Self { path }),
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(_error) => {
+                    return Err(AppError::invalid_backup(
+                        "Temporary storage is unavailable.",
+                    ))
+                }
+            }
+        }
+        Err(AppError::invalid_backup(
+            "Temporary storage could not be allocated.",
+        ))
+    }
+
+    pub(crate) fn path(&self) -> &Path {
         &self.path
     }
 }
@@ -164,6 +182,13 @@ pub async fn create_backup(
     input: CreateBackupInput,
 ) -> Result<BackupManifestDto, AppError> {
     let destination = validate_destination(&input.destination_path, input.overwrite_confirmed)?;
+    create_verified_backup_to(state, &destination).await
+}
+
+pub(crate) async fn create_verified_backup_to(
+    state: &AppState,
+    destination: &Path,
+) -> Result<BackupManifestDto, AppError> {
     let database = state.writable_db()?.clone();
     let database_path = state.database_path().to_path_buf();
     let database_parent = database_path
@@ -203,19 +228,20 @@ pub async fn create_backup(
     };
     validate_manifest(&manifest)?;
 
-    let destination_parent = path_parent(&destination);
+    let destination_parent = path_parent(destination);
     let temporary_bundle = OwnedTempFile::create(destination_parent, "backup-destination")?;
     write_bundle(temporary_bundle.path(), &manifest, &temporary_database)?;
     let readback = read_bundle(temporary_bundle.path(), None)?;
     if readback.manifest != manifest || readback.database_digest != digest_from_manifest(&manifest)
     {
-        return Err(AppError::invalid_backup(
+        return Err(AppError::backup_create_failed(
             "The written backup failed verification.",
         ));
     }
     sync_file(temporary_bundle.path())?;
-    fs::rename(temporary_bundle.path(), &destination)
-        .map_err(|_| AppError::invalid_backup("The backup destination could not be replaced."))?;
+    fs::rename(temporary_bundle.path(), destination).map_err(|_| {
+        AppError::backup_create_failed("The backup destination could not be replaced.")
+    })?;
     temporary_bundle.keep();
     sync_directory(destination_parent)?;
 
@@ -228,6 +254,14 @@ pub async fn inspect_backup(
     input: InspectBackupInput,
 ) -> Result<BackupInspectionDto, AppError> {
     let source = validate_source(&input.source_path)?;
+    inspect_backup_at(state, &source.path, source.metadata).await
+}
+
+pub(crate) async fn inspect_backup_at(
+    state: &AppState,
+    source_path: &Path,
+    source_metadata: SourceMetadata,
+) -> Result<BackupInspectionDto, AppError> {
     let source_parent = state
         .database_path()
         .parent()
@@ -235,7 +269,7 @@ pub async fn inspect_backup(
         .ok_or_else(|| AppError::invalid_backup("Application storage is unavailable."))?;
     let temporary_directory = OwnedTempDir::new(source_parent, "backup-inspect")?;
     let staged_database = temporary_directory.path().join(DATABASE_ENTRY_NAME);
-    let readback = read_bundle(&source.path, Some(&staged_database))?;
+    let readback = read_bundle(source_path, Some(&staged_database))?;
     let facts = inspect_database_copy(
         &staged_database,
         Some(i64::from(readback.manifest.database_migration_version)),
@@ -257,15 +291,15 @@ pub async fn inspect_backup(
         ));
     }
 
-    let after_read = file_metadata(&source.path)?;
-    if !same_file_metadata(&source.metadata, &after_read) {
+    let after_read = file_metadata(source_path)?;
+    if !same_file_metadata(&source_metadata, &after_read) {
         return Err(AppError::invalid_backup(
             "The selected backup changed during inspection.",
         ));
     }
-    let source_digest = hash_file(&source.path)?;
+    let source_digest = hash_file(source_path)?;
     let token = state.issue_backup_inspection(StoredBackupInspection {
-        canonical_path: source.path,
+        canonical_path: source_path.to_path_buf(),
         file_size: after_read.len,
         modified_at: after_read.modified,
         file_device: after_read.device,
@@ -369,11 +403,11 @@ fn path_parent(path: &Path) -> &Path {
 }
 
 #[derive(Debug, Clone)]
-struct SourceMetadata {
-    len: u64,
-    modified: SystemTime,
-    device: u64,
-    inode: u64,
+pub(crate) struct SourceMetadata {
+    pub len: u64,
+    pub modified: SystemTime,
+    pub device: u64,
+    pub inode: u64,
 }
 
 struct SourceFile {
@@ -381,7 +415,7 @@ struct SourceFile {
     metadata: SourceMetadata,
 }
 
-fn file_metadata(path: &Path) -> Result<SourceMetadata, AppError> {
+pub(crate) fn file_metadata(path: &Path) -> Result<SourceMetadata, AppError> {
     let metadata = fs::symlink_metadata(path)
         .map_err(|_| AppError::invalid_backup("The selected backup is unavailable."))?;
     if metadata.file_type().is_symlink() || !metadata.is_file() {
@@ -407,7 +441,7 @@ fn file_metadata(path: &Path) -> Result<SourceMetadata, AppError> {
     })
 }
 
-fn same_file_metadata(first: &SourceMetadata, second: &SourceMetadata) -> bool {
+pub(crate) fn same_file_metadata(first: &SourceMetadata, second: &SourceMetadata) -> bool {
     first.len == second.len
         && first.modified == second.modified
         && first.device == second.device
@@ -436,7 +470,7 @@ fn sqlite_string_literal(path: &Path) -> Result<String, AppError> {
     Ok(format!("'{}'", value.replace('\'', "''")))
 }
 
-async fn inspect_database_copy(
+pub(crate) async fn inspect_database_copy(
     path: &Path,
     expected_migration: Option<i64>,
 ) -> Result<DatabaseFacts, AppError> {
@@ -455,30 +489,14 @@ async fn inspect_database_copy_in_pool(
     sqlx::query("PRAGMA query_only = ON")
         .execute(pool)
         .await
-        .map_err(|_| AppError::invalid_backup("The database entry is not readable."))?;
+        .map_err(|_| AppError::backup_corrupt("The database entry is not readable."))?;
     sqlx::query("PRAGMA trusted_schema = OFF")
         .execute(pool)
         .await
-        .map_err(|_| AppError::invalid_backup("The database entry is not readable."))?;
+        .map_err(|_| AppError::backup_corrupt("The database entry is not readable."))?;
 
-    let integrity: String = sqlx::query_scalar("PRAGMA integrity_check")
-        .fetch_one(pool)
-        .await
-        .map_err(|_| AppError::invalid_backup("The database entry is not readable."))?;
-    if !integrity.eq_ignore_ascii_case("ok") {
-        return Err(AppError::invalid_backup(
-            "The database integrity check failed.",
-        ));
-    }
-    let foreign_key_violations = sqlx::query("PRAGMA foreign_key_check")
-        .fetch_all(pool)
-        .await
-        .map_err(|_| AppError::invalid_backup("The database foreign-key check failed."))?;
-    if !foreign_key_violations.is_empty() {
-        return Err(AppError::invalid_backup(
-            "The database foreign-key check failed.",
-        ));
-    }
+    reject_attached_schemas(pool).await?;
+    reject_unexpected_schema_kinds(pool).await?;
 
     let migration = read_migration_version_in_pool(pool).await?;
     if migration <= 0 {
@@ -496,6 +514,28 @@ async fn inspect_database_copy_in_pool(
 
     if migration <= max_supported_migration() {
         verify_schema_fingerprint(pool, migration).await?;
+    }
+
+    let integrity: String = sqlx::query_scalar("PRAGMA integrity_check")
+        .fetch_one(pool)
+        .await
+        .map_err(|_| AppError::backup_corrupt("The database entry is not readable."))?;
+    if !integrity.eq_ignore_ascii_case("ok") {
+        return Err(AppError::backup_corrupt(
+            "The database integrity check failed.",
+        ));
+    }
+    let foreign_key_violations = sqlx::query("PRAGMA foreign_key_check")
+        .fetch_all(pool)
+        .await
+        .map_err(|_| AppError::backup_corrupt("The database foreign-key check failed."))?;
+    if !foreign_key_violations.is_empty() {
+        return Err(AppError::backup_corrupt(
+            "The database foreign-key check failed.",
+        ));
+    }
+
+    if migration <= max_supported_migration() {
         let household =
             sqlx::query("SELECT id, name FROM households ORDER BY created_at, id LIMIT 1")
                 .fetch_optional(pool)
@@ -545,57 +585,318 @@ async fn read_migration_version_in_pool(pool: &SqlitePool) -> Result<i64, AppErr
         .map_err(|_| AppError::invalid_backup("The database migration metadata is invalid."))
 }
 
-async fn verify_schema_fingerprint(pool: &SqlitePool, migration: i64) -> Result<(), AppError> {
-    if migration != max_supported_migration() {
-        for name in [
-            "households",
-            "media_assets",
-            "members",
-            "accounts",
-            "app_settings",
-        ] {
-            let exists: Option<i64> = sqlx::query_scalar(
-                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
-            )
-            .bind(name)
-            .fetch_optional(pool)
-            .await
-            .map_err(|_| AppError::invalid_backup("The database schema is not supported."))?;
-            if exists.is_none() {
-                return Err(AppError::invalid_backup(
-                    "The database schema is not supported.",
-                ));
-            }
+async fn reject_attached_schemas(pool: &SqlitePool) -> Result<(), AppError> {
+    let rows = sqlx::query("PRAGMA database_list")
+        .fetch_all(pool)
+        .await
+        .map_err(|_| AppError::restore_validation_failed("attached_schema"))?;
+    for row in rows {
+        let name = row
+            .try_get::<String, _>("name")
+            .map_err(|_| AppError::restore_validation_failed("attached_schema"))?;
+        if name != "main" && name != "temp" {
+            return Err(AppError::restore_validation_failed("attached_schema"));
         }
-        return Ok(());
     }
+    Ok(())
+}
 
+async fn reject_unexpected_schema_kinds(pool: &SqlitePool) -> Result<(), AppError> {
+    let unexpected: Vec<(String, String, Option<String>)> = sqlx::query_as(
+        "SELECT type, name, sql FROM sqlite_master
+         WHERE name NOT LIKE 'sqlite_%'",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|_| AppError::restore_validation_failed("unexpected_object"))?;
+    for (kind, _name, sql) in unexpected {
+        let virtual_table = sql
+            .as_deref()
+            .is_some_and(|value| value.to_ascii_uppercase().contains("VIRTUAL TABLE"));
+        if kind == "trigger" {
+            return Err(AppError::restore_validation_failed("trigger"));
+        }
+        if kind == "view" {
+            return Err(AppError::restore_validation_failed("view"));
+        }
+        if kind == "table" && virtual_table {
+            return Err(AppError::restore_validation_failed("virtual_table"));
+        }
+        if kind != "table" && kind != "index" {
+            return Err(AppError::restore_validation_failed("unexpected_object"));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) async fn verify_schema_fingerprint(
+    pool: &SqlitePool,
+    migration: i64,
+) -> Result<(), AppError> {
+    let expected = expected_schema_objects_for(migration)
+        .ok_or_else(|| AppError::restore_validation_failed("unsupported_schema"))?;
     let rows = sqlx::query(
         "SELECT type, name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name",
     )
     .fetch_all(pool)
     .await
-    .map_err(|_| AppError::invalid_backup("The database schema is not supported."))?;
+    .map_err(|_| AppError::restore_validation_failed("unsupported_schema"))?;
     let actual = rows
         .into_iter()
         .map(|row| {
             Ok::<_, AppError>((
-                row.try_get::<String, _>("type").map_err(|_| {
-                    AppError::invalid_backup("The database schema is not supported.")
-                })?,
-                row.try_get::<String, _>("name").map_err(|_| {
-                    AppError::invalid_backup("The database schema is not supported.")
-                })?,
+                row.try_get::<String, _>("type")
+                    .map_err(|_| AppError::restore_validation_failed("unsupported_schema"))?,
+                row.try_get::<String, _>("name")
+                    .map_err(|_| AppError::restore_validation_failed("unsupported_schema"))?,
             ))
         })
         .collect::<Result<BTreeSet<_>, _>>()?;
-    let expected = expected_schema_objects();
     if actual != expected {
-        return Err(AppError::invalid_backup(
-            "The database schema fingerprint is not supported.",
-        ));
+        return Err(AppError::restore_validation_failed("unsupported_schema"));
     }
     Ok(())
+}
+
+fn schema_objects(tables: &[&str], indexes: &[&str]) -> BTreeSet<(String, String)> {
+    tables
+        .iter()
+        .map(|name| ("table".to_owned(), (*name).to_owned()))
+        .chain(
+            indexes
+                .iter()
+                .map(|name| ("index".to_owned(), (*name).to_owned())),
+        )
+        .collect()
+}
+
+pub(crate) fn expected_schema_objects_for(migration: i64) -> Option<BTreeSet<(String, String)>> {
+    Some(match migration {
+        1 => schema_objects(
+            &[
+                "_sqlx_migrations",
+                "account_groups",
+                "account_ownership",
+                "account_values",
+                "accounts",
+                "app_settings",
+                "households",
+                "institutions",
+                "media_assets",
+                "members",
+            ],
+            &[
+                "idx_account_values_latest",
+                "idx_accounts_category",
+                "idx_accounts_group",
+                "idx_accounts_household",
+                "idx_accounts_institution",
+                "idx_groups_household",
+                "idx_institutions_household",
+                "idx_members_household",
+                "idx_ownership_member",
+            ],
+        ),
+        2 => schema_objects(
+            &[
+                "_sqlx_migrations",
+                "account_cash_values",
+                "account_groups",
+                "account_ownership",
+                "account_values",
+                "accounts",
+                "app_settings",
+                "fx_quote_preferences",
+                "fx_quotes",
+                "holdings",
+                "households",
+                "institutions",
+                "instrument_quotes",
+                "instruments",
+                "media_assets",
+                "members",
+            ],
+            &[
+                "idx_account_cash_values_latest",
+                "idx_account_values_latest",
+                "idx_accounts_category",
+                "idx_accounts_group",
+                "idx_accounts_household",
+                "idx_accounts_institution",
+                "idx_fx_quotes_latest",
+                "idx_groups_household",
+                "idx_holdings_account",
+                "idx_holdings_active_pair",
+                "idx_holdings_instrument",
+                "idx_institutions_household",
+                "idx_instrument_quotes_latest",
+                "idx_instruments_household",
+                "idx_instruments_provider_identity",
+                "idx_members_household",
+                "idx_ownership_member",
+            ],
+        ),
+        3 => schema_objects(
+            &[
+                "_sqlx_migrations",
+                "account_cash_values",
+                "account_groups",
+                "account_ownership",
+                "account_state_observations",
+                "account_state_ownership",
+                "account_values",
+                "accounts",
+                "activities",
+                "activity_legs",
+                "app_settings",
+                "daily_valuation_snapshot_items",
+                "daily_valuation_snapshots",
+                "fx_preference_observations",
+                "fx_quote_preferences",
+                "fx_quotes",
+                "history_origin_account_states",
+                "history_origin_account_values",
+                "history_origin_cash_values",
+                "history_origin_holdings",
+                "history_origin_ownership",
+                "history_origins",
+                "history_snapshot_state",
+                "holding_quantity_values",
+                "holding_state_observations",
+                "holdings",
+                "households",
+                "institutions",
+                "instrument_preference_observations",
+                "instrument_quotes",
+                "instruments",
+                "media_assets",
+                "members",
+            ],
+            &[
+                "idx_account_cash_values_activity",
+                "idx_account_cash_values_latest",
+                "idx_account_state_observations_latest",
+                "idx_account_state_ownership_member",
+                "idx_account_values_activity",
+                "idx_account_values_latest",
+                "idx_accounts_category",
+                "idx_accounts_group",
+                "idx_accounts_household",
+                "idx_accounts_institution",
+                "idx_activities_correction_group",
+                "idx_activities_corrects",
+                "idx_activities_household_cursor",
+                "idx_activities_reverses",
+                "idx_activity_legs_account",
+                "idx_activity_legs_activity",
+                "idx_activity_legs_instrument",
+                "idx_daily_valuation_snapshot_items_account",
+                "idx_daily_valuation_snapshot_items_instrument",
+                "idx_daily_valuation_snapshots_latest",
+                "idx_daily_valuation_snapshots_revision",
+                "idx_fx_preference_observations_latest",
+                "idx_fx_quotes_latest",
+                "idx_groups_household",
+                "idx_history_origins_household",
+                "idx_holding_quantity_values_activity",
+                "idx_holding_quantity_values_latest",
+                "idx_holding_state_observations_latest",
+                "idx_holdings_account",
+                "idx_holdings_active_pair",
+                "idx_holdings_instrument",
+                "idx_institutions_household",
+                "idx_instrument_preference_observations_latest",
+                "idx_instrument_quotes_latest",
+                "idx_instruments_household",
+                "idx_instruments_provider_identity",
+                "idx_members_household",
+                "idx_ownership_member",
+            ],
+        ),
+        4 => schema_objects(
+            &[
+                "_sqlx_migrations",
+                "account_cash_values",
+                "account_groups",
+                "account_ownership",
+                "account_state_observations",
+                "account_state_ownership",
+                "account_values",
+                "accounts",
+                "activities",
+                "activity_legs",
+                "app_settings",
+                "cost_basis_declarations",
+                "daily_valuation_snapshot_items",
+                "daily_valuation_snapshots",
+                "fx_preference_observations",
+                "fx_quote_preferences",
+                "fx_quotes",
+                "history_origin_account_states",
+                "history_origin_account_values",
+                "history_origin_cash_values",
+                "history_origin_holdings",
+                "history_origin_ownership",
+                "history_origins",
+                "history_snapshot_state",
+                "holding_quantity_values",
+                "holding_state_observations",
+                "holdings",
+                "households",
+                "institutions",
+                "instrument_preference_observations",
+                "instrument_quotes",
+                "instruments",
+                "media_assets",
+                "members",
+            ],
+            &[
+                "idx_account_cash_values_activity",
+                "idx_account_cash_values_latest",
+                "idx_account_state_observations_latest",
+                "idx_account_state_ownership_member",
+                "idx_account_values_activity",
+                "idx_account_values_latest",
+                "idx_accounts_category",
+                "idx_accounts_group",
+                "idx_accounts_household",
+                "idx_accounts_institution",
+                "idx_activities_correction_group",
+                "idx_activities_corrects",
+                "idx_activities_household_cursor",
+                "idx_activities_reverses",
+                "idx_activity_legs_account",
+                "idx_activity_legs_activity",
+                "idx_activity_legs_instrument",
+                "idx_cost_basis_declarations_household",
+                "idx_cost_basis_declarations_leg_lot",
+                "idx_cost_basis_declarations_origin_lot",
+                "idx_daily_valuation_snapshot_items_account",
+                "idx_daily_valuation_snapshot_items_instrument",
+                "idx_daily_valuation_snapshots_latest",
+                "idx_daily_valuation_snapshots_revision",
+                "idx_fx_preference_observations_latest",
+                "idx_fx_quotes_latest",
+                "idx_groups_household",
+                "idx_history_origins_household",
+                "idx_holding_quantity_values_activity",
+                "idx_holding_quantity_values_latest",
+                "idx_holding_state_observations_latest",
+                "idx_holdings_account",
+                "idx_holdings_active_pair",
+                "idx_holdings_instrument",
+                "idx_institutions_household",
+                "idx_instrument_preference_observations_latest",
+                "idx_instrument_quotes_latest",
+                "idx_instruments_household",
+                "idx_instruments_provider_identity",
+                "idx_members_household",
+                "idx_ownership_member",
+            ],
+        ),
+        5 => expected_schema_objects(),
+        _ => return None,
+    })
 }
 
 fn expected_schema_objects() -> BTreeSet<(String, String)> {
@@ -717,13 +1018,14 @@ fn expected_schema_objects() -> BTreeSet<(String, String)> {
         .collect()
 }
 
-fn write_bundle(
+pub(crate) fn write_bundle(
     destination: &Path,
     manifest: &BackupManifestDto,
     database: &Path,
 ) -> Result<(), AppError> {
     let file = OpenOptions::new()
         .write(true)
+        .create(true)
         .truncate(true)
         .open(destination)
         .map_err(|_| AppError::invalid_backup("The temporary destination is not writable."))?;
@@ -755,12 +1057,12 @@ fn write_bundle(
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct BundleReadback {
-    manifest: BackupManifestDto,
-    database_digest: FileDigest,
+pub(crate) struct BundleReadback {
+    pub manifest: BackupManifestDto,
+    pub database_digest: FileDigest,
 }
 
-fn read_bundle(path: &Path, staging: Option<&Path>) -> Result<BundleReadback, AppError> {
+pub(crate) fn read_bundle(path: &Path, staging: Option<&Path>) -> Result<BundleReadback, AppError> {
     let file = File::open(path)
         .map_err(|_| AppError::invalid_backup("The selected backup is not readable."))?;
     let mut archive = ZipArchive::new(file)
@@ -966,7 +1268,7 @@ fn copy_reader_hash<R: Read>(
     })
 }
 
-fn hash_file(path: &Path) -> Result<FileDigest, AppError> {
+pub(crate) fn hash_file(path: &Path) -> Result<FileDigest, AppError> {
     let mut file = File::open(path)
         .map_err(|_| AppError::invalid_backup("The database snapshot could not be read."))?;
     let metadata = file
@@ -1024,13 +1326,13 @@ fn is_sha256(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
-fn sync_file(path: &Path) -> Result<(), AppError> {
+pub(crate) fn sync_file(path: &Path) -> Result<(), AppError> {
     File::open(path)
         .and_then(|file| file.sync_all())
         .map_err(|_| AppError::invalid_backup("The backup archive could not be synchronized."))
 }
 
-fn sync_directory(path: &Path) -> Result<(), AppError> {
+pub(crate) fn sync_directory(path: &Path) -> Result<(), AppError> {
     File::open(path)
         .and_then(|file| file.sync_all())
         .map_err(|_| AppError::invalid_backup("The backup destination could not be synchronized."))

@@ -33,6 +33,7 @@ pub mod query_count;
 pub mod quote_service;
 pub mod reference;
 pub mod refresh_service;
+pub mod restore_service;
 pub mod return_service;
 pub mod settings_service;
 pub mod sustainable_repositories;

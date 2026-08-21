@@ -63,6 +63,10 @@ use crate::{
             ProviderInstrumentDto, RefreshInstrumentInput, RefreshResultDto,
             SearchProviderInstrumentsInput,
         },
+        restore_service::{
+            InspectRecoveryBackupInput, RecoveryBackupListDto, RestoreBackupInput,
+            RestoreBackupResultDto,
+        },
         return_service::PerformanceSummaryDto,
         settings_service::{AppSettingsDto, DeleteAllDataInput, UpdateSettingsInput},
     },
@@ -77,7 +81,10 @@ use crate::{
             list_cost_basis_declarations_impl, list_holding_gain_summaries_impl,
             list_holding_lots_impl, list_unknown_basis_lots_impl, revoke_lot_cost_basis_impl,
         },
-        backup::{create_backup_impl, inspect_backup_impl},
+        backup::{
+            create_backup_impl, inspect_backup_impl, inspect_recovery_backup_impl,
+            list_recovery_backups_impl, restore_backup_impl,
+        },
         bootstrap::{bootstrap_impl, BootstrapDto},
         cash::{append_account_cash_impl, list_account_cash_impl},
         groups::{
@@ -855,6 +862,32 @@ pub async fn inspect_backup(
 
 #[tauri::command]
 #[specta::specta]
+pub async fn list_recovery_backups(
+    state: State<'_, AppState>,
+) -> Result<RecoveryBackupListDto, crate::error::CommandError> {
+    with_shared_operation!(&state, list_recovery_backups_impl(&state))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn inspect_recovery_backup(
+    state: State<'_, AppState>,
+    input: InspectRecoveryBackupInput,
+) -> Result<BackupInspectionDto, crate::error::CommandError> {
+    with_shared_operation!(&state, inspect_recovery_backup_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn restore_backup(
+    state: State<'_, AppState>,
+    input: RestoreBackupInput,
+) -> Result<RestoreBackupResultDto, crate::error::CommandError> {
+    restore_backup_impl(&state, input).await
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn list_maintenance_items(
     state: State<'_, AppState>,
 ) -> Result<MaintenancePageDto, crate::error::CommandError> {
@@ -1115,6 +1148,9 @@ pub fn command_builder() -> Builder<tauri::Wry> {
         generate_due_pending_activities,
         create_backup,
         inspect_backup,
+        list_recovery_backups,
+        inspect_recovery_backup,
+        restore_backup,
         list_maintenance_items,
         list_freshness_policies,
         update_freshness_policy,

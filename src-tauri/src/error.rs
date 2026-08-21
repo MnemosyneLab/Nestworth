@@ -116,8 +116,14 @@ pub enum AppError {
     InvalidImportRow { message: String },
     #[error("the backup is invalid")]
     InvalidBackup { message: String },
+    #[error("the backup is corrupt")]
+    BackupCorrupt { message: String },
+    #[error("the backup could not be created")]
+    BackupCreateFailed { message: String },
     #[error("the backup format version is unsupported")]
     BackupUnsupportedVersion,
+    #[error("restore validation failed")]
+    RestoreValidationFailed { reason: String },
     #[error("the application must be restarted")]
     AppRestartRequired { reason: RestartReason },
     #[error("the analytics period is unavailable")]
@@ -262,8 +268,26 @@ impl AppError {
         }
     }
 
+    pub fn backup_corrupt(message: &str) -> Self {
+        Self::BackupCorrupt {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn backup_create_failed(message: &str) -> Self {
+        Self::BackupCreateFailed {
+            message: message.to_owned(),
+        }
+    }
+
     pub fn backup_unsupported_version() -> Self {
         Self::BackupUnsupportedVersion
+    }
+
+    pub fn restore_validation_failed(reason: &str) -> Self {
+        Self::RestoreValidationFailed {
+            reason: reason.to_owned(),
+        }
     }
 
     pub fn analytics_input_incomplete(reason: &str) -> Self {
@@ -555,10 +579,29 @@ impl AppError {
                 message,
                 fields: None,
             },
+            Self::BackupCorrupt { message } => CommandError {
+                code: ErrorCode::BackupCorrupt,
+                message,
+                fields: None,
+            },
+            Self::BackupCreateFailed { message } => CommandError {
+                code: ErrorCode::BackupCreateFailed,
+                message,
+                fields: None,
+            },
             Self::BackupUnsupportedVersion => CommandError::new(
                 ErrorCode::BackupUnsupportedVersion,
                 "The backup format version is not supported.",
             ),
+            Self::RestoreValidationFailed { reason } => {
+                let mut fields = HashMap::new();
+                fields.insert("reason".to_owned(), reason);
+                CommandError {
+                    code: ErrorCode::RestoreValidationFailed,
+                    message: "The backup cannot be restored.".to_owned(),
+                    fields: Some(fields),
+                }
+            }
             Self::AppRestartRequired { reason } => {
                 let mut fields = HashMap::new();
                 fields.insert("reason".to_owned(), reason.as_str().to_owned());
@@ -647,7 +690,10 @@ pub enum ErrorCode {
     InvalidBenchmark,
     ImportInvalid,
     BackupInvalid,
+    BackupCorrupt,
+    BackupCreateFailed,
     BackupUnsupportedVersion,
+    RestoreValidationFailed,
     AppRestartRequired,
     InternalError,
 }
