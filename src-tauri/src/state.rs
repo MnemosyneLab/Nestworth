@@ -132,6 +132,18 @@ pub(crate) struct StoredBackupInspection {
     pub expires_at: Instant,
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub(crate) struct StoredCsvPreview {
+    pub canonical_path: PathBuf,
+    pub file_size: u64,
+    pub modified_at: SystemTime,
+    pub file_device: u64,
+    pub file_inode: u64,
+    pub sha256: String,
+    pub expires_at: Instant,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum RestoreFault {
     #[default]
@@ -149,6 +161,7 @@ pub struct AppState {
     fx_provider: FxAdapter,
     operation_gate: Arc<OperationGate>,
     backup_inspections: Mutex<HashMap<String, StoredBackupInspection>>,
+    csv_previews: Mutex<HashMap<String, StoredCsvPreview>>,
     #[cfg(test)]
     restore_fault: Mutex<RestoreFault>,
 }
@@ -186,6 +199,7 @@ impl AppState {
             fx_provider,
             operation_gate: Arc::new(OperationGate::new()),
             backup_inspections: Mutex::new(HashMap::new()),
+            csv_previews: Mutex::new(HashMap::new()),
             #[cfg(test)]
             restore_fault: Mutex::new(RestoreFault::None),
         }
@@ -203,6 +217,7 @@ impl AppState {
             fx_provider: FxAdapter::Unconfigured,
             operation_gate: Arc::new(OperationGate::new()),
             backup_inspections: Mutex::new(HashMap::new()),
+            csv_previews: Mutex::new(HashMap::new()),
             #[cfg(test)]
             restore_fault: Mutex::new(RestoreFault::None),
         }
@@ -270,6 +285,48 @@ impl AppState {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         inspections.retain(|_, value| value.expires_at > now);
         inspections.get(token).cloned()
+    }
+
+    pub(crate) fn issue_csv_preview(&self, preview: StoredCsvPreview) -> String {
+        let token = uuid::Uuid::now_v7().to_string();
+        let now = Instant::now();
+        let mut previews = self
+            .csv_previews
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        previews.retain(|_, value| value.expires_at > now);
+        previews.insert(token.clone(), preview);
+        token
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn csv_preview(&self, token: &str) -> Option<StoredCsvPreview> {
+        let now = Instant::now();
+        let mut previews = self
+            .csv_previews
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        previews.retain(|_, value| value.expires_at > now);
+        previews.get(token).cloned()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn expire_csv_preview(&self, token: &str) {
+        let mut previews = self
+            .csv_previews
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(preview) = previews.get_mut(token) {
+            preview.expires_at = Instant::now() - std::time::Duration::from_secs(1);
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn csv_preview_count(&self) -> usize {
+        self.csv_previews
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .len()
     }
 
     #[cfg(test)]

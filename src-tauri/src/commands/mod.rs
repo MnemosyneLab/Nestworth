@@ -3,6 +3,7 @@ pub mod analytics;
 pub mod backup;
 pub mod bootstrap;
 pub mod cash;
+pub mod export;
 pub mod groups;
 pub mod history;
 pub mod holdings;

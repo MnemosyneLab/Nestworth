@@ -4,6 +4,7 @@ mod activity;
 mod activity_leg;
 mod analytics_scope;
 mod category;
+mod csv_template;
 mod currency;
 mod decimal;
 mod fx;
@@ -47,6 +48,18 @@ pub use analytics_scope::{
     ScopeEndpointFacts, ScopeFlowActivity, ScopeFlowLeg, ScopeFlowResult,
 };
 pub use category::{PrimaryCategory, SecondaryCategory, TrackingMode};
+pub use csv_template::{
+    activity_fingerprint, benchmark_fingerprint, harden_spreadsheet_text, looks_localized_boolean,
+    looks_localized_date, looks_localized_decimal, needs_spreadsheet_hardening, optional_text,
+    parse_optional_external_id, parse_optional_namespace, parse_strict_boolean, quote_fingerprint,
+    required_text, unescape_spreadsheet_text, ACTIVITY_CSV_HEADERS, BENCHMARK_CSV_HEADERS,
+    CSV_ESCAPED_COLUMN, DIAGNOSTIC_DOMAIN_INVALID, DIAGNOSTIC_DUPLICATE_CONFLICT,
+    DIAGNOSTIC_EXACT_DUPLICATE, DIAGNOSTIC_HEADER_DUPLICATE, DIAGNOSTIC_HEADER_MISSING,
+    DIAGNOSTIC_HEADER_UNKNOWN, DIAGNOSTIC_KIND_FORBIDDEN, DIAGNOSTIC_LOCALIZED_VALUE,
+    DIAGNOSTIC_MALFORMED_QUOTE, DIAGNOSTIC_NO_IDENTITY_WARNING, DIAGNOSTIC_NUL,
+    DIAGNOSTIC_REFERENCE_ARCHIVED, DIAGNOSTIC_REFERENCE_MISSING, DIAGNOSTIC_ROW_LIMIT,
+    DIAGNOSTIC_TEMPLATE_INVALID, DIAGNOSTIC_UTF8_INVALID, MAX_CSV_IMPORT_ROWS, QUOTE_CSV_HEADERS,
+};
 pub use currency::CurrencyCode;
 pub use decimal::{
     canonical_decimal, checked_add, checked_div, checked_exp, checked_ln, checked_mul,

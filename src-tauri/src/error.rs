@@ -114,6 +114,10 @@ pub enum AppError {
     InvalidBenchmark { message: String },
     #[error("the import row is invalid")]
     InvalidImportRow { message: String },
+    #[error("the export could not be created")]
+    ExportFailed { message: String },
+    #[error("the import preview has expired")]
+    ImportPreviewExpired,
     #[error("the backup is invalid")]
     InvalidBackup { message: String },
     #[error("the backup is corrupt")]
@@ -260,6 +264,16 @@ impl AppError {
         Self::InvalidImportRow {
             message: message.to_owned(),
         }
+    }
+
+    pub fn export_failed(message: &str) -> Self {
+        Self::ExportFailed {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn import_preview_expired() -> Self {
+        Self::ImportPreviewExpired
     }
 
     pub fn invalid_backup(message: &str) -> Self {
@@ -574,6 +588,15 @@ impl AppError {
                 message,
                 fields: None,
             },
+            Self::ExportFailed { message } => CommandError {
+                code: ErrorCode::ExportFailed,
+                message,
+                fields: None,
+            },
+            Self::ImportPreviewExpired => CommandError::new(
+                ErrorCode::ImportPreviewExpired,
+                "The import preview has expired. Preview the file again.",
+            ),
             Self::InvalidBackup { message } => CommandError {
                 code: ErrorCode::BackupInvalid,
                 message,
@@ -689,6 +712,8 @@ pub enum ErrorCode {
     InvalidPendingActivity,
     InvalidBenchmark,
     ImportInvalid,
+    ExportFailed,
+    ImportPreviewExpired,
     BackupInvalid,
     BackupCorrupt,
     BackupCreateFailed,

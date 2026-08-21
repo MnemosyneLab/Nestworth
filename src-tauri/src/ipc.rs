@@ -18,6 +18,10 @@ use crate::{
             BackupInspectionDto, BackupManifestDto, CreateBackupInput, InspectBackupInput,
         },
         cash_service::{AccountCashRecordDto, AppendAccountCashInput, ListAccountCashInput},
+        csv_preview_service::{CsvImportPreviewDto, PreviewCsvImportInput},
+        export_service::{
+            CanonicalExportDto, CsvExportDto, ExportCanonicalJsonInput, ExportCsvInput,
+        },
         group_service::{CreateGroupInput, GroupRecordDto, UpdateGroupInput},
         history_query_service::{
             AccountTimelinePageDto, ActivityDetailDto, ActivityPageDto, ActivityPreviewDto,
@@ -87,6 +91,7 @@ use crate::{
         },
         bootstrap::{bootstrap_impl, BootstrapDto},
         cash::{append_account_cash_impl, list_account_cash_impl},
+        export::{export_canonical_json_impl, export_csv_impl, preview_csv_import_impl},
         groups::{
             archive_group_impl, create_group_impl, list_groups_impl, restore_group_impl,
             update_group_impl,
@@ -888,6 +893,33 @@ pub async fn restore_backup(
 
 #[tauri::command]
 #[specta::specta]
+pub async fn export_canonical_json(
+    state: State<'_, AppState>,
+    input: ExportCanonicalJsonInput,
+) -> Result<CanonicalExportDto, crate::error::CommandError> {
+    with_shared_operation!(&state, export_canonical_json_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn export_csv(
+    state: State<'_, AppState>,
+    input: ExportCsvInput,
+) -> Result<CsvExportDto, crate::error::CommandError> {
+    with_shared_operation!(&state, export_csv_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn preview_csv_import(
+    state: State<'_, AppState>,
+    input: PreviewCsvImportInput,
+) -> Result<CsvImportPreviewDto, crate::error::CommandError> {
+    with_shared_operation!(&state, preview_csv_import_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn list_maintenance_items(
     state: State<'_, AppState>,
 ) -> Result<MaintenancePageDto, crate::error::CommandError> {
@@ -1151,6 +1183,9 @@ pub fn command_builder() -> Builder<tauri::Wry> {
         list_recovery_backups,
         inspect_recovery_backup,
         restore_backup,
+        export_canonical_json,
+        export_csv,
+        preview_csv_import,
         list_maintenance_items,
         list_freshness_policies,
         update_freshness_policy,

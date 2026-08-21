@@ -601,6 +601,18 @@ pub async fn preview_activity(
     finish_read_tx(tx, result).await
 }
 
+pub(crate) async fn preview_create_activity_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    input: CreateActivityInput,
+) -> Result<(), AppError> {
+    let fields = input.posting_fields();
+    let command = post_command_from_input(tx, household_id, input).await?;
+    let time = time_spec(&fields)?;
+    activity_service::preview_in_tx(tx, command, Some(time), fields.note.as_deref()).await?;
+    Ok(())
+}
+
 pub async fn create_activity(
     state: &AppState,
     input: CreateActivityInput,
