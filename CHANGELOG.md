@@ -4,7 +4,7 @@ All notable changes to Nestworth are recorded here. The project follows semantic
 
 ## [0.1.5] - Unreleased
 
-v0.1.5 is under active development. Phases 0–11 are implemented; macOS accessibility/distribution checks and release publication remain outstanding.
+v0.1.5 has local Phase 12 release-candidate evidence; keyboard/VoiceOver device checks, Developer ID distribution, and release publication remain outstanding.
 
 ### Added
 

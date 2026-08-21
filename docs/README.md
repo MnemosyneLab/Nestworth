@@ -26,10 +26,11 @@ This directory contains the product, architecture, engineering, and release docu
 | [v0.1.4 Compatibility Baseline](releases/v0.1.4-baseline.md) | Frozen schema `004`, 81-command allowlist, ledger facts available to analytics, goldens, decimal contract, and query counts |
 | [v0.1.5 Release Contract](releases/v0.1.5.md) | Sustainable-use scope, locked product decisions, acceptance scenarios, and compatibility promises |
 | [v0.1.5 Technical Design](releases/v0.1.5-technical-design.md) | Pending, recurrence, freshness, Backup/Restore, import/export, Benchmark, search, persistence, IPC, and UI contracts |
-| [v0.1.5 Implementation Plan](releases/v0.1.5-implementation-plan.md) | Dependency-ordered phases, Phase 10/11 evidence, required tests, exit checks, and handoff rules |
+| [v0.1.5 Implementation Plan](releases/v0.1.5-implementation-plan.md) | Dependency-ordered phases, Phase 10–12 evidence, required tests, exit checks, and handoff rules |
 | [v0.1.5 Compatibility Baseline](releases/v0.1.5-baseline.md) | Frozen schema `004`, baseline command surface, runtime/file boundaries, v0.1.4 goldens, and automated evidence |
+| [v0.1.5 Release Evidence](releases/v0.1.5-release-evidence.md) | Exact local arm64 artifact, isolated launch, checksum, signing policy, and remaining publication gates |
 
-[v0.1.1](releases/v0.1.1.md) remains the household balance-sheet baseline. [v0.1.2](releases/v0.1.2.md), [v0.1.3](releases/v0.1.3.md), and [v0.1.4](releases/v0.1.4.md) are development-complete release-candidate lines with named macOS distribution checks remaining. [v0.1.5](releases/v0.1.5.md) has Phases 0–11 implemented; release closeout remains planned. No release is marked `Released` without a published, identified artifact and completed distribution policy.
+[v0.1.1](releases/v0.1.1.md) remains the household balance-sheet baseline. [v0.1.2](releases/v0.1.2.md), [v0.1.3](releases/v0.1.3.md), and [v0.1.4](releases/v0.1.4.md) are development-complete release-candidate lines with named macOS distribution checks remaining. [v0.1.5](releases/v0.1.5.md) has local Phase 12 release-candidate evidence; public distribution closeout remains pending. No release is marked `Released` without a published, identified artifact and completed distribution policy.
 
 ## Source of Truth
 
