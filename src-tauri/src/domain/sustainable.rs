@@ -175,9 +175,69 @@ impl CarryWindow {
         Ok(Self(days))
     }
 
+    pub fn from_i32(days: i32) -> Result<Self, AppError> {
+        u8::try_from(days)
+            .map_err(|_| {
+                AppError::invalid_benchmark("Benchmark carry window must be between 0 and 31 days.")
+            })
+            .and_then(Self::new)
+    }
+
     #[must_use]
     pub fn days(self) -> u8 {
         self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BenchmarkSeriesKind {
+    PriceReturn,
+    TotalReturn,
+}
+
+impl BenchmarkSeriesKind {
+    pub fn parse(value: &str) -> Result<Self, AppError> {
+        match value {
+            "price_return" => Ok(Self::PriceReturn),
+            "total_return" => Ok(Self::TotalReturn),
+            _ => Err(AppError::invalid_benchmark(
+                "Benchmark series kind must be price_return or total_return.",
+            )),
+        }
+    }
+
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::PriceReturn => "price_return",
+            Self::TotalReturn => "total_return",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BenchmarkObservationSourceKind {
+    Manual,
+    Csv,
+}
+
+impl BenchmarkObservationSourceKind {
+    pub fn parse(value: &str) -> Result<Self, AppError> {
+        match value {
+            "manual" => Ok(Self::Manual),
+            "csv" => Ok(Self::Csv),
+            _ => Err(AppError::invalid_benchmark(
+                "Benchmark observation source must be manual or csv.",
+            )),
+        }
+    }
+
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Manual => "manual",
+            Self::Csv => "csv",
+        }
     }
 }
 
@@ -1234,6 +1294,27 @@ mod tests {
         assert!(ScheduleInterval::new(ScheduleCadence::Yearly, 11).is_err());
         assert_eq!(CarryWindow::new(31).expect("carry window").days(), 31);
         assert!(CarryWindow::new(32).is_err());
+        assert!(CarryWindow::from_i32(-1).is_err());
+        assert_eq!(
+            BenchmarkSeriesKind::parse("price_return")
+                .expect("kind")
+                .as_str(),
+            "price_return"
+        );
+        assert_eq!(
+            BenchmarkSeriesKind::parse("total_return")
+                .expect("kind")
+                .as_str(),
+            "total_return"
+        );
+        assert!(BenchmarkSeriesKind::parse("total").is_err());
+        assert_eq!(
+            BenchmarkObservationSourceKind::parse("csv")
+                .expect("csv")
+                .as_str(),
+            "csv"
+        );
+        assert!(BenchmarkObservationSourceKind::parse("provider").is_err());
 
         let daily = Schedule::new(
             ScheduleCadence::Daily,

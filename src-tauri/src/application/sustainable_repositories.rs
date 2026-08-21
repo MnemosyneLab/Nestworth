@@ -1322,6 +1322,49 @@ pub async fn insert_benchmark(
     Ok(())
 }
 
+pub async fn get_benchmark(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    id: &str,
+) -> Result<Option<BenchmarkRecord>, AppError> {
+    query_count::record("sustainable.benchmark_get");
+    sqlx::query(
+        "SELECT id, household_id, name, currency, series_kind, max_carry_days,
+                archived_at, created_at, updated_at
+         FROM benchmarks
+         WHERE household_id = ? AND id = ?",
+    )
+    .bind(household_id)
+    .bind(id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("sustainable.benchmark_get_failed", error))?
+    .map(benchmark_from_row)
+    .transpose()
+}
+
+pub async fn update_benchmark(
+    tx: &mut Transaction<'_, Sqlite>,
+    row: &BenchmarkRecord,
+) -> Result<(), AppError> {
+    query_count::record("sustainable.benchmark_update");
+    sqlx::query(
+        "UPDATE benchmarks
+         SET name = ?, max_carry_days = ?, archived_at = ?, updated_at = ?
+         WHERE id = ? AND household_id = ?",
+    )
+    .bind(&row.name)
+    .bind(row.max_carry_days)
+    .bind(&row.archived_at)
+    .bind(&row.updated_at)
+    .bind(&row.id)
+    .bind(&row.household_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|error| map_write_error("sustainable.benchmark_update_failed", error))?;
+    Ok(())
+}
+
 pub async fn list_benchmark_observations(
     tx: &mut Transaction<'_, Sqlite>,
     benchmark_id: &str,
@@ -1340,6 +1383,28 @@ pub async fn list_benchmark_observations(
     .into_iter()
     .map(observation_from_row)
     .collect()
+}
+
+pub async fn select_benchmark_observation_at(
+    tx: &mut Transaction<'_, Sqlite>,
+    benchmark_id: &str,
+    observed_on: &str,
+) -> Result<Option<BenchmarkObservationRecord>, AppError> {
+    query_count::record("sustainable.benchmark_observation_select");
+    sqlx::query(
+        "SELECT id, benchmark_id, level, observed_on, note, source_kind, import_item_id, created_at
+         FROM benchmark_observations
+         WHERE benchmark_id = ? AND observed_on <= ?
+         ORDER BY observed_on DESC, created_at DESC, id DESC
+         LIMIT 1",
+    )
+    .bind(benchmark_id)
+    .bind(observed_on)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("sustainable.benchmark_observation_select_failed", error))?
+    .map(observation_from_row)
+    .transpose()
 }
 
 pub async fn insert_benchmark_observation(

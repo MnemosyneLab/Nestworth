@@ -464,7 +464,7 @@ pub(crate) async fn upsert_fx_preference(
     Ok(())
 }
 
-async fn current_fx_preference(
+pub(crate) async fn current_fx_preference(
     tx: &mut Transaction<'_, Sqlite>,
     household_id: &str,
     pair: FxPair,
@@ -625,6 +625,39 @@ pub(crate) async fn list_all_fx_quotes(
     .fetch_all(&mut **tx)
     .await
     .map_err(|error| map_read_error("fx_quote.household_list_failed", error))?
+    .into_iter()
+    .map(fx_quote_from_row)
+    .collect()
+}
+
+pub(crate) async fn list_fx_quotes_for_pair_at(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    native: &str,
+    household_base: &str,
+    cutoff_at: &str,
+) -> Result<Vec<FxQuoteRecordDto>, AppError> {
+    query_count::record("benchmark.fx_quotes");
+    sqlx::query(
+        "SELECT id, household_id, base_currency, quote_currency, rate, source_kind, source_key, delayed, quoted_at, created_at
+         FROM fx_quotes
+         WHERE household_id = ?
+           AND quoted_at <= ?
+           AND (
+                (base_currency = ? AND quote_currency = ?)
+                OR (base_currency = ? AND quote_currency = ?)
+           )
+         ORDER BY quoted_at DESC, created_at DESC, id DESC",
+    )
+    .bind(household_id)
+    .bind(cutoff_at)
+    .bind(native)
+    .bind(household_base)
+    .bind(household_base)
+    .bind(native)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("fx_quote.pair_cutoff_list_failed", error))?
     .into_iter()
     .map(fx_quote_from_row)
     .collect()

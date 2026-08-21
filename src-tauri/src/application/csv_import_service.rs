@@ -12,6 +12,7 @@ use sqlx::{Sqlite, Transaction};
 
 use super::{
     backup_service::same_file_metadata,
+    benchmark_service,
     csv_preview_service::{
         activity_input, activity_row_fingerprint, benchmark_row_fingerprint, check_reference,
         csv_cell, diagnostic, load_catalog, open_csv_source, parse_csv_bytes, parse_escaped,
@@ -26,14 +27,12 @@ use super::{
     reference::{
         begin_read_tx, begin_write_tx, finish_read_tx, finish_write_tx, require_household_tx,
     },
-    sustainable_repositories::{
-        self, BenchmarkObservationRecord, ImportBatchRecord, ImportItemRecord,
-    },
+    sustainable_repositories::{self, ImportBatchRecord, ImportItemRecord},
 };
 use crate::{
     domain::{
         looks_localized_date, looks_localized_decimal, optional_text, parse_optional_note,
-        BenchmarkId, BenchmarkLevel, BenchmarkObservationId, CalendarDate, CurrencyCode, FxRate,
+        BenchmarkLevel, BenchmarkObservationSourceKind, CalendarDate, CurrencyCode, FxRate,
         ImportBatchId, ImportItemId, ImportTemplate, Timestamp, UnitPrice, CSV_ESCAPED_COLUMN,
         DIAGNOSTIC_DOMAIN_INVALID, DIAGNOSTIC_DUPLICATE_CONFLICT, DIAGNOSTIC_EXACT_DUPLICATE,
         DIAGNOSTIC_KIND_FORBIDDEN, DIAGNOSTIC_LOCALIZED_VALUE, DIAGNOSTIC_NO_IDENTITY_WARNING,
@@ -855,28 +854,14 @@ async fn commit_benchmark_row(
             warn_no_identity,
         } => {
             let benchmark_id = unescape(csv_cell(row, "benchmark_id"), escaped);
-            BenchmarkId::parse(&benchmark_id).map_err(|_| {
-                diagnostic(
-                    row.number,
-                    "benchmark_id",
-                    DIAGNOSTIC_DOMAIN_INVALID,
-                    "error",
-                )
-            })?;
-            let _ = household_id;
-            let observation_id = BenchmarkObservationId::new().to_string();
-            sustainable_repositories::insert_benchmark_observation(
+            let posted = benchmark_service::append_benchmark_observation_in_tx(
                 tx,
-                &BenchmarkObservationRecord {
-                    id: observation_id.clone(),
-                    benchmark_id,
-                    level: parsed_level.canonical(),
-                    observed_on,
-                    note,
-                    source_kind: "csv".to_owned(),
-                    import_item_id: None,
-                    created_at: Timestamp::now().to_rfc3339(),
-                },
+                household_id,
+                &benchmark_id,
+                parsed_level.canonical().as_str(),
+                &observed_on,
+                note.as_deref(),
+                BenchmarkObservationSourceKind::Csv,
             )
             .await
             .map_err(|_| {
@@ -900,7 +885,7 @@ async fn commit_benchmark_row(
                 activity_id: None,
                 instrument_quote_id: None,
                 fx_quote_id: None,
-                benchmark_observation_id: Some(observation_id),
+                benchmark_observation_id: Some(posted.id),
             };
             remember_identity(
                 seen_identities,

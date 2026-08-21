@@ -97,13 +97,13 @@ pub use reference_catalog::{
 pub use return_rate::ReturnRate;
 pub use signed_money::SignedMoney;
 pub use sustainable::{
-    ActivityImportRow, BackupFormatVersion, BenchmarkLevel, CanonicalImportRow, CarryWindow,
-    Checksum, ExternalId, FreshnessPolicyKind, ImportField, ImportFingerprint, ImportTemplate,
-    PendingActivityKind, PendingActivityPayload, RecurrenceResult, RecurringActivityKind,
-    RecurringActivityPayload, Schedule, ScheduleCadence, ScheduleInterval, SourceNamespace,
-    MAX_RECURRENCE_OCCURRENCES,
+    ActivityImportRow, BackupFormatVersion, BenchmarkLevel, BenchmarkObservationSourceKind,
+    BenchmarkSeriesKind, CanonicalImportRow, CarryWindow, Checksum, ExternalId,
+    FreshnessPolicyKind, ImportField, ImportFingerprint, ImportTemplate, PendingActivityKind,
+    PendingActivityPayload, RecurrenceResult, RecurringActivityKind, RecurringActivityPayload,
+    Schedule, ScheduleCadence, ScheduleInterval, SourceNamespace, MAX_RECURRENCE_OCCURRENCES,
 };
-pub use text::{parse_optional_note, NOTE_MAX_CHARS};
+pub use text::{parse_name, parse_optional_note, NOTE_MAX_CHARS};
 pub use time::{
     closed_day_cutoff, inclusive_closed_day_instant, origin_timezone_from_iana_name,
     resolve_activity_time, resolve_host_origin_timezone, resolve_local_datetime,

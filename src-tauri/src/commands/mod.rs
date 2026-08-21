@@ -1,6 +1,7 @@
 pub mod accounts;
 pub mod analytics;
 pub mod backup;
+pub mod benchmarks;
 pub mod bootstrap;
 pub mod cash;
 pub mod export;

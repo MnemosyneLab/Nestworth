@@ -17,6 +17,11 @@ use crate::{
         backup_service::{
             BackupInspectionDto, BackupManifestDto, CreateBackupInput, InspectBackupInput,
         },
+        benchmark_service::{
+            AppendBenchmarkObservationInput, BenchmarkComparisonDto, BenchmarkDto,
+            BenchmarkObservationDto, CreateBenchmarkInput, GetBenchmarkComparisonInput,
+            ListBenchmarkObservationsInput, SetDefaultBenchmarkInput, UpdateBenchmarkInput,
+        },
         cash_service::{AccountCashRecordDto, AppendAccountCashInput, ListAccountCashInput},
         csv_import_service::{
             CommitCsvImportInput, CsvImportCommitDto, GetImportBatchInput, ImportBatchDetailDto,
@@ -92,6 +97,11 @@ use crate::{
         backup::{
             create_backup_impl, inspect_backup_impl, inspect_recovery_backup_impl,
             list_recovery_backups_impl, restore_backup_impl,
+        },
+        benchmarks::{
+            append_benchmark_observation_impl, archive_benchmark_impl, create_benchmark_impl,
+            get_benchmark_comparison_impl, list_benchmark_observations_impl, list_benchmarks_impl,
+            restore_benchmark_impl, set_default_benchmark_impl, update_benchmark_impl,
         },
         bootstrap::{bootstrap_impl, BootstrapDto},
         cash::{append_account_cash_impl, list_account_cash_impl},
@@ -992,6 +1002,87 @@ pub async fn snooze_maintenance_item(
 
 #[tauri::command]
 #[specta::specta]
+pub async fn list_benchmarks(
+    state: State<'_, AppState>,
+    input: ListFilterInput,
+) -> Result<Vec<BenchmarkDto>, crate::error::CommandError> {
+    with_shared_operation!(&state, list_benchmarks_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn create_benchmark(
+    state: State<'_, AppState>,
+    input: CreateBenchmarkInput,
+) -> Result<BenchmarkDto, crate::error::CommandError> {
+    with_shared_operation!(&state, create_benchmark_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn update_benchmark(
+    state: State<'_, AppState>,
+    input: UpdateBenchmarkInput,
+) -> Result<BenchmarkDto, crate::error::CommandError> {
+    with_shared_operation!(&state, update_benchmark_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn archive_benchmark(
+    state: State<'_, AppState>,
+    input: IdInput,
+) -> Result<BenchmarkDto, crate::error::CommandError> {
+    with_shared_operation!(&state, archive_benchmark_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn restore_benchmark(
+    state: State<'_, AppState>,
+    input: IdInput,
+) -> Result<BenchmarkDto, crate::error::CommandError> {
+    with_shared_operation!(&state, restore_benchmark_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_benchmark_observations(
+    state: State<'_, AppState>,
+    input: ListBenchmarkObservationsInput,
+) -> Result<Vec<BenchmarkObservationDto>, crate::error::CommandError> {
+    with_shared_operation!(&state, list_benchmark_observations_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn append_benchmark_observation(
+    state: State<'_, AppState>,
+    input: AppendBenchmarkObservationInput,
+) -> Result<BenchmarkObservationDto, crate::error::CommandError> {
+    with_shared_operation!(&state, append_benchmark_observation_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn set_default_benchmark(
+    state: State<'_, AppState>,
+    input: SetDefaultBenchmarkInput,
+) -> Result<BenchmarkDto, crate::error::CommandError> {
+    with_shared_operation!(&state, set_default_benchmark_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn get_benchmark_comparison(
+    state: State<'_, AppState>,
+    input: GetBenchmarkComparisonInput,
+) -> Result<BenchmarkComparisonDto, crate::error::CommandError> {
+    with_shared_operation!(&state, get_benchmark_comparison_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn reverse_activity(
     state: State<'_, AppState>,
     input: ReverseActivityInput,
@@ -1227,6 +1318,15 @@ pub fn command_builder() -> Builder<tauri::Wry> {
         list_freshness_policies,
         update_freshness_policy,
         snooze_maintenance_item,
+        list_benchmarks,
+        create_benchmark,
+        update_benchmark,
+        archive_benchmark,
+        restore_benchmark,
+        list_benchmark_observations,
+        append_benchmark_observation,
+        set_default_benchmark,
+        get_benchmark_comparison,
         reverse_activity,
         correct_activity,
         get_account_timeline,

@@ -4,6 +4,7 @@ pub mod analytics_query_service;
 pub mod analytics_repositories;
 pub mod attribution_service;
 pub mod backup_service;
+pub mod benchmark_service;
 pub mod cash_service;
 pub mod cost_basis_service;
 pub mod csv_import_service;

@@ -964,13 +964,14 @@ async fn list_cost_basis_declarations_in_tx(
     })
 }
 
-struct ResolvedPeriod {
-    scope: AnalyticsScope,
-    start: CalendarDate,
-    end: CalendarDate,
+pub(crate) struct ResolvedPeriod {
+    pub scope: AnalyticsScope,
+    pub start: CalendarDate,
+    pub end: CalendarDate,
+    pub timezone: HistoryTimezone,
 }
 
-async fn resolve_scope_period(
+pub(crate) async fn resolve_scope_period(
     tx: &mut Transaction<'_, Sqlite>,
     scope: &AnalyticsScopeDto,
     period: &AnalyticsPeriodDto,
@@ -987,7 +988,12 @@ async fn resolve_scope_period(
     let origin_date = CalendarDate::parse(&origin.origin_local_date)?;
     let today = timezone.local_date(&Timestamp::now());
     let (start, end) = resolve_period(period, origin_date, today)?;
-    Ok(ResolvedPeriod { scope, start, end })
+    Ok(ResolvedPeriod {
+        scope,
+        start,
+        end,
+        timezone,
+    })
 }
 
 async fn resolve_scope(
