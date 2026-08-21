@@ -686,6 +686,30 @@ async previewCsvImport(input: PreviewCsvImportInput) : Promise<Result<CsvImportP
     else return { status: "error", error: e  as any };
 }
 },
+async commitCsvImport(input: CommitCsvImportInput) : Promise<Result<CsvImportCommitDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("commit_csv_import", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async listImportBatches(input: ListImportBatchesInput) : Promise<Result<ImportBatchPageDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_import_batches", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getImportBatch(input: GetImportBatchInput) : Promise<Result<ImportBatchDetailDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_import_batch", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async listMaintenanceItems() : Promise<Result<MaintenancePageDto, CommandError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("list_maintenance_items") };
@@ -885,6 +909,7 @@ export type BootstrapDto = { status: "ready"; onboardingRequired: boolean; setti
 export type BreakdownRowDto = { key: string; id: string | null; name: string | null; amount: MoneyDto; shareBps: number }
 export type CanonicalExportDto = { formatId: string; formatVersion: string; exportedAt: string; privacyWarning: string }
 export type CommandError = { code: ErrorCode; message: string; fields: Partial<{ [key in string]: string }> | null }
+export type CommitCsvImportInput = { previewToken: string; confirmed: boolean }
 export type CompleteOnboardingInput = { householdName: string; baseCurrency: string; members: OnboardingMemberInput[] }
 export type ConfirmHistoryTimezoneInput = { timezone: string }
 export type CorrectActivityInput = { originalId: string; replacement: CreateActivityInput }
@@ -903,13 +928,14 @@ export type CreatePendingActivityInput = { scheduledLocalDate: string; payload: 
 export type CreateRecurringActivityRuleInput = ({ cadence: string; intervalValue: number; startLocalDate: string; endLocalDate: string | null; payload: PendingActivityPayloadInput; note: string | null })
 export type CsvExportDataset = "activity" | "instrument_quote" | "fx_quote" | "benchmark"
 export type CsvExportDto = { template: string; rowCount: number; privacyWarning: string }
+export type CsvImportCommitDto = { batchId: string; template: string; rowCount: number; committedCount: number; duplicateCount: number; warningCount: number; diagnostics: CsvImportDiagnosticDto[] }
 export type CsvImportDiagnosticDto = { row: number; field: string; code: string; severity: string }
 export type CsvImportPreviewDto = { previewToken: string; template: string; sha256: string; rowCount: number; validCount: number; duplicateCount: number; warningCount: number; errorCount: number; canCommit: boolean; diagnostics: CsvImportDiagnosticDto[] }
 export type DateAvailabilityDto = { kind: "available"; value: string } | { kind: "unavailable"; reason: string; blockingDates: string[] }
 export type DateRangeAvailabilityDto = { kind: "available"; startLocalDate: string; endLocalDate: string } | { kind: "unavailable"; reason: string; blockingDates: string[] }
 export type DeclareLotCostBasisInput = { lotRef: LotRefDto; instrumentId: string; declaredCost: string; declaredCurrency: string; acquiredOn: string | null; note: string | null }
 export type DeleteAllDataInput = { confirmed: boolean }
-export type ErrorCode = "VALIDATION_ERROR" | "NOT_FOUND" | "CONFLICT" | "ALREADY_ONBOARDED" | "OWNERSHIP_TOTAL_INVALID" | "BASE_CURRENCY_CHANGE_NOT_ALLOWED" | "INVALID_CATEGORY" | "INVALID_MONEY" | "INVALID_QUANTITY" | "INVALID_UNIT_PRICE" | "INVALID_FX_RATE" | "DECIMAL_OVERFLOW" | "INVALID_ACTIVITY" | "INVALID_ACTIVITY_TIME" | "INVALID_ACTIVITY_LEGS" | "INSUFFICIENT_BALANCE" | "INSUFFICIENT_QUANTITY" | "TRANSFER_MISMATCH" | "TRADE_TOTAL_MISMATCH" | "ACTIVITY_ALREADY_REVERSED" | "ACTIVITY_NOT_CORRECTABLE" | "QUOTE_UNAVAILABLE" | "INCOMPLETE_VALUATION" | "DUPLICATE_HOLDING" | "UNSUPPORTED_PROVIDER_SYMBOL" | "PROVIDER_AUTHENTICATION" | "PROVIDER_RATE_LIMIT" | "PROVIDER_UNAVAILABLE" | "MALFORMED_PROVIDER_RESPONSE" | "MEDIA_INVALID" | "DATABASE_ERROR" | "DATABASE_UNAVAILABLE" | "UNSUPPORTED_NEWER_DATABASE" | "MIGRATION_FAILED" | "DATA_RESET_FAILED" | "HISTORY_INITIALIZATION_FAILED" | "HISTORY_TIMEZONE_CONFIRMATION_REQUIRED" | "SNAPSHOT_REBUILD_REQUIRED" | "SNAPSHOT_REBUILD_FAILED" | "ANALYTICS_PERIOD_UNAVAILABLE" | "ANALYTICS_INPUT_INCOMPLETE" | "RETURN_NOT_COMPUTABLE" | "INVALID_COST_BASIS_DECLARATION" | "COST_BASIS_LOT_NOT_FOUND" | "INVALID_RECURRING_RULE" | "INVALID_PENDING_ACTIVITY" | "INVALID_BENCHMARK" | "IMPORT_INVALID" | "EXPORT_FAILED" | "IMPORT_PREVIEW_EXPIRED" | "BACKUP_INVALID" | "BACKUP_CORRUPT" | "BACKUP_CREATE_FAILED" | "BACKUP_UNSUPPORTED_VERSION" | "RESTORE_VALIDATION_FAILED" | "APP_RESTART_REQUIRED" | "INTERNAL_ERROR"
+export type ErrorCode = "VALIDATION_ERROR" | "NOT_FOUND" | "CONFLICT" | "ALREADY_ONBOARDED" | "OWNERSHIP_TOTAL_INVALID" | "BASE_CURRENCY_CHANGE_NOT_ALLOWED" | "INVALID_CATEGORY" | "INVALID_MONEY" | "INVALID_QUANTITY" | "INVALID_UNIT_PRICE" | "INVALID_FX_RATE" | "DECIMAL_OVERFLOW" | "INVALID_ACTIVITY" | "INVALID_ACTIVITY_TIME" | "INVALID_ACTIVITY_LEGS" | "INSUFFICIENT_BALANCE" | "INSUFFICIENT_QUANTITY" | "TRANSFER_MISMATCH" | "TRADE_TOTAL_MISMATCH" | "ACTIVITY_ALREADY_REVERSED" | "ACTIVITY_NOT_CORRECTABLE" | "QUOTE_UNAVAILABLE" | "INCOMPLETE_VALUATION" | "DUPLICATE_HOLDING" | "UNSUPPORTED_PROVIDER_SYMBOL" | "PROVIDER_AUTHENTICATION" | "PROVIDER_RATE_LIMIT" | "PROVIDER_UNAVAILABLE" | "MALFORMED_PROVIDER_RESPONSE" | "MEDIA_INVALID" | "DATABASE_ERROR" | "DATABASE_UNAVAILABLE" | "UNSUPPORTED_NEWER_DATABASE" | "MIGRATION_FAILED" | "DATA_RESET_FAILED" | "HISTORY_INITIALIZATION_FAILED" | "HISTORY_TIMEZONE_CONFIRMATION_REQUIRED" | "SNAPSHOT_REBUILD_REQUIRED" | "SNAPSHOT_REBUILD_FAILED" | "ANALYTICS_PERIOD_UNAVAILABLE" | "ANALYTICS_INPUT_INCOMPLETE" | "RETURN_NOT_COMPUTABLE" | "INVALID_COST_BASIS_DECLARATION" | "COST_BASIS_LOT_NOT_FOUND" | "INVALID_RECURRING_RULE" | "INVALID_PENDING_ACTIVITY" | "INVALID_BENCHMARK" | "IMPORT_INVALID" | "EXPORT_FAILED" | "IMPORT_PREVIEW_EXPIRED" | "IMPORT_FILE_CHANGED" | "IMPORT_DUPLICATE_CONFLICT" | "IMPORT_COMMIT_FAILED" | "BACKUP_INVALID" | "BACKUP_CORRUPT" | "BACKUP_CREATE_FAILED" | "BACKUP_UNSUPPORTED_VERSION" | "RESTORE_VALIDATION_FAILED" | "APP_RESTART_REQUIRED" | "INTERNAL_ERROR"
 export type ExportCanonicalJsonInput = { destinationPath: string; overwriteConfirmed: boolean }
 export type ExportCsvInput = { destinationPath: string; overwriteConfirmed: boolean; dataset: CsvExportDataset }
 export type FeeBucketDto = { feeKind: string; attributedInstrumentId: string | null; amount: MoneyDto }
@@ -921,6 +947,7 @@ export type GenerateDuePendingActivitiesResultDto = { generatedCount: number; bl
 export type GetAccountTimelineInput = { accountId: string; cursor: string | null; limit: number | null }
 export type GetAnalyticsStatusInput = { scope: AnalyticsScopeDto }
 export type GetGainSummaryInput = { scope: AnalyticsScopeDto; period: AnalyticsPeriodDto }
+export type GetImportBatchInput = { id: string }
 export type GetMediaInput = { assetId: string }
 export type GetNetWorthAttributionInput = { scope: AnalyticsScopeDto; period: AnalyticsPeriodDto }
 export type GetNetWorthTrendInput = { range: string }
@@ -936,6 +963,10 @@ export type HoldingRecordDto = { id: string; accountId: string; instrumentId: st
 export type HoldingValuationDto = { holdingId: string; accountId: string; instrumentId: string; instrumentName: string; instrumentSymbol: string | null; instrumentType: string; countryCode: string | null; quantity: string; native: MoneyDto | null; base: MoneyDto | null; complete: boolean; freshness: string; quotedAt: string | null; sourceKind: string | null; missingReason: string | null }
 export type HouseholdDto = { id: string; name: string; baseCurrency: string }
 export type IdInput = { id: string }
+export type ImportBatchDetailDto = { batch: ImportBatchDto; items: ImportItemDto[] }
+export type ImportBatchDto = { id: string; template: string; fileSha256: string; sourceNamespace: string | null; rowCount: number; committedCount: number; duplicateCount: number; rejectedCount: number; status: string; createdAt: string; completedAt: string | null }
+export type ImportBatchPageDto = { items: ImportBatchDto[]; nextCursor: string | null }
+export type ImportItemDto = { id: string; rowNumber: number; sourceNamespace: string | null; externalId: string | null; fingerprint: string; outcome: string; diagnosticCode: string | null; activityId: string | null; instrumentQuoteId: string | null; fxQuoteId: string | null; benchmarkObservationId: string | null }
 export type IncomeBucketDto = { incomeKind: string; attributedInstrumentId: string | null; amount: MoneyDto }
 export type InspectBackupInput = { sourcePath: string }
 export type InspectRecoveryBackupInput = { backupId: string }
@@ -950,6 +981,7 @@ export type ListFxQuotesInput = { baseCurrency: string; quoteCurrency: string }
 export type ListHoldingGainSummariesInput = { period: AnalyticsPeriodDto }
 export type ListHoldingLotsInput = { scope: AnalyticsScopeDto; cursor: string | null; limit: number | null }
 export type ListHoldingsInput = { accountId: string; includeArchived: boolean }
+export type ListImportBatchesInput = { cursor: string | null; limit: number | null }
 export type ListInstrumentQuotesInput = { instrumentId: string }
 export type ListPendingActivitiesInput = { cursor: string | null; limit: number | null; status: string | null }
 export type ListUnknownBasisLotsInput = { scope: AnalyticsScopeDto; cursor: string | null; limit: number | null }

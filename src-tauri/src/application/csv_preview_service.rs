@@ -66,27 +66,36 @@ pub struct CsvImportPreviewDto {
 }
 
 #[derive(Debug)]
-struct ParsedCsv {
-    template: ImportTemplate,
-    rows: Vec<ParsedRow>,
+pub(crate) struct ParsedCsv {
+    pub(crate) template: ImportTemplate,
+    pub(crate) rows: Vec<ParsedRow>,
 }
 
 #[derive(Debug)]
-struct ParsedRow {
-    number: i32,
+pub(crate) struct ParsedRow {
+    pub(crate) number: i32,
     cells: HashMap<String, String>,
 }
 
-struct Catalog {
-    accounts: HashMap<String, CatalogRef>,
-    instruments: HashMap<String, CatalogRef>,
-    holdings: HashMap<String, CatalogRef>,
-    benchmarks: HashMap<String, CatalogRef>,
-    identities: HashMap<(String, String), String>,
+pub(crate) struct Catalog {
+    pub(crate) accounts: HashMap<String, CatalogRef>,
+    pub(crate) instruments: HashMap<String, CatalogRef>,
+    pub(crate) holdings: HashMap<String, CatalogRef>,
+    pub(crate) benchmarks: HashMap<String, CatalogRef>,
+    pub(crate) identities: HashMap<(String, String), IdentityRecord>,
 }
 
-struct CatalogRef {
-    archived: bool,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct IdentityRecord {
+    pub fingerprint: String,
+    pub activity_id: Option<String>,
+    pub instrument_quote_id: Option<String>,
+    pub fx_quote_id: Option<String>,
+    pub benchmark_observation_id: Option<String>,
+}
+
+pub(crate) struct CatalogRef {
+    pub(crate) archived: bool,
 }
 
 pub async fn preview_csv_import(
@@ -135,39 +144,37 @@ pub async fn preview_csv_import(
     })
 }
 
-#[allow(dead_code)]
 pub(crate) fn revalidate_csv_preview_token(
     state: &AppState,
     token: &str,
-) -> Result<String, AppError> {
+) -> Result<crate::state::StoredCsvPreview, AppError> {
     let preview = state
         .csv_preview(token)
         .ok_or_else(AppError::import_preview_expired)?;
     let metadata =
-        file_metadata(&preview.canonical_path).map_err(|_| AppError::import_preview_expired())?;
+        file_metadata(&preview.canonical_path).map_err(|_| AppError::import_file_changed())?;
     let expected = crate::application::backup_service::SourceMetadata {
         len: preview.file_size,
         modified: preview.modified_at,
         device: preview.file_device,
         inode: preview.file_inode,
     };
-    let bytes =
-        fs::read(&preview.canonical_path).map_err(|_| AppError::import_preview_expired())?;
+    let bytes = fs::read(&preview.canonical_path).map_err(|_| AppError::import_file_changed())?;
     let sha256 = hash_bytes(&bytes);
     if !same_file_metadata(&metadata, &expected) || sha256 != preview.sha256 {
-        return Err(AppError::import_preview_expired());
+        return Err(AppError::import_file_changed());
     }
-    Ok(preview.sha256)
+    Ok(preview)
 }
 
-struct OpenedCsv {
-    canonical_path: PathBuf,
-    metadata: crate::application::backup_service::SourceMetadata,
-    bytes: Vec<u8>,
-    sha256: String,
+pub(crate) struct OpenedCsv {
+    pub(crate) canonical_path: PathBuf,
+    pub(crate) metadata: crate::application::backup_service::SourceMetadata,
+    pub(crate) bytes: Vec<u8>,
+    pub(crate) sha256: String,
 }
 
-fn open_csv_source(raw_path: &str) -> Result<OpenedCsv, AppError> {
+pub(crate) fn open_csv_source(raw_path: &str) -> Result<OpenedCsv, AppError> {
     if raw_path.trim().is_empty() {
         return Err(AppError::validation(
             "sourcePath",
@@ -220,7 +227,7 @@ fn open_csv_source(raw_path: &str) -> Result<OpenedCsv, AppError> {
     })
 }
 
-fn parse_csv_bytes(bytes: &[u8]) -> Result<ParsedCsv, AppError> {
+pub(crate) fn parse_csv_bytes(bytes: &[u8]) -> Result<ParsedCsv, AppError> {
     let text = std::str::from_utf8(strip_bom(bytes))
         .map_err(|_| AppError::invalid_import_row("CSV input must be valid UTF-8."))?;
     if text.contains('\0') {
@@ -313,7 +320,7 @@ fn validate_headers(template: ImportTemplate, headers: &[String]) -> Result<(), 
     Ok(())
 }
 
-async fn load_catalog(
+pub(crate) async fn load_catalog(
     tx: &mut Transaction<'_, Sqlite>,
     household_id: &str,
     parsed: &ParsedCsv,
@@ -385,6 +392,10 @@ fn cell<'a>(row: &'a ParsedRow, header: &str) -> &'a str {
     row.cells.get(header).map(String::as_str).unwrap_or("")
 }
 
+pub(crate) fn csv_cell<'a>(row: &'a ParsedRow, header: &str) -> &'a str {
+    cell(row, header)
+}
+
 async fn load_refs(
     tx: &mut Transaction<'_, Sqlite>,
     family: &'static str,
@@ -422,7 +433,7 @@ async fn load_refs(
 async fn load_identities(
     tx: &mut Transaction<'_, Sqlite>,
     namespaces: &HashSet<String>,
-) -> Result<HashMap<(String, String), String>, AppError> {
+) -> Result<HashMap<(String, String), IdentityRecord>, AppError> {
     if namespaces.is_empty() {
         return Ok(HashMap::new());
     }
@@ -430,7 +441,11 @@ async fn load_identities(
     let mut map = HashMap::new();
     for namespace in namespaces {
         let rows = sqlx::query(
-            "SELECT source_namespace, external_id, fingerprint FROM import_items WHERE source_namespace = ?",
+            "SELECT source_namespace, external_id, fingerprint, activity_id, instrument_quote_id,
+                    fx_quote_id, benchmark_observation_id
+             FROM import_items
+             WHERE source_namespace = ?
+             ORDER BY created_at ASC, id ASC",
         )
         .bind(namespace)
         .fetch_all(&mut **tx)
@@ -442,7 +457,18 @@ async fn load_identities(
                 .map_err(|_| AppError::Internal)?;
             let external_id: String = row.try_get("external_id").map_err(|_| AppError::Internal)?;
             let fingerprint: String = row.try_get("fingerprint").map_err(|_| AppError::Internal)?;
-            map.insert((namespace, external_id), fingerprint);
+            let key = (namespace, external_id);
+            map.entry(key).or_insert(IdentityRecord {
+                fingerprint,
+                activity_id: row.try_get("activity_id").map_err(|_| AppError::Internal)?,
+                instrument_quote_id: row
+                    .try_get("instrument_quote_id")
+                    .map_err(|_| AppError::Internal)?,
+                fx_quote_id: row.try_get("fx_quote_id").map_err(|_| AppError::Internal)?,
+                benchmark_observation_id: row
+                    .try_get("benchmark_observation_id")
+                    .map_err(|_| AppError::Internal)?,
+            });
         }
     }
     Ok(map)
@@ -457,7 +483,7 @@ async fn replay_rows(
     let mut diagnostics = Vec::new();
     let mut valid_count = 0_i32;
     let mut duplicate_count = 0_i32;
-    let mut seen_identities: HashMap<(String, String), (i32, String)> = HashMap::new();
+    let mut seen_identities: HashMap<(String, String), IdentityRecord> = HashMap::new();
     let mut seen_no_id: HashSet<String> = HashSet::new();
     for row in &parsed.rows {
         match parsed.template {
@@ -517,14 +543,19 @@ async fn replay_rows(
     Ok((valid_count, duplicate_count, diagnostics))
 }
 
-enum RowOutcome {
+pub(crate) enum RowOutcome {
     Valid,
     Warning(CsvImportDiagnosticDto),
     Duplicate(CsvImportDiagnosticDto),
     Invalid(CsvImportDiagnosticDto),
 }
 
-fn diagnostic(row: i32, field: &str, code: &str, severity: &str) -> CsvImportDiagnosticDto {
+pub(crate) fn diagnostic(
+    row: i32,
+    field: &str,
+    code: &str,
+    severity: &str,
+) -> CsvImportDiagnosticDto {
     CsvImportDiagnosticDto {
         row,
         field: field.to_owned(),
@@ -538,7 +569,7 @@ async fn replay_activity(
     household_id: &str,
     row: &ParsedRow,
     catalog: &Catalog,
-    seen_identities: &mut HashMap<(String, String), (i32, String)>,
+    seen_identities: &mut HashMap<(String, String), IdentityRecord>,
     seen_no_id: &mut HashSet<String>,
 ) -> RowOutcome {
     let escaped = match parse_escaped(row) {
@@ -659,7 +690,7 @@ fn replay_quote(
     _household_id: &str,
     row: &ParsedRow,
     catalog: &Catalog,
-    seen_identities: &mut HashMap<(String, String), (i32, String)>,
+    seen_identities: &mut HashMap<(String, String), IdentityRecord>,
 ) -> RowOutcome {
     let escaped = match parse_escaped(row) {
         Ok(value) => value,
@@ -758,7 +789,7 @@ fn replay_quote(
 fn replay_benchmark(
     row: &ParsedRow,
     catalog: &Catalog,
-    seen_identities: &mut HashMap<(String, String), (i32, String)>,
+    seen_identities: &mut HashMap<(String, String), IdentityRecord>,
 ) -> RowOutcome {
     let escaped = match parse_escaped(row) {
         Ok(value) => value,
@@ -823,7 +854,7 @@ fn replay_benchmark(
     RowOutcome::Valid
 }
 
-fn check_reference(
+pub(crate) fn check_reference(
     row: i32,
     field: &str,
     value: &str,
@@ -847,85 +878,161 @@ fn check_reference(
     }
 }
 
-fn identity_outcome(
+pub(crate) enum IdentityAction {
+    Accept {
+        namespace: Option<String>,
+        external_id: Option<String>,
+        fingerprint: String,
+        warn_no_identity: bool,
+    },
+    Duplicate {
+        namespace: String,
+        external_id: String,
+        fingerprint: String,
+        prior: IdentityRecord,
+    },
+    Conflict,
+    Invalid {
+        field: &'static str,
+        code: &'static str,
+    },
+}
+
+pub(crate) fn resolve_identity(
     row: &ParsedRow,
     fingerprint: String,
     catalog: &Catalog,
-    seen_identities: &mut HashMap<(String, String), (i32, String)>,
+    seen_identities: &HashMap<(String, String), IdentityRecord>,
     seen_no_id: &mut HashSet<String>,
-) -> Option<RowOutcome> {
+) -> IdentityAction {
     let namespace = optional_text(cell(row, "source_namespace"));
     let external_id = optional_text(cell(row, "external_id"));
     match (namespace, external_id) {
         (None, None) => {
-            if !seen_no_id.insert(fingerprint) {
-                return Some(RowOutcome::Warning(diagnostic(
-                    row.number,
-                    "external_id",
-                    DIAGNOSTIC_NO_IDENTITY_WARNING,
-                    "warning",
-                )));
+            let warn_no_identity = !seen_no_id.insert(fingerprint.clone());
+            IdentityAction::Accept {
+                namespace: None,
+                external_id: None,
+                fingerprint,
+                warn_no_identity,
             }
-            None
         }
-        (Some(_), None) | (None, Some(_)) => Some(RowOutcome::Invalid(diagnostic(
-            row.number,
-            "external_id",
-            DIAGNOSTIC_DOMAIN_INVALID,
-            "error",
-        ))),
+        (Some(_), None) | (None, Some(_)) => IdentityAction::Invalid {
+            field: "external_id",
+            code: DIAGNOSTIC_DOMAIN_INVALID,
+        },
         (Some(namespace), Some(external_id)) => {
             if parse_optional_namespace(&namespace).is_err()
                 || parse_optional_external_id(&external_id).is_err()
             {
-                return Some(RowOutcome::Invalid(diagnostic(
-                    row.number,
-                    "source_namespace",
-                    DIAGNOSTIC_DOMAIN_INVALID,
-                    "error",
-                )));
+                return IdentityAction::Invalid {
+                    field: "source_namespace",
+                    code: DIAGNOSTIC_DOMAIN_INVALID,
+                };
             }
             let key = (namespace.clone(), external_id.clone());
-            if let Some((_, previous)) = seen_identities.get(&key) {
-                if previous == &fingerprint {
-                    return Some(RowOutcome::Duplicate(diagnostic(
-                        row.number,
-                        "external_id",
-                        DIAGNOSTIC_EXACT_DUPLICATE,
-                        "warning",
-                    )));
+            if let Some(previous) = seen_identities.get(&key) {
+                if previous.fingerprint == fingerprint {
+                    return IdentityAction::Duplicate {
+                        namespace,
+                        external_id,
+                        fingerprint,
+                        prior: previous.clone(),
+                    };
                 }
-                return Some(RowOutcome::Invalid(diagnostic(
-                    row.number,
-                    "external_id",
-                    DIAGNOSTIC_DUPLICATE_CONFLICT,
-                    "error",
-                )));
+                return IdentityAction::Conflict;
             }
             if let Some(previous) = catalog.identities.get(&key) {
-                if previous == &fingerprint {
-                    seen_identities.insert(key, (row.number, fingerprint));
-                    return Some(RowOutcome::Duplicate(diagnostic(
-                        row.number,
-                        "external_id",
-                        DIAGNOSTIC_EXACT_DUPLICATE,
-                        "warning",
-                    )));
+                if previous.fingerprint == fingerprint {
+                    return IdentityAction::Duplicate {
+                        namespace,
+                        external_id,
+                        fingerprint,
+                        prior: previous.clone(),
+                    };
                 }
-                return Some(RowOutcome::Invalid(diagnostic(
-                    row.number,
-                    "external_id",
-                    DIAGNOSTIC_DUPLICATE_CONFLICT,
-                    "error",
-                )));
+                return IdentityAction::Conflict;
             }
-            seen_identities.insert(key, (row.number, fingerprint));
-            None
+            IdentityAction::Accept {
+                namespace: Some(namespace),
+                external_id: Some(external_id),
+                fingerprint,
+                warn_no_identity: false,
+            }
         }
     }
 }
 
-fn parse_escaped(row: &ParsedRow) -> Result<bool, &'static str> {
+fn identity_outcome(
+    row: &ParsedRow,
+    fingerprint: String,
+    catalog: &Catalog,
+    seen_identities: &mut HashMap<(String, String), IdentityRecord>,
+    seen_no_id: &mut HashSet<String>,
+) -> Option<RowOutcome> {
+    match resolve_identity(row, fingerprint, catalog, seen_identities, seen_no_id) {
+        IdentityAction::Accept {
+            namespace,
+            external_id,
+            fingerprint,
+            warn_no_identity,
+        } => {
+            if let (Some(namespace), Some(external_id)) = (namespace, external_id) {
+                seen_identities.insert(
+                    (namespace, external_id),
+                    IdentityRecord {
+                        fingerprint,
+                        activity_id: None,
+                        instrument_quote_id: None,
+                        fx_quote_id: None,
+                        benchmark_observation_id: None,
+                    },
+                );
+            }
+            warn_no_identity
+                .then(|| {
+                    diagnostic(
+                        row.number,
+                        "external_id",
+                        DIAGNOSTIC_NO_IDENTITY_WARNING,
+                        "warning",
+                    )
+                })
+                .map(RowOutcome::Warning)
+        }
+        IdentityAction::Duplicate {
+            namespace,
+            external_id,
+            fingerprint,
+            prior,
+        } => {
+            seen_identities.insert(
+                (namespace, external_id),
+                IdentityRecord {
+                    fingerprint,
+                    ..prior
+                },
+            );
+            Some(RowOutcome::Duplicate(diagnostic(
+                row.number,
+                "external_id",
+                DIAGNOSTIC_EXACT_DUPLICATE,
+                "warning",
+            )))
+        }
+        IdentityAction::Conflict => Some(RowOutcome::Invalid(diagnostic(
+            row.number,
+            "external_id",
+            DIAGNOSTIC_DUPLICATE_CONFLICT,
+            "error",
+        ))),
+        IdentityAction::Invalid { field, code } => Some(RowOutcome::Invalid(diagnostic(
+            row.number, field, code, "error",
+        ))),
+    }
+}
+
+pub(crate) fn parse_escaped(row: &ParsedRow) -> Result<bool, &'static str> {
     let value = cell(row, CSV_ESCAPED_COLUMN);
     if value.is_empty() {
         return Ok(false);
@@ -939,11 +1046,11 @@ fn parse_escaped(row: &ParsedRow) -> Result<bool, &'static str> {
     })
 }
 
-fn unescape(value: &str, escaped: bool) -> String {
+pub(crate) fn unescape(value: &str, escaped: bool) -> String {
     unescape_spreadsheet_text(value, escaped)
 }
 
-fn reject_localized<'a>(row: &'a ParsedRow, fields: &[&'a str]) -> Result<(), &'a str> {
+pub(crate) fn reject_localized<'a>(row: &'a ParsedRow, fields: &[&'a str]) -> Result<(), &'a str> {
     for field in fields {
         let value = cell(row, field);
         if !value.is_empty() && looks_localized_decimal(value) {
@@ -953,7 +1060,10 @@ fn reject_localized<'a>(row: &'a ParsedRow, fields: &[&'a str]) -> Result<(), &'
     Ok(())
 }
 
-fn activity_input(row: &ParsedRow, escaped: bool) -> Result<CreateActivityInput, AppError> {
+pub(crate) fn activity_input(
+    row: &ParsedRow,
+    escaped: bool,
+) -> Result<CreateActivityInput, AppError> {
     let kind = unescape(cell(row, "kind"), escaped);
     let local_date = unescape(cell(row, "effective_local_date"), escaped);
     let local_time = unescape(cell(row, "effective_local_time"), escaped);
@@ -1136,7 +1246,10 @@ fn empty_as_false(value: &str) -> String {
     }
 }
 
-fn activity_row_fingerprint(row: &ParsedRow, escaped: bool) -> Result<ImportFingerprint, AppError> {
+pub(crate) fn activity_row_fingerprint(
+    row: &ParsedRow,
+    escaped: bool,
+) -> Result<ImportFingerprint, AppError> {
     let namespace = parse_optional_namespace(&unescape(cell(row, "source_namespace"), escaped))?;
     let external_id = parse_optional_external_id(&unescape(cell(row, "external_id"), escaped))?;
     let extras = vec![
@@ -1183,7 +1296,10 @@ fn activity_row_fingerprint(row: &ParsedRow, escaped: bool) -> Result<ImportFing
     )
 }
 
-fn quote_row_fingerprint(row: &ParsedRow, escaped: bool) -> Result<ImportFingerprint, AppError> {
+pub(crate) fn quote_row_fingerprint(
+    row: &ParsedRow,
+    escaped: bool,
+) -> Result<ImportFingerprint, AppError> {
     quote_fingerprint(
         parse_optional_namespace(&unescape(cell(row, "source_namespace"), escaped))?.as_ref(),
         parse_optional_external_id(&unescape(cell(row, "external_id"), escaped))?.as_ref(),
@@ -1198,7 +1314,7 @@ fn quote_row_fingerprint(row: &ParsedRow, escaped: bool) -> Result<ImportFingerp
     )
 }
 
-fn benchmark_row_fingerprint(
+pub(crate) fn benchmark_row_fingerprint(
     row: &ParsedRow,
     escaped: bool,
 ) -> Result<ImportFingerprint, AppError> {

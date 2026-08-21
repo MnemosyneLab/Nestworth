@@ -1093,23 +1093,73 @@ pub async fn list_import_batches(
     household_id: &str,
     limit: i64,
 ) -> Result<Vec<ImportBatchRecord>, AppError> {
+    list_import_batches_page(tx, household_id, None, limit).await
+}
+
+pub async fn list_import_batches_page(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    cursor: Option<(&str, &str)>,
+    limit: i64,
+) -> Result<Vec<ImportBatchRecord>, AppError> {
     query_count::record("sustainable.import_batch_list");
+    let limit = limit.clamp(1, 200);
+    let rows = if let Some((created_at, id)) = cursor {
+        sqlx::query(
+            "SELECT id, household_id, template, file_sha256, source_namespace, row_count,
+                    committed_count, duplicate_count, rejected_count, status, created_at, completed_at
+             FROM import_batches
+             WHERE household_id = ?
+               AND (created_at < ? OR (created_at = ? AND id < ?))
+             ORDER BY created_at DESC, id DESC
+             LIMIT ?",
+        )
+        .bind(household_id)
+        .bind(created_at)
+        .bind(created_at)
+        .bind(id)
+        .bind(limit)
+        .fetch_all(&mut **tx)
+        .await
+    } else {
+        sqlx::query(
+            "SELECT id, household_id, template, file_sha256, source_namespace, row_count,
+                    committed_count, duplicate_count, rejected_count, status, created_at, completed_at
+             FROM import_batches
+             WHERE household_id = ?
+             ORDER BY created_at DESC, id DESC
+             LIMIT ?",
+        )
+        .bind(household_id)
+        .bind(limit)
+        .fetch_all(&mut **tx)
+        .await
+    };
+    rows.map_err(|error| map_read_error("sustainable.import_batch_list_failed", error))?
+        .into_iter()
+        .map(batch_from_row)
+        .collect()
+}
+
+pub async fn get_import_batch(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    id: &str,
+) -> Result<Option<ImportBatchRecord>, AppError> {
+    query_count::record("sustainable.import_batch_get");
     sqlx::query(
         "SELECT id, household_id, template, file_sha256, source_namespace, row_count,
                 committed_count, duplicate_count, rejected_count, status, created_at, completed_at
          FROM import_batches
-         WHERE household_id = ?
-         ORDER BY created_at DESC, id DESC
-         LIMIT ?",
+         WHERE household_id = ? AND id = ?",
     )
     .bind(household_id)
-    .bind(limit.clamp(1, 200))
-    .fetch_all(&mut **tx)
+    .bind(id)
+    .fetch_optional(&mut **tx)
     .await
-    .map_err(|error| map_read_error("sustainable.import_batch_list_failed", error))?
-    .into_iter()
+    .map_err(|error| map_read_error("sustainable.import_batch_get_failed", error))?
     .map(batch_from_row)
-    .collect()
+    .transpose()
 }
 
 pub async fn insert_import_batch(

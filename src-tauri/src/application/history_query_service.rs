@@ -613,6 +613,17 @@ pub(crate) async fn preview_create_activity_in_tx(
     Ok(())
 }
 
+pub(crate) async fn post_create_activity_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    input: CreateActivityInput,
+) -> Result<crate::domain::Activity, AppError> {
+    let fields = input.posting_fields();
+    let command = post_command_from_input(tx, household_id, input).await?;
+    let time = time_spec(&fields)?;
+    activity_service::post_in_tx(tx, command, Some(time), fields.note.as_deref()).await
+}
+
 pub async fn create_activity(
     state: &AppState,
     input: CreateActivityInput,

@@ -233,6 +233,40 @@ async fn append_manual_instrument_quote_in_tx(
     Ok(instrument_quote_dto(&quote))
 }
 
+pub(crate) async fn append_imported_manual_instrument_quote_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    instrument_id: &str,
+    unit_price: &str,
+    quoted_at: Option<&str>,
+) -> Result<InstrumentQuoteRecordDto, AppError> {
+    let instrument =
+        instrument_service::load_instrument_domain(tx, household_id, instrument_id).await?;
+    if instrument.archived_at().is_some() {
+        return Err(AppError::import_commit_failed(
+            "The referenced instrument is archived.",
+        ));
+    }
+    let now = Timestamp::now();
+    let quoted_at = quoted_at
+        .map(Timestamp::parse)
+        .transpose()?
+        .unwrap_or_else(|| now.clone());
+    let quote = InstrumentQuote::new(
+        InstrumentId::parse(instrument_id)?,
+        UnitPrice::parse(unit_price)?,
+        instrument.quote_currency(),
+        QuoteSourceKind::Manual,
+        "manual",
+        false,
+        quoted_at,
+        now,
+    )?;
+    insert_instrument_quote(tx, &quote).await?;
+    activity_service::mark_dirty_for_household(tx, household_id, quote.quoted_at()).await?;
+    Ok(instrument_quote_dto(&quote))
+}
+
 async fn set_instrument_quote_preference_in_tx(
     tx: &mut Transaction<'_, Sqlite>,
     input: SetInstrumentQuotePreferenceInput,
@@ -304,6 +338,35 @@ async fn append_manual_fx_quote_in_tx(
             .await?;
     }
     activity_service::mark_dirty_for_household(tx, &household.id, quote.quoted_at()).await?;
+    Ok(fx_quote_dto(&quote))
+}
+
+pub(crate) async fn append_imported_manual_fx_quote_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    base_currency: &str,
+    quote_currency: &str,
+    rate: &str,
+    quoted_at: Option<&str>,
+) -> Result<FxQuoteRecordDto, AppError> {
+    let now = Timestamp::now();
+    let quoted_at = quoted_at
+        .map(Timestamp::parse)
+        .transpose()?
+        .unwrap_or_else(|| now.clone());
+    let quote = FxQuote::new(
+        HouseholdId::parse(household_id).map_err(|_| AppError::Internal)?,
+        CurrencyCode::parse_supported(base_currency)?,
+        CurrencyCode::parse_supported(quote_currency)?,
+        FxRate::parse(rate)?,
+        QuoteSourceKind::Manual,
+        "manual",
+        false,
+        quoted_at,
+        now,
+    )?;
+    insert_fx_quote(tx, &quote).await?;
+    activity_service::mark_dirty_for_household(tx, household_id, quote.quoted_at()).await?;
     Ok(fx_quote_dto(&quote))
 }
 

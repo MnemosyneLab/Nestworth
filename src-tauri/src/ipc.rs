@@ -18,6 +18,10 @@ use crate::{
             BackupInspectionDto, BackupManifestDto, CreateBackupInput, InspectBackupInput,
         },
         cash_service::{AccountCashRecordDto, AppendAccountCashInput, ListAccountCashInput},
+        csv_import_service::{
+            CommitCsvImportInput, CsvImportCommitDto, GetImportBatchInput, ImportBatchDetailDto,
+            ImportBatchPageDto, ListImportBatchesInput,
+        },
         csv_preview_service::{CsvImportPreviewDto, PreviewCsvImportInput},
         export_service::{
             CanonicalExportDto, CsvExportDto, ExportCanonicalJsonInput, ExportCsvInput,
@@ -91,7 +95,10 @@ use crate::{
         },
         bootstrap::{bootstrap_impl, BootstrapDto},
         cash::{append_account_cash_impl, list_account_cash_impl},
-        export::{export_canonical_json_impl, export_csv_impl, preview_csv_import_impl},
+        export::{
+            commit_csv_import_impl, export_canonical_json_impl, export_csv_impl,
+            get_import_batch_impl, list_import_batches_impl, preview_csv_import_impl,
+        },
         groups::{
             archive_group_impl, create_group_impl, list_groups_impl, restore_group_impl,
             update_group_impl,
@@ -920,6 +927,33 @@ pub async fn preview_csv_import(
 
 #[tauri::command]
 #[specta::specta]
+pub async fn commit_csv_import(
+    state: State<'_, AppState>,
+    input: CommitCsvImportInput,
+) -> Result<CsvImportCommitDto, crate::error::CommandError> {
+    with_shared_operation!(&state, commit_csv_import_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_import_batches(
+    state: State<'_, AppState>,
+    input: ListImportBatchesInput,
+) -> Result<ImportBatchPageDto, crate::error::CommandError> {
+    with_shared_operation!(&state, list_import_batches_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn get_import_batch(
+    state: State<'_, AppState>,
+    input: GetImportBatchInput,
+) -> Result<ImportBatchDetailDto, crate::error::CommandError> {
+    with_shared_operation!(&state, get_import_batch_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn list_maintenance_items(
     state: State<'_, AppState>,
 ) -> Result<MaintenancePageDto, crate::error::CommandError> {
@@ -1186,6 +1220,9 @@ pub fn command_builder() -> Builder<tauri::Wry> {
         export_canonical_json,
         export_csv,
         preview_csv_import,
+        commit_csv_import,
+        list_import_batches,
+        get_import_batch,
         list_maintenance_items,
         list_freshness_policies,
         update_freshness_policy,

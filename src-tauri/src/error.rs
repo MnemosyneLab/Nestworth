@@ -118,6 +118,16 @@ pub enum AppError {
     ExportFailed { message: String },
     #[error("the import preview has expired")]
     ImportPreviewExpired,
+    #[error("the selected import file has changed")]
+    ImportFileChanged,
+    #[error("the import cannot be committed")]
+    ImportRejected {
+        row: i32,
+        field: String,
+        code: String,
+    },
+    #[error("the import could not be committed")]
+    ImportCommitFailed { message: String },
     #[error("the backup is invalid")]
     InvalidBackup { message: String },
     #[error("the backup is corrupt")]
@@ -274,6 +284,24 @@ impl AppError {
 
     pub fn import_preview_expired() -> Self {
         Self::ImportPreviewExpired
+    }
+
+    pub fn import_file_changed() -> Self {
+        Self::ImportFileChanged
+    }
+
+    pub fn import_rejected(row: i32, field: &str, code: &str) -> Self {
+        Self::ImportRejected {
+            row,
+            field: field.to_owned(),
+            code: code.to_owned(),
+        }
+    }
+
+    pub fn import_commit_failed(message: &str) -> Self {
+        Self::ImportCommitFailed {
+            message: message.to_owned(),
+        }
     }
 
     pub fn invalid_backup(message: &str) -> Self {
@@ -597,6 +625,35 @@ impl AppError {
                 ErrorCode::ImportPreviewExpired,
                 "The import preview has expired. Preview the file again.",
             ),
+            Self::ImportFileChanged => CommandError::new(
+                ErrorCode::ImportFileChanged,
+                "The selected file has changed since preview. Preview the file again.",
+            ),
+            Self::ImportRejected { row, field, code } => {
+                let conflict = code == "CSV_DUPLICATE_CONFLICT";
+                let mut fields = HashMap::new();
+                fields.insert("row".to_owned(), row.to_string());
+                fields.insert("field".to_owned(), field);
+                fields.insert("code".to_owned(), code.clone());
+                CommandError {
+                    code: if conflict {
+                        ErrorCode::ImportDuplicateConflict
+                    } else {
+                        ErrorCode::ImportInvalid
+                    },
+                    message: if conflict {
+                        "An imported row conflicts with a previous identity.".to_owned()
+                    } else {
+                        "The CSV import cannot be committed.".to_owned()
+                    },
+                    fields: Some(fields),
+                }
+            }
+            Self::ImportCommitFailed { message } => CommandError {
+                code: ErrorCode::ImportCommitFailed,
+                message,
+                fields: None,
+            },
             Self::InvalidBackup { message } => CommandError {
                 code: ErrorCode::BackupInvalid,
                 message,
@@ -714,6 +771,9 @@ pub enum ErrorCode {
     ImportInvalid,
     ExportFailed,
     ImportPreviewExpired,
+    ImportFileChanged,
+    ImportDuplicateConflict,
+    ImportCommitFailed,
     BackupInvalid,
     BackupCorrupt,
     BackupCreateFailed,
