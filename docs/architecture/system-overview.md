@@ -126,7 +126,7 @@ Dependency versions are owned by the manifests and lockfiles, not this document.
 
 - The frontend has no business-data database access and no required internet connection.
 - The production CSP permits self-hosted application resources, Tauri IPC, and data images; it blocks arbitrary objects, frames, and external content.
-- The main window capability grants `core:default`, `dialog:allow-open`, `log:allow-log`, and the window-state restore/save permissions. It does not grant filesystem, opener, shell, clipboard, HTTP, or `dialog:default`.
+- The main window capability grants `core:default`, `dialog:allow-open`, `dialog:allow-save`, `log:allow-log`, and the window-state restore/save permissions. It does not grant filesystem, opener, shell, clipboard, HTTP, or `dialog:default`.
 - Dialog, window-state, and logging plugins are initialized in Rust; plugin availability does not authorize broad frontend capabilities.
 - Logs identify lifecycle and failure events but must not include balances, notes, quantities, Account names, Instrument symbols, quote values, raw legs, cost, basis, gain, proceeds, return, rate, ownership input, image bytes, database contents, or other sensitive payloads.
 - User-facing errors expose stable codes and safe context, while detailed database errors remain in local diagnostics.

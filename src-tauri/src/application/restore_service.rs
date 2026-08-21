@@ -633,6 +633,38 @@ mod tests {
         manifest
     }
 
+    async fn immutable_evidence(pool: &SqlitePool) -> (String, String, String, String) {
+        let activities: String = sqlx::query_scalar(
+            "SELECT COALESCE(GROUP_CONCAT(id, ','), '')
+             FROM (SELECT id FROM activities ORDER BY id)",
+        )
+        .fetch_one(pool)
+        .await
+        .expect("activity evidence");
+        let legs: String = sqlx::query_scalar(
+            "SELECT COALESCE(GROUP_CONCAT(id, ','), '')
+             FROM (SELECT id FROM activity_legs ORDER BY id)",
+        )
+        .fetch_one(pool)
+        .await
+        .expect("leg evidence");
+        let origins: String = sqlx::query_scalar(
+            "SELECT COALESCE(GROUP_CONCAT(id, ','), '')
+             FROM (SELECT id FROM history_origins ORDER BY id)",
+        )
+        .fetch_one(pool)
+        .await
+        .expect("origin evidence");
+        let declarations: String = sqlx::query_scalar(
+            "SELECT COALESCE(GROUP_CONCAT(id, ','), '')
+             FROM (SELECT id FROM cost_basis_declarations ORDER BY id)",
+        )
+        .fetch_one(pool)
+        .await
+        .expect("declaration evidence");
+        (activities, legs, origins, declarations)
+    }
+
     async fn inspect_and_restore(
         state: &AppState,
         bundle: &Path,
@@ -1290,6 +1322,75 @@ mod tests {
                 .expect("policies");
             assert!(policies >= 4);
             drop(reopened);
+            cleanup_state_files(&live);
+            cleanup_state_files(&fixture_path);
+            let _ = fs::remove_file(bundle);
+        });
+    }
+
+    #[test]
+    fn restore_round_trip_preserves_media_and_immutable_evidence() {
+        tauri::async_runtime::block_on(async {
+            let (state, live) = onboarded_state("restore-media-evidence").await;
+            let fixture_path = test_path("phase11", "media-evidence-source");
+            let pool = load_schema_fixture(&fixture_path, 5).await;
+            let (household_id, member_id): (String, String) = sqlx::query_as(
+                "SELECT h.id, m.id
+                 FROM households h
+                 JOIN members m ON m.household_id = h.id
+                 ORDER BY m.id
+                 LIMIT 1",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("fixture member");
+            let media_id = Uuid::now_v7().to_string();
+            let media_bytes = vec![0_u8, 1, 2, 3, 255, 254];
+            sqlx::query(
+                "INSERT INTO media_assets (id, household_id, mime_type, data, created_at)
+                 VALUES (?, ?, 'image/png', ?, '2026-08-20T00:00:00.000Z')",
+            )
+            .bind(&media_id)
+            .bind(&household_id)
+            .bind(&media_bytes)
+            .execute(&pool)
+            .await
+            .expect("media");
+            sqlx::query("UPDATE members SET avatar_asset_id = ? WHERE id = ?")
+                .bind(&media_id)
+                .bind(&member_id)
+                .execute(&pool)
+                .await
+                .expect("member media reference");
+            let evidence = immutable_evidence(&pool).await;
+            pool.close().await;
+
+            let bundle = fixture_path.with_extension(BACKUP_EXTENSION);
+            wrap_sqlite_as_backup(&fixture_path, &bundle).await;
+            inspect_and_restore(&state, &bundle)
+                .await
+                .expect("restore media fixture");
+            drop(state);
+
+            let reopened = AppState::initialize(live.clone()).await;
+            let database = reopened.writable_db().expect("restored database");
+            let restored_media: Vec<u8> =
+                sqlx::query_scalar("SELECT data FROM media_assets WHERE id = ?")
+                    .bind(&media_id)
+                    .fetch_one(database)
+                    .await
+                    .expect("restored media");
+            assert_eq!(restored_media, media_bytes);
+            let restored_reference: String =
+                sqlx::query_scalar("SELECT avatar_asset_id FROM members WHERE id = ?")
+                    .bind(&member_id)
+                    .fetch_one(database)
+                    .await
+                    .expect("restored media reference");
+            assert_eq!(restored_reference, media_id);
+            assert_eq!(immutable_evidence(database).await, evidence);
+            drop(reopened);
+
             cleanup_state_files(&live);
             cleanup_state_files(&fixture_path);
             let _ = fs::remove_file(bundle);

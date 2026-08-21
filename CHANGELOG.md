@@ -4,7 +4,7 @@ All notable changes to Nestworth are recorded here. The project follows semantic
 
 ## [0.1.5] - Unreleased
 
-v0.1.5 is under active development. Phases 0–10 are implemented; integrity closeout, macOS accessibility/distribution checks, and release publication remain outstanding.
+v0.1.5 is under active development. Phases 0–11 are implemented; macOS accessibility/distribution checks and release publication remain outstanding.
 
 ### Added
 
@@ -19,6 +19,7 @@ v0.1.5 is under active development. Phases 0–10 are implemented; integrity clo
 - Added the `global_search` IPC command with escaped, bounded, deterministic Household-scoped queries and no financial-value search.
 - Kept selected-file content Rust-owned; the frontend uses only the typed dialog and generated command surfaces.
 - Added Phase 10 frontend smoke coverage for explicit generation and palette focus restoration.
+- Added Phase 11 date-stable attribution regression coverage, full IPC operation-boundary auditing, and media/immutable-evidence Backup/Restore round-trip coverage.
 
 ## [0.1.4] - Unreleased
 

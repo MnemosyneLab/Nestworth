@@ -166,6 +166,22 @@ mod tests {
         "proceeds",
         "return",
         "rate",
+        "sha256",
+        "file_sha256",
+        "database_sha256",
+        "checksum",
+        "hash",
+        "source_namespace",
+        "external_id",
+        "benchmark_id",
+        "backup_id",
+        "inspection_token",
+        "source_path",
+        "destination_path",
+        "canonical_path",
+        "file_size",
+        "byte_length",
+        "manifest",
     ];
 
     #[test]
@@ -317,6 +333,7 @@ mod tests {
 
     #[test]
     fn generated_ipc_matches_the_frozen_command_allowlist() {
+        assert_eq!(ALLOWED_COMMANDS.len(), 118);
         let expected = ALLOWED_COMMANDS
             .iter()
             .map(|name| (*name).to_owned())
@@ -329,6 +346,43 @@ mod tests {
         assert_eq!(
             generated_commands, expected,
             "generated TypeScript command names drifted"
+        );
+    }
+
+    #[test]
+    fn every_ipc_command_has_an_explicit_runtime_operation_boundary() {
+        let source = include_str!("ipc.rs");
+        let mut ordinary_commands = Vec::new();
+        let mut exclusive_commands = Vec::new();
+
+        for section in source.split("#[tauri::command]").skip(1) {
+            let Some(signature) = section.split('{').next() else {
+                continue;
+            };
+            let Some(name) = signature
+                .split("pub async fn ")
+                .nth(1)
+                .and_then(|value| value.split('(').next())
+            else {
+                continue;
+            };
+            if ["delete_all_data", "restore_backup"].contains(&name) {
+                exclusive_commands.push(name);
+                continue;
+            }
+            if !section.contains("with_shared_operation!") {
+                ordinary_commands.push(name);
+            }
+        }
+
+        assert!(
+            ordinary_commands.is_empty(),
+            "ordinary IPC commands must acquire a shared operation permit: {ordinary_commands:?}"
+        );
+        assert_eq!(
+            exclusive_commands,
+            vec!["delete_all_data", "restore_backup"],
+            "only destructive reset and restore may bypass the shared permit"
         );
     }
 

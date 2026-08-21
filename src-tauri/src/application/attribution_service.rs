@@ -1574,7 +1574,7 @@ mod tests {
                     .timezone,
             )
             .expect("tz");
-            let today = timezone.local_date(&Timestamp::now());
+            let today = timezone.local_date(&Timestamp::parse(NOW).expect("now"));
             let last_closed = today.pred().expect("yesterday");
             let t0 = last_closed.checked_add_days(-2).expect("t0");
             let t1 = last_closed;
@@ -1656,7 +1656,7 @@ mod tests {
                     .timezone,
             )
             .expect("tz");
-            let today = timezone.local_date(&Timestamp::now());
+            let today = timezone.local_date(&Timestamp::parse(NOW).expect("now"));
             let last_closed = today.pred().expect("yesterday");
             let t0 = last_closed.checked_add_days(-2).expect("t0");
             let t1 = last_closed;
@@ -1705,7 +1705,7 @@ mod tests {
                     .timezone,
             )
             .expect("tz");
-            let today = timezone.local_date(&Timestamp::now());
+            let today = timezone.local_date(&Timestamp::parse(NOW).expect("now"));
             let last_closed = today.pred().expect("yesterday");
             let t0 = last_closed.checked_add_days(-2).expect("t0");
             let t1 = last_closed;
@@ -1791,7 +1791,7 @@ mod tests {
                     .timezone,
             )
             .expect("tz");
-            let today = timezone.local_date(&Timestamp::now());
+            let today = timezone.local_date(&Timestamp::parse(NOW).expect("now"));
             let last_closed = today.pred().expect("yesterday");
             let t0 = last_closed.checked_add_days(-2).expect("t0");
             let t1 = last_closed;
@@ -1907,7 +1907,7 @@ mod tests {
                     .timezone,
             )
             .expect("tz");
-            let today = timezone.local_date(&Timestamp::now());
+            let today = timezone.local_date(&Timestamp::parse(NOW).expect("now"));
             let last_closed = today.pred().expect("yesterday");
             let t0 = last_closed.checked_add_days(-2).expect("t0");
             let t1 = last_closed;
@@ -2034,7 +2034,7 @@ mod tests {
                     .timezone,
             )
             .expect("tz");
-            let today = timezone.local_date(&Timestamp::now());
+            let today = timezone.local_date(&Timestamp::parse(NOW).expect("now"));
             let last_closed = today.pred().expect("yesterday");
             let t0 = last_closed.checked_add_days(-2).expect("t0");
             let t1 = last_closed;
