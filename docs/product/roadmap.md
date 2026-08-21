@@ -74,21 +74,33 @@ Add review-before-post pending and recurring Activities, configurable valuation-
 
 The detailed scope, design, and delivery phases are defined by the [v0.1.5 release contract](../releases/v0.1.5.md), [technical design](../releases/v0.1.5-technical-design.md), [implementation plan](../releases/v0.1.5-implementation-plan.md), and [compatibility baseline](../releases/v0.1.5-baseline.md). Automatic posting, arbitrary institution importers, encrypted/cloud Backup, provider-backed Benchmarks, background agents, and OS notifications remain deferred.
 
+### v0.1.6 — Local Market Data
+
+**Theme:** Keep valuations current with explicit, replaceable data sources.
+
+**Status:** Planned.
+
+Activate the provider boundary already prepared by v0.1.2 with a Rust-owned, user-initiated Yahoo Finance chart adapter. Users can bind market symbols to Instruments, fetch current Instrument prices and required FX rates, and backfill bounded daily close history into existing append-only quote storage. A local coverage cache limits repeated daily requests; historical quote writes mark the normal rebuild range but never rebuild automatically.
+
+**Exit outcome:** A Household can update Provider-selected market and FX valuation inputs and repair eligible daily valuation history without surrendering manual fallback, local-first reads, or financial authority to an external API.
+
+The detailed scope, architecture, phased delivery, and compatibility obligations are defined by the [v0.1.6 release contract](../releases/v0.1.6.md), [technical design](../releases/v0.1.6-technical-design.md), [implementation plan](../releases/v0.1.6-implementation-plan.md), and [compatibility baseline](../releases/v0.1.6-baseline.md). Provider-backed Benchmarks, background refresh, multi-provider user routing, symbol search, OHLCV/chart storage, and account/trade synchronization remain deferred.
+
 ## Capability Matrix
 
-| Capability | 0.1.1 | 0.1.2 | 0.1.3 | 0.1.4 | 0.1.5 |
-| --- | --- | --- | --- | --- | --- |
-| Household, members, and exact ownership | Yes | Preserve | Preserve | Preserve | Preserve |
-| Institutions, groups, accounts, and current value | Yes | Extend | Preserve | Preserve | Preserve |
-| Net worth and basic allocation | Yes | Multi-currency | Historical | Attributed | Automated upkeep |
-| Multi-currency and FX | No | Yes | Historical | Attribution | Preserve |
-| Instruments and holdings | No | Yes | Activity-aware | Performance-aware | Importable |
-| Activity ledger and transfers | No | No | Yes | Analytics input | Automatable |
-| Historical trend | No | No | Yes | Explainable | Preserve |
-| Investment performance | No | No | No | Yes | Preserve |
-| Cost basis and lots | No | No | No | FIFO | Importable |
-| Benchmarks and relative return | No | No | No | No | Yes |
-| Backup, import, export, and automation | No | No | No | No | Yes |
+| Capability | 0.1.1 | 0.1.2 | 0.1.3 | 0.1.4 | 0.1.5 | 0.1.6 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Household, members, and exact ownership | Yes | Preserve | Preserve | Preserve | Preserve | Preserve |
+| Institutions, groups, accounts, and current value | Yes | Extend | Preserve | Preserve | Preserve | Preserve |
+| Net worth and basic allocation | Yes | Multi-currency | Historical | Attributed | Automated upkeep | Provider-assisted inputs |
+| Multi-currency and FX | No | Yes | Historical | Attribution | Preserve | Explicit provider refresh |
+| Instruments and holdings | No | Yes | Activity-aware | Performance-aware | Importable | Provider-backed quotes |
+| Activity ledger and transfers | No | No | Yes | Analytics input | Automatable | Preserve |
+| Historical trend | No | No | Yes | Explainable | Preserve | Daily-close backfill |
+| Investment performance | No | No | No | Yes | Preserve | Preserve |
+| Cost basis and lots | No | No | No | FIFO | Importable | Preserve |
+| Benchmarks and relative return | No | No | No | No | Yes | Manual only |
+| Backup, import, export, and automation | No | No | No | No | Yes | Provider cache preserved |
 
 `Yes` describes a release outcome, not the current implementation status. Status for the active release belongs in its release contract.
 
