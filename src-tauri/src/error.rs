@@ -8,6 +8,22 @@ use crate::infrastructure::database_bootstrap::DatabaseBootstrapStatus;
 
 pub const LAST_ACTIVE_MEMBER_MESSAGE: &str = "A household must keep at least one active member.";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RestartReason {
+    Reset,
+    Restore,
+}
+
+impl RestartReason {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Reset => "reset",
+            Self::Restore => "restore",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Error)]
 pub enum AppError {
     #[error("validation failed for {field}")]
@@ -78,6 +94,8 @@ pub enum AppError {
     DataResetFailed,
     #[error("history origin initialization failed")]
     HistoryInitializationFailed,
+    #[error("freshness policy initialization failed")]
+    PolicyInitializationFailed,
     #[error("history timezone confirmation is required")]
     HistoryTimezoneConfirmationRequired,
     #[error("history snapshots need to be rebuilt")]
@@ -88,6 +106,40 @@ pub enum AppError {
     InvalidCostBasisDeclaration { message: String },
     #[error("the cost-basis lot was not found")]
     CostBasisLotNotFound,
+    #[error("the recurring rule is invalid")]
+    InvalidRecurringRule { message: String },
+    #[error("the pending activity is invalid")]
+    InvalidPendingActivity { message: String },
+    #[error("the benchmark is invalid")]
+    InvalidBenchmark { message: String },
+    #[error("the import row is invalid")]
+    InvalidImportRow { message: String },
+    #[error("the export could not be created")]
+    ExportFailed { message: String },
+    #[error("the import preview has expired")]
+    ImportPreviewExpired,
+    #[error("the selected import file has changed")]
+    ImportFileChanged,
+    #[error("the import cannot be committed")]
+    ImportRejected {
+        row: i32,
+        field: String,
+        code: String,
+    },
+    #[error("the import could not be committed")]
+    ImportCommitFailed { message: String },
+    #[error("the backup is invalid")]
+    InvalidBackup { message: String },
+    #[error("the backup is corrupt")]
+    BackupCorrupt { message: String },
+    #[error("the backup could not be created")]
+    BackupCreateFailed { message: String },
+    #[error("the backup format version is unsupported")]
+    BackupUnsupportedVersion,
+    #[error("restore validation failed")]
+    RestoreValidationFailed { reason: String },
+    #[error("the application must be restarted")]
+    AppRestartRequired { reason: RestartReason },
     #[error("the analytics period is unavailable")]
     AnalyticsPeriodUnavailable {
         reason: String,
@@ -97,6 +149,8 @@ pub enum AppError {
     AnalyticsInputIncomplete { reason: String },
     #[error("the return is not computable")]
     ReturnNotComputable { reason: String },
+    #[error("search request is invalid")]
+    InvalidSearch { message: String },
     #[error("internal application error")]
     Internal,
 }
@@ -200,6 +254,91 @@ impl AppError {
         }
     }
 
+    pub fn invalid_recurring_rule(message: &str) -> Self {
+        Self::InvalidRecurringRule {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn invalid_pending_activity(message: &str) -> Self {
+        Self::InvalidPendingActivity {
+            message: message.to_owned(),
+        }
+    }
+    pub fn invalid_search(message: &str) -> Self {
+        Self::InvalidSearch {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn invalid_benchmark(message: &str) -> Self {
+        Self::InvalidBenchmark {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn invalid_import_row(message: &str) -> Self {
+        Self::InvalidImportRow {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn export_failed(message: &str) -> Self {
+        Self::ExportFailed {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn import_preview_expired() -> Self {
+        Self::ImportPreviewExpired
+    }
+
+    pub fn import_file_changed() -> Self {
+        Self::ImportFileChanged
+    }
+
+    pub fn import_rejected(row: i32, field: &str, code: &str) -> Self {
+        Self::ImportRejected {
+            row,
+            field: field.to_owned(),
+            code: code.to_owned(),
+        }
+    }
+
+    pub fn import_commit_failed(message: &str) -> Self {
+        Self::ImportCommitFailed {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn invalid_backup(message: &str) -> Self {
+        Self::InvalidBackup {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn backup_corrupt(message: &str) -> Self {
+        Self::BackupCorrupt {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn backup_create_failed(message: &str) -> Self {
+        Self::BackupCreateFailed {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn backup_unsupported_version() -> Self {
+        Self::BackupUnsupportedVersion
+    }
+
+    pub fn restore_validation_failed(reason: &str) -> Self {
+        Self::RestoreValidationFailed {
+            reason: reason.to_owned(),
+        }
+    }
+
     pub fn analytics_input_incomplete(reason: &str) -> Self {
         Self::AnalyticsInputIncomplete {
             reason: reason.to_owned(),
@@ -225,6 +364,7 @@ impl AppError {
             DatabaseBootstrapStatus::HistoryInitializationFailed => {
                 Self::HistoryInitializationFailed
             }
+            DatabaseBootstrapStatus::PolicyInitializationFailed => Self::PolicyInitializationFailed,
             DatabaseBootstrapStatus::Unavailable => Self::DatabaseUnavailable,
             DatabaseBootstrapStatus::Corrupt => Self::CorruptDatabase,
         }
@@ -438,6 +578,10 @@ impl AppError {
                 ErrorCode::HistoryInitializationFailed,
                 "History origin could not be initialized.",
             ),
+            Self::PolicyInitializationFailed => CommandError::new(
+                ErrorCode::DatabaseUnavailable,
+                "Freshness policies could not be initialized.",
+            ),
             Self::HistoryTimezoneConfirmationRequired => CommandError::new(
                 ErrorCode::HistoryTimezoneConfirmationRequired,
                 "Confirm the history timezone before recording activity or snapshots.",
@@ -459,6 +603,102 @@ impl AppError {
                 ErrorCode::CostBasisLotNotFound,
                 "The referenced lot could not be found.",
             ),
+            Self::InvalidRecurringRule { message } => CommandError {
+                code: ErrorCode::InvalidRecurringRule,
+                message,
+                fields: None,
+            },
+            Self::InvalidPendingActivity { message } => CommandError {
+                code: ErrorCode::InvalidPendingActivity,
+                message,
+                fields: None,
+            },
+            Self::InvalidBenchmark { message } => CommandError {
+                code: ErrorCode::InvalidBenchmark,
+                message,
+                fields: None,
+            },
+            Self::InvalidImportRow { message } => CommandError {
+                code: ErrorCode::ImportInvalid,
+                message,
+                fields: None,
+            },
+            Self::ExportFailed { message } => CommandError {
+                code: ErrorCode::ExportFailed,
+                message,
+                fields: None,
+            },
+            Self::ImportPreviewExpired => CommandError::new(
+                ErrorCode::ImportPreviewExpired,
+                "The import preview has expired. Preview the file again.",
+            ),
+            Self::ImportFileChanged => CommandError::new(
+                ErrorCode::ImportFileChanged,
+                "The selected file has changed since preview. Preview the file again.",
+            ),
+            Self::ImportRejected { row, field, code } => {
+                let conflict = code == "CSV_DUPLICATE_CONFLICT";
+                let mut fields = HashMap::new();
+                fields.insert("row".to_owned(), row.to_string());
+                fields.insert("field".to_owned(), field);
+                fields.insert("code".to_owned(), code.clone());
+                CommandError {
+                    code: if conflict {
+                        ErrorCode::ImportDuplicateConflict
+                    } else {
+                        ErrorCode::ImportInvalid
+                    },
+                    message: if conflict {
+                        "An imported row conflicts with a previous identity.".to_owned()
+                    } else {
+                        "The CSV import cannot be committed.".to_owned()
+                    },
+                    fields: Some(fields),
+                }
+            }
+            Self::ImportCommitFailed { message } => CommandError {
+                code: ErrorCode::ImportCommitFailed,
+                message,
+                fields: None,
+            },
+            Self::InvalidBackup { message } => CommandError {
+                code: ErrorCode::BackupInvalid,
+                message,
+                fields: None,
+            },
+            Self::BackupCorrupt { message } => CommandError {
+                code: ErrorCode::BackupCorrupt,
+                message,
+                fields: None,
+            },
+            Self::BackupCreateFailed { message } => CommandError {
+                code: ErrorCode::BackupCreateFailed,
+                message,
+                fields: None,
+            },
+            Self::BackupUnsupportedVersion => CommandError::new(
+                ErrorCode::BackupUnsupportedVersion,
+                "The backup format version is not supported.",
+            ),
+            Self::RestoreValidationFailed { reason } => {
+                let mut fields = HashMap::new();
+                fields.insert("reason".to_owned(), reason);
+                CommandError {
+                    code: ErrorCode::RestoreValidationFailed,
+                    message: "The backup cannot be restored.".to_owned(),
+                    fields: Some(fields),
+                }
+            }
+            Self::AppRestartRequired { reason } => {
+                let mut fields = HashMap::new();
+                fields.insert("reason".to_owned(), reason.as_str().to_owned());
+                CommandError {
+                    code: ErrorCode::AppRestartRequired,
+                    message: "The application must restart before more work can continue."
+                        .to_owned(),
+                    fields: Some(fields),
+                }
+            }
             Self::AnalyticsPeriodUnavailable { .. } => CommandError::new(
                 ErrorCode::AnalyticsPeriodUnavailable,
                 "This analytics period is unavailable.",
@@ -471,6 +711,11 @@ impl AppError {
                 ErrorCode::ReturnNotComputable,
                 "The return cannot be computed for this period.",
             ),
+            Self::InvalidSearch { message } => CommandError {
+                code: ErrorCode::SearchInvalid,
+                message,
+                fields: None,
+            },
             Self::Internal => CommandError::new(
                 ErrorCode::InternalError,
                 "An internal application error occurred.",
@@ -532,6 +777,22 @@ pub enum ErrorCode {
     ReturnNotComputable,
     InvalidCostBasisDeclaration,
     CostBasisLotNotFound,
+    InvalidRecurringRule,
+    InvalidPendingActivity,
+    InvalidBenchmark,
+    ImportInvalid,
+    ExportFailed,
+    ImportPreviewExpired,
+    ImportFileChanged,
+    ImportDuplicateConflict,
+    ImportCommitFailed,
+    BackupInvalid,
+    BackupCorrupt,
+    BackupCreateFailed,
+    BackupUnsupportedVersion,
+    RestoreValidationFailed,
+    AppRestartRequired,
+    SearchInvalid,
     InternalError,
 }
 

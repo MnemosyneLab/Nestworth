@@ -62,10 +62,23 @@ typed_id!(QuotePreferenceObservationId);
 typed_id!(ValuationSnapshotId);
 typed_id!(ValuationSnapshotItemId);
 typed_id!(CostBasisDeclarationId);
+typed_id!(RecurringActivityRuleId);
+typed_id!(PendingActivityId);
+typed_id!(FreshnessPolicyId);
+typed_id!(MaintenanceSnoozeId);
+typed_id!(ImportBatchId);
+typed_id!(ImportItemId);
+typed_id!(BenchmarkId);
+typed_id!(BenchmarkObservationId);
+typed_id!(BackupId);
 
 #[cfg(test)]
 mod tests {
-    use super::{AccountId, ActivityId, HoldingId, HouseholdId, InstrumentId, MemberId};
+    use super::{
+        AccountId, ActivityId, BackupId, BenchmarkId, BenchmarkObservationId, FreshnessPolicyId,
+        HoldingId, HouseholdId, ImportBatchId, ImportItemId, InstrumentId, MaintenanceSnoozeId,
+        MemberId, PendingActivityId, RecurringActivityRuleId,
+    };
     use std::any::TypeId;
 
     #[test]
@@ -82,6 +95,19 @@ mod tests {
                 .get_version_num(),
             7
         );
+        for version in [
+            RecurringActivityRuleId::new().as_uuid().get_version_num(),
+            PendingActivityId::new().as_uuid().get_version_num(),
+            FreshnessPolicyId::new().as_uuid().get_version_num(),
+            MaintenanceSnoozeId::new().as_uuid().get_version_num(),
+            ImportBatchId::new().as_uuid().get_version_num(),
+            ImportItemId::new().as_uuid().get_version_num(),
+            BenchmarkId::new().as_uuid().get_version_num(),
+            BenchmarkObservationId::new().as_uuid().get_version_num(),
+            BackupId::new().as_uuid().get_version_num(),
+        ] {
+            assert_eq!(version, 7);
+        }
     }
 
     #[test]
@@ -112,6 +138,12 @@ mod tests {
         assert_ne!(household.to_string(), "invalid");
         assert_ne!(TypeId::of::<ActivityId>(), TypeId::of::<HoldingId>());
         assert_ne!(TypeId::of::<ActivityId>(), TypeId::of::<AccountId>());
+        assert_ne!(
+            TypeId::of::<RecurringActivityRuleId>(),
+            TypeId::of::<PendingActivityId>()
+        );
+        assert_ne!(TypeId::of::<ImportBatchId>(), TypeId::of::<ImportItemId>());
+        assert_ne!(TypeId::of::<BenchmarkId>(), TypeId::of::<BackupId>());
         let activity = ActivityId::new();
         let holding = HoldingId::from_uuid(activity.as_uuid());
         assert_eq!(activity.as_uuid(), holding.as_uuid());

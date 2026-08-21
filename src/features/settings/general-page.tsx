@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
+import { DataManagement } from "@/features/settings/data-management";
 import { commands, type CommandError } from "@/generated/tauri-bindings";
 import { i18n } from "@/lib/i18n";
 import { applyAppearance, resolveLanguage } from "@/lib/i18n/preferences";
@@ -124,6 +125,7 @@ export function SettingsGeneralPage() {
                 ))}
               </NativeSelect>
             </label>
+            <DataManagement />
             <section
               aria-labelledby="delete-all-data-title"
               className="space-y-3 border-t border-border pt-6"

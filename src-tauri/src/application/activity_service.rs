@@ -308,6 +308,74 @@ pub async fn post_in_tx(
     Ok(activity)
 }
 
+/// Validate the current references for a prepared Activity without resolving a
+/// posting time or applying any ledger/projection mutation. Pending and
+/// recurring proposals use this boundary before they are stored or generated.
+pub(crate) async fn validate_pending_command_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    command: &PostCommand,
+) -> Result<(), AppError> {
+    let origin = get_origin_by_household(tx, household_id)
+        .await?
+        .ok_or(AppError::HistoryInitializationFailed)?;
+    match command {
+        PostCommand::Opening(opening) => validate_opening(tx, &origin, opening).await,
+        PostCommand::BalanceAdjustment { account_id, .. }
+        | PostCommand::DebtAdjustment { account_id, .. }
+        | PostCommand::ManualValuation { account_id, .. } => {
+            let account = load_required_account(tx, &origin, account_id).await?;
+            require_active(&account)
+        }
+        PostCommand::PositionAdjustment { holding_id, .. } => {
+            let endpoint = load_required_holding(tx, &origin, holding_id).await?;
+            require_active(&endpoint.1)
+        }
+        PostCommand::Deposit { endpoint, .. } => {
+            validate_external_money_endpoint(tx, &origin, *endpoint, MoneyFlowKind::Deposit).await
+        }
+        PostCommand::Withdrawal { endpoint, .. } => {
+            validate_external_money_endpoint(tx, &origin, *endpoint, MoneyFlowKind::Withdrawal)
+                .await
+        }
+        PostCommand::Income {
+            endpoint,
+            instrument_id,
+            ..
+        } => {
+            validate_external_money_endpoint(tx, &origin, *endpoint, MoneyFlowKind::Income).await?;
+            validate_related_instrument(tx, &origin, *instrument_id).await
+        }
+        PostCommand::Fee {
+            endpoint,
+            instrument_id,
+            ..
+        } => {
+            validate_external_money_endpoint(tx, &origin, *endpoint, MoneyFlowKind::Fee).await?;
+            validate_related_instrument(tx, &origin, *instrument_id).await
+        }
+        PostCommand::CashTransfer {
+            source,
+            destination,
+            ..
+        } => {
+            validate_transfer_money_endpoint(tx, &origin, *source).await?;
+            validate_transfer_money_endpoint(tx, &origin, *destination).await
+        }
+        PostCommand::PositionTransfer {
+            source,
+            destination,
+            ..
+        } => {
+            validate_quantity_endpoint(tx, &origin, *source).await?;
+            validate_quantity_endpoint(tx, &origin, *destination).await
+        }
+        PostCommand::Buy(spec) | PostCommand::Sell(spec) => validate_trade(tx, &origin, spec).await,
+        PostCommand::DebtDraw(spec) => validate_debt_draw(tx, &origin, spec).await,
+        PostCommand::DebtPayment(spec) => validate_debt_payment(tx, &origin, spec).await,
+    }
+}
+
 pub async fn preview_in_tx(
     tx: &mut Transaction<'_, Sqlite>,
     command: PostCommand,

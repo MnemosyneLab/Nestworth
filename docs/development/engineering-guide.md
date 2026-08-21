@@ -130,7 +130,7 @@ Rust is authoritative for:
 - Decimal annualization and XIRR using the `rust_decimal` `maths` feature; `f32` and `f64` remain prohibited
 - Database compatibility and integrity checks
 - Media validation and normalization
-- Stable command errors for the 81-command allowlist
+- Stable command errors for the current 118-command allowlist
 - Quote and FX provider adapters; the frontend never calls a market-data endpoint
 
 Application services return complete DTOs needed by the frontend. A command wrapper should not contain SQL or business branching.

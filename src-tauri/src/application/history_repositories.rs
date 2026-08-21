@@ -1603,6 +1603,42 @@ pub async fn list_fx_preference_observations(
     .collect()
 }
 
+pub async fn list_fx_preference_observations_for_pair_at(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    currency_a: &str,
+    currency_b: &str,
+    cutoff_at: &str,
+) -> Result<Vec<FxPreferenceObservationRecord>, AppError> {
+    query_count::record("benchmark.fx_preference_observations");
+    sqlx::query(
+        "SELECT id, household_id, currency_a, currency_b, source_kind, effective_at, created_at
+         FROM fx_preference_observations
+         WHERE household_id = ? AND currency_a = ? AND currency_b = ? AND effective_at <= ?
+         ORDER BY effective_at ASC, created_at ASC, id ASC",
+    )
+    .bind(household_id)
+    .bind(currency_a)
+    .bind(currency_b)
+    .bind(cutoff_at)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("history.fx_preference_pair_list_failed", error))?
+    .into_iter()
+    .map(|row| {
+        Ok(FxPreferenceObservationRecord {
+            id: required_text(&row, "id")?,
+            household_id: required_text(&row, "household_id")?,
+            currency_a: required_text(&row, "currency_a")?,
+            currency_b: required_text(&row, "currency_b")?,
+            source_kind: required_text(&row, "source_kind")?,
+            effective_at: required_text(&row, "effective_at")?,
+            created_at: required_text(&row, "created_at")?,
+        })
+    })
+    .collect()
+}
+
 pub async fn list_latest_fx_preferences_at(
     tx: &mut Transaction<'_, Sqlite>,
     household_id: &str,
@@ -1855,7 +1891,7 @@ pub async fn earliest_complete_snapshot_on(
     household_id: &str,
 ) -> Result<Option<String>, AppError> {
     query_count::record("snapshots_first_complete");
-    sqlx::query_scalar(
+    let value: Option<String> = sqlx::query_scalar(
         "SELECT MIN(snapshot_on) FROM (
             SELECT snapshot_on, is_complete,
                    ROW_NUMBER() OVER (
@@ -1868,9 +1904,10 @@ pub async fn earliest_complete_snapshot_on(
          WHERE rn = 1 AND is_complete = 1",
     )
     .bind(household_id)
-    .fetch_optional(&mut **tx)
+    .fetch_one(&mut **tx)
     .await
-    .map_err(|error| map_read_error("history.snapshot_first_complete_failed", error))
+    .map_err(|error| map_read_error("history.snapshot_first_complete_failed", error))?;
+    Ok(value.filter(|value| !value.is_empty()))
 }
 
 pub async fn count_snapshots_for_date(

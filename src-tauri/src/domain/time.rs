@@ -118,6 +118,33 @@ impl HistoryTimezone {
     pub fn local_date(self, timestamp: &Timestamp) -> CalendarDate {
         CalendarDate::from_naive_date(timestamp.as_utc().with_timezone(&self.0).date_naive())
     }
+
+    #[must_use]
+    pub fn local_clock_hm(self, timestamp: &Timestamp) -> String {
+        timestamp
+            .as_utc()
+            .with_timezone(&self.0)
+            .format("%H:%M")
+            .to_string()
+    }
+
+    #[must_use]
+    pub fn ambiguous_offset_for(self, timestamp: &Timestamp) -> Option<AmbiguousOffset> {
+        let local = timestamp.as_utc().with_timezone(&self.0).naive_local();
+        match self.0.from_local_datetime(&local) {
+            MappedLocalTime::Ambiguous(earlier, later) => {
+                let utc = timestamp.as_utc();
+                if utc == earlier.with_timezone(&Utc) {
+                    Some(AmbiguousOffset::Earlier)
+                } else if utc == later.with_timezone(&Utc) {
+                    Some(AmbiguousOffset::Later)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
 }
 
 /// Exclusive UTC cutoff for a closed local calendar day in a History Origin timezone.

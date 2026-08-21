@@ -718,6 +718,24 @@ pub fn snapshot_instruments(snapshot: &ValuationSnapshot) -> &HashMap<String, In
     &snapshot.instruments
 }
 
+pub fn snapshot_instrument_quotes(
+    snapshot: &ValuationSnapshot,
+) -> impl Iterator<Item = &InstrumentQuoteRecordDto> {
+    snapshot.instrument_quotes.values()
+}
+
+pub fn snapshot_fx_quotes(snapshot: &ValuationSnapshot) -> impl Iterator<Item = &FxQuoteRecordDto> {
+    snapshot.fx_quotes.values()
+}
+
+pub fn snapshot_fx_preference(snapshot: &ValuationSnapshot, pair: &FxPair) -> QuoteSourceKind {
+    snapshot
+        .fx_preferences
+        .get(pair)
+        .copied()
+        .unwrap_or(QuoteSourceKind::Manual)
+}
+
 pub fn snapshot_base(snapshot: &ValuationSnapshot) -> CurrencyCode {
     snapshot.base_currency
 }

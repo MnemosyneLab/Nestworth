@@ -4,6 +4,7 @@ mod activity;
 mod activity_leg;
 mod analytics_scope;
 mod category;
+mod csv_template;
 mod currency;
 mod decimal;
 mod fx;
@@ -22,6 +23,7 @@ mod quote;
 mod reference_catalog;
 mod return_rate;
 mod signed_money;
+mod sustainable;
 mod text;
 mod time;
 mod unit_price;
@@ -46,6 +48,18 @@ pub use analytics_scope::{
     ScopeEndpointFacts, ScopeFlowActivity, ScopeFlowLeg, ScopeFlowResult,
 };
 pub use category::{PrimaryCategory, SecondaryCategory, TrackingMode};
+pub use csv_template::{
+    activity_fingerprint, benchmark_fingerprint, harden_spreadsheet_text, looks_localized_boolean,
+    looks_localized_date, looks_localized_decimal, needs_spreadsheet_hardening, optional_text,
+    parse_optional_external_id, parse_optional_namespace, parse_strict_boolean, quote_fingerprint,
+    required_text, unescape_spreadsheet_text, ACTIVITY_CSV_HEADERS, BENCHMARK_CSV_HEADERS,
+    CSV_ESCAPED_COLUMN, DIAGNOSTIC_DOMAIN_INVALID, DIAGNOSTIC_DUPLICATE_CONFLICT,
+    DIAGNOSTIC_EXACT_DUPLICATE, DIAGNOSTIC_HEADER_DUPLICATE, DIAGNOSTIC_HEADER_MISSING,
+    DIAGNOSTIC_HEADER_UNKNOWN, DIAGNOSTIC_KIND_FORBIDDEN, DIAGNOSTIC_LOCALIZED_VALUE,
+    DIAGNOSTIC_MALFORMED_QUOTE, DIAGNOSTIC_NO_IDENTITY_WARNING, DIAGNOSTIC_NUL,
+    DIAGNOSTIC_REFERENCE_ARCHIVED, DIAGNOSTIC_REFERENCE_MISSING, DIAGNOSTIC_ROW_LIMIT,
+    DIAGNOSTIC_TEMPLATE_INVALID, DIAGNOSTIC_UTF8_INVALID, MAX_CSV_IMPORT_ROWS, QUOTE_CSV_HEADERS,
+};
 pub use currency::CurrencyCode;
 pub use decimal::{
     canonical_decimal, checked_add, checked_div, checked_exp, checked_ln, checked_mul,
@@ -57,10 +71,12 @@ pub use holding::{Holding, PersistedHolding};
 pub use household::Household;
 pub use ids::{
     AccountCashValueId, AccountGroupId, AccountId, AccountStateObservationId, AccountValueId,
-    ActivityId, ActivityLegId, CostBasisDeclarationId, FxQuoteId, HistoryOriginId,
-    HistoryOriginItemId, HoldingId, HoldingQuantityValueId, HoldingStateObservationId, HouseholdId,
-    InstitutionId, InstrumentId, InstrumentQuoteId, MediaAssetId, MemberId,
-    QuotePreferenceObservationId, ValuationSnapshotId, ValuationSnapshotItemId,
+    ActivityId, ActivityLegId, BackupId, BenchmarkId, BenchmarkObservationId,
+    CostBasisDeclarationId, FreshnessPolicyId, FxQuoteId, HistoryOriginId, HistoryOriginItemId,
+    HoldingId, HoldingQuantityValueId, HoldingStateObservationId, HouseholdId, ImportBatchId,
+    ImportItemId, InstitutionId, InstrumentId, InstrumentQuoteId, MaintenanceSnoozeId,
+    MediaAssetId, MemberId, PendingActivityId, QuotePreferenceObservationId,
+    RecurringActivityRuleId, ValuationSnapshotId, ValuationSnapshotItemId,
 };
 pub use institution::{Institution, NewInstitution, PersistedInstitution};
 pub use instrument::{Instrument, InstrumentType, NewInstrument, PersistedInstrument};
@@ -80,7 +96,14 @@ pub use reference_catalog::{
 };
 pub use return_rate::ReturnRate;
 pub use signed_money::SignedMoney;
-pub use text::{parse_optional_note, NOTE_MAX_CHARS};
+pub use sustainable::{
+    ActivityImportRow, BackupFormatVersion, BenchmarkLevel, BenchmarkObservationSourceKind,
+    BenchmarkSeriesKind, CanonicalImportRow, CarryWindow, Checksum, ExternalId,
+    FreshnessPolicyKind, ImportField, ImportFingerprint, ImportTemplate, PendingActivityKind,
+    PendingActivityPayload, RecurrenceResult, RecurringActivityKind, RecurringActivityPayload,
+    Schedule, ScheduleCadence, ScheduleInterval, SourceNamespace, MAX_RECURRENCE_OCCURRENCES,
+};
+pub use text::{parse_name, parse_optional_note, NOTE_MAX_CHARS};
 pub use time::{
     closed_day_cutoff, inclusive_closed_day_instant, origin_timezone_from_iana_name,
     resolve_activity_time, resolve_host_origin_timezone, resolve_local_datetime,

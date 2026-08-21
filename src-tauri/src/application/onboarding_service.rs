@@ -158,6 +158,13 @@ async fn persist_onboarding_in_transaction(
     )
     .await?;
 
+    crate::application::freshness_policy_service::ensure_default_policies_in_tx(
+        tx,
+        &prepared.household.id().to_string(),
+    )
+    .await
+    .map_err(map_write_error)?;
+
     tracing::info!(
         event = "onboarding.complete",
         household_id = %prepared.household.id(),
@@ -301,6 +308,22 @@ mod tests {
                 vec![("Walt".to_owned(), 0), ("Spouse".to_owned(), 1)]
             );
             assert_eq!(last_household_id.as_deref(), Some(households[0].0.as_str()));
+            let policies: Vec<(String, i64)> = sqlx::query_as(
+                "SELECT kind, review_interval_days
+                 FROM freshness_policies
+                 WHERE household_id = ? AND target_account_id IS NULL
+                   AND target_instrument_id IS NULL AND target_currency_a IS NULL
+                 ORDER BY kind",
+            )
+            .bind(&households[0].0)
+            .fetch_all(state.writable_db().expect("writable database"))
+            .await
+            .expect("default policies should load");
+            assert_eq!(policies.len(), 4);
+            assert_eq!(policies[0], ("account_cash".to_owned(), 30));
+            assert_eq!(policies[1], ("account_value".to_owned(), 30));
+            assert_eq!(policies[2], ("fx_quote".to_owned(), 7));
+            assert_eq!(policies[3], ("instrument_quote".to_owned(), 7));
 
             let bootstrap = bootstrap_impl(&state)
                 .await
@@ -451,7 +474,7 @@ mod tests {
                 state.bootstrap_status(),
                 DatabaseBootstrapStatus::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 4
+                    supported: 5
                 }
             ));
             let before_hash = crate::test_support::stable_sqlite_hash(&path).await;
@@ -463,7 +486,7 @@ mod tests {
                 error,
                 AppError::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 4
+                    supported: 5
                 }
             ));
             assert_eq!(

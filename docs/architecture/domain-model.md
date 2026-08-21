@@ -239,10 +239,10 @@ Archive is reversible and preserves identity and history. Permanent delete is no
 
 Foreign keys protect structural references, while application transactions enforce aggregate rules such as exact Ownership and the last-active-Member requirement.
 
-## Deferred Domain Extensions
+## v0.1.5 Domain Extensions
 
-These concepts are planned but are not current behavior:
+The current release line implements pending and recurring Activity preparation, freshness policies, maintenance reminders, Backup/Restore, versioned export and strict CSV import, Benchmarks, global search, and command-palette workflows. Their persistence, IPC, and UI contracts are defined by the [release contract](../releases/v0.1.5.md) and [technical design](../releases/v0.1.5-technical-design.md); Phase 11 has verified those boundaries against the implemented code.
 
-- v0.1.5: Pending and recurring Activity preparation, freshness policies, maintenance reminders, Backup/Restore, versioned export and strict CSV import, Benchmarks, global search, and command-palette workflows are defined by the [release contract](../releases/v0.1.5.md) and [technical design](../releases/v0.1.5-technical-design.md).
+These extensions preserve the current identity, Money, Ownership, lifecycle, quote, Activity, origin, lot, declaration, and sign semantics. A pending item is not a financial fact before posting. Origin and adjustment quantities remain unknown-basis until explicitly declared. Lots remain a derived interpretation of the Activity ledger, and a declared basis never becomes an imported transaction.
 
-The planned models extend the current identity, Money, Ownership, lifecycle, quote, Activity, origin, lot, declaration, and sign semantics. A pending item is not a financial fact before posting. Origin and adjustment quantities remain unknown-basis until explicitly declared. v0.1.4 lots remain a derived interpretation of the Activity ledger, and a declared basis never becomes an imported transaction.
+Deferred capabilities remain provider-backed Benchmarks, encrypted or cloud Backup, arbitrary institution importers, background agents, automatic posting, and OS notifications.

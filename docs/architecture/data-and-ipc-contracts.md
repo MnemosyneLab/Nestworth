@@ -147,13 +147,19 @@ The command surface is grouped by use case:
 | Settings | `get_settings`, `update_settings`, `delete_all_data` |
 | Origin | `get_history_origin`, `confirm_history_timezone` |
 | Activities | `preview_activity`, `list_activities`, `get_activity`, `create_activity`, `reverse_activity`, `correct_activity` |
+| Pending and recurring | `create_pending_activity`, `update_pending_activity`, `list_pending_activities`, `preview_pending_activity`, `post_pending_activity`, `skip_pending_activity`, recurring rule CRUD, `generate_due_pending_activities` |
+| Maintenance | `list_maintenance_items`, `list_freshness_policies`, `update_freshness_policy`, `snooze_maintenance_item` |
+| Backup and restore | `create_backup`, `inspect_backup`, `list_recovery_backups`, `inspect_recovery_backup`, `restore_backup` |
+| Export and import | `export_canonical_json`, `export_csv`, `preview_csv_import`, `commit_csv_import`, `list_import_batches`, `get_import_batch` |
+| Benchmarks | `list_benchmarks`, `create_benchmark`, `update_benchmark`, archive/restore, observations, default selection, comparison |
+| Search | `global_search` |
 | Timeline | `get_account_timeline` |
 | History | `get_history_status`, `rebuild_history_snapshots`, `get_net_worth_trend` |
 | Analytics | `get_analytics_status`, `get_performance_summary`, `get_gain_summary`, `list_holding_gain_summaries`, `get_net_worth_attribution`, `list_holding_lots`, `list_unknown_basis_lots`, `list_cost_basis_declarations`, `declare_lot_cost_basis`, `revoke_lot_cost_basis` |
 
 The application does not expose `get_household`, `update_household`, or media-clear commands. Household name and base currency are displayed from bootstrap; language and appearance are the mutable settings. `delete_all_data` is an explicitly confirmed destructive reset: it is available only for a writable supported database, closes SQLite, removes the database, WAL/SHM sidecars, and pre-migration snapshots including schema-4 `.pre-migrate-*` files, and restarts into onboarding. It cannot delete an unsupported future-version database. Activity commands accept tagged kind-specific inputs only; `preview_activity` performs no writes. In the v0.1.4 baseline, analytics reads are read-only over the ledger; `declare_lot_cost_basis` and `revoke_lot_cost_basis` are the only analytics writes and persist no lot, gain, or valuation state. Production quote adapters are unconfigured, so production UI does not offer provider preference, provider search, or automatic refresh controls. Backend search and refresh remain available for deterministic fake-adapter tests and future integration, returning safe provider-unavailable errors with the production adapters.
 
-The frozen allowlist contains 81 commands.
+The current generated IPC and frozen capability allowlist contain 118 commands. The Phase 0/v0.1.4 compatibility baseline began with 81 commands; v0.1.5 adds the typed pending, maintenance, backup/restore, export/import, Benchmark, search, and analytics surfaces. `src-tauri/src/capabilities_test.rs` asserts that the Rust registry and generated TypeScript invoke names remain identical.
 
 Command adapters remain thin. Application services own transactions and domain conversion. Frontend code calls the generated `commands` client rather than using raw Tauri invoke names.
 

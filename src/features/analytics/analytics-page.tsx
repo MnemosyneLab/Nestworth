@@ -17,6 +17,7 @@ import {
   WorklistPanel,
   type LotAction,
 } from "@/features/analytics/analytics-panels";
+import { BenchmarkPanel } from "@/features/analytics/benchmark-panel";
 import {
   PAGE_SIZE,
   mergeByDeclarationId,
@@ -71,8 +72,7 @@ export function AnalyticsPage() {
   });
   const instruments = useQuery({
     queryKey: ["instruments", true],
-    queryFn: () =>
-      unwrapResult(commands.listInstruments({ includeArchived: true })),
+    queryFn: () => unwrapResult(commands.listInstruments({ includeArchived: true })),
   });
   const statusQuery = useQuery({
     queryKey: ["analytics-status", scopeDto],
@@ -137,11 +137,7 @@ export function AnalyticsPage() {
     enabled: scopeReady,
   });
   const declarationsQuery = useQuery({
-    queryKey: [
-      "cost-basis-declarations",
-      scopeDto,
-      search.declarationCursor ?? null,
-    ],
+    queryKey: ["cost-basis-declarations", scopeDto, search.declarationCursor ?? null],
     queryFn: () =>
       unwrapResult(
         commands.listCostBasisDeclarations({
@@ -188,9 +184,7 @@ export function AnalyticsPage() {
       setWorklistItems(worklistQuery.data.items);
       return;
     }
-    setWorklistItems((previous) =>
-      mergeByLotRef(previous, worklistQuery.data.items),
-    );
+    setWorklistItems((previous) => mergeByLotRef(previous, worklistQuery.data.items));
   }, [worklistQuery.data, search.worklistCursor]);
 
   useEffect(() => {
@@ -279,8 +273,14 @@ export function AnalyticsPage() {
         {statusQuery.data ? (
           <StatusPanel catalog={catalog} status={statusQuery.data} />
         ) : null}
-        {performanceQuery.data ? (
-          <ReturnPanel summary={performanceQuery.data} />
+        {performanceQuery.data ? <ReturnPanel summary={performanceQuery.data} /> : null}
+        {scopeReady ? (
+          <BenchmarkPanel
+            catalog={catalog}
+            period={periodDto}
+            ready={scopeReady && periodReady}
+            scope={scopeDto}
+          />
         ) : null}
         {gainQuery.data ? <GainPanel catalog={catalog} gain={gainQuery.data} /> : null}
         {gainQuery.data ? (

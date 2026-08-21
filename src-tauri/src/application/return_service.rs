@@ -134,6 +134,7 @@ pub(crate) async fn get_performance_summary_at_in_tx(
     let first_complete =
         history_repositories::earliest_complete_snapshot_on(tx, &series.household_id)
             .await?
+            .filter(|value| !value.is_empty())
             .map(|value| CalendarDate::parse(&value))
             .transpose()?;
     let Some(first_complete) = first_complete else {

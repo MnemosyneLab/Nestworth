@@ -233,6 +233,40 @@ async fn append_manual_instrument_quote_in_tx(
     Ok(instrument_quote_dto(&quote))
 }
 
+pub(crate) async fn append_imported_manual_instrument_quote_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    instrument_id: &str,
+    unit_price: &str,
+    quoted_at: Option<&str>,
+) -> Result<InstrumentQuoteRecordDto, AppError> {
+    let instrument =
+        instrument_service::load_instrument_domain(tx, household_id, instrument_id).await?;
+    if instrument.archived_at().is_some() {
+        return Err(AppError::import_commit_failed(
+            "The referenced instrument is archived.",
+        ));
+    }
+    let now = Timestamp::now();
+    let quoted_at = quoted_at
+        .map(Timestamp::parse)
+        .transpose()?
+        .unwrap_or_else(|| now.clone());
+    let quote = InstrumentQuote::new(
+        InstrumentId::parse(instrument_id)?,
+        UnitPrice::parse(unit_price)?,
+        instrument.quote_currency(),
+        QuoteSourceKind::Manual,
+        "manual",
+        false,
+        quoted_at,
+        now,
+    )?;
+    insert_instrument_quote(tx, &quote).await?;
+    activity_service::mark_dirty_for_household(tx, household_id, quote.quoted_at()).await?;
+    Ok(instrument_quote_dto(&quote))
+}
+
 async fn set_instrument_quote_preference_in_tx(
     tx: &mut Transaction<'_, Sqlite>,
     input: SetInstrumentQuotePreferenceInput,
@@ -304,6 +338,35 @@ async fn append_manual_fx_quote_in_tx(
             .await?;
     }
     activity_service::mark_dirty_for_household(tx, &household.id, quote.quoted_at()).await?;
+    Ok(fx_quote_dto(&quote))
+}
+
+pub(crate) async fn append_imported_manual_fx_quote_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    base_currency: &str,
+    quote_currency: &str,
+    rate: &str,
+    quoted_at: Option<&str>,
+) -> Result<FxQuoteRecordDto, AppError> {
+    let now = Timestamp::now();
+    let quoted_at = quoted_at
+        .map(Timestamp::parse)
+        .transpose()?
+        .unwrap_or_else(|| now.clone());
+    let quote = FxQuote::new(
+        HouseholdId::parse(household_id).map_err(|_| AppError::Internal)?,
+        CurrencyCode::parse_supported(base_currency)?,
+        CurrencyCode::parse_supported(quote_currency)?,
+        FxRate::parse(rate)?,
+        QuoteSourceKind::Manual,
+        "manual",
+        false,
+        quoted_at,
+        now,
+    )?;
+    insert_fx_quote(tx, &quote).await?;
+    activity_service::mark_dirty_for_household(tx, household_id, quote.quoted_at()).await?;
     Ok(fx_quote_dto(&quote))
 }
 
@@ -401,7 +464,7 @@ pub(crate) async fn upsert_fx_preference(
     Ok(())
 }
 
-async fn current_fx_preference(
+pub(crate) async fn current_fx_preference(
     tx: &mut Transaction<'_, Sqlite>,
     household_id: &str,
     pair: FxPair,
@@ -562,6 +625,39 @@ pub(crate) async fn list_all_fx_quotes(
     .fetch_all(&mut **tx)
     .await
     .map_err(|error| map_read_error("fx_quote.household_list_failed", error))?
+    .into_iter()
+    .map(fx_quote_from_row)
+    .collect()
+}
+
+pub(crate) async fn list_fx_quotes_for_pair_at(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    native: &str,
+    household_base: &str,
+    cutoff_at: &str,
+) -> Result<Vec<FxQuoteRecordDto>, AppError> {
+    query_count::record("benchmark.fx_quotes");
+    sqlx::query(
+        "SELECT id, household_id, base_currency, quote_currency, rate, source_kind, source_key, delayed, quoted_at, created_at
+         FROM fx_quotes
+         WHERE household_id = ?
+           AND quoted_at <= ?
+           AND (
+                (base_currency = ? AND quote_currency = ?)
+                OR (base_currency = ? AND quote_currency = ?)
+           )
+         ORDER BY quoted_at DESC, created_at DESC, id DESC",
+    )
+    .bind(household_id)
+    .bind(cutoff_at)
+    .bind(native)
+    .bind(household_base)
+    .bind(household_base)
+    .bind(native)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("fx_quote.pair_cutoff_list_failed", error))?
     .into_iter()
     .map(fx_quote_from_row)
     .collect()

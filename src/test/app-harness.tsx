@@ -576,6 +576,32 @@ export function resetCommandMocks() {
     status: "error",
     error: commandError("COST_BASIS_LOT_NOT_FOUND", "missing"),
   });
+  vi.mocked(commands.listMaintenanceItems).mockResolvedValue({
+    status: "ok",
+    data: { localDate: "2026-08-21", items: [] },
+  });
+  vi.mocked(commands.listPendingActivities).mockResolvedValue({
+    status: "ok",
+    data: { items: [], nextCursor: null, hasMore: false },
+  });
+  vi.mocked(commands.listRecurringActivityRules).mockResolvedValue({
+    status: "ok",
+    data: [],
+  });
+  vi.mocked(commands.listFreshnessPolicies).mockResolvedValue({
+    status: "ok",
+    data: [],
+  });
+  vi.mocked(commands.listRecoveryBackups).mockResolvedValue({
+    status: "ok",
+    data: { items: [], explanation: "Recovery backups are retained." },
+  });
+  vi.mocked(commands.listImportBatches).mockResolvedValue({
+    status: "ok",
+    data: { items: [], nextCursor: null },
+  });
+  vi.mocked(commands.listBenchmarks).mockResolvedValue({ status: "ok", data: [] });
+  vi.mocked(commands.globalSearch).mockResolvedValue({ status: "ok", data: [] });
 }
 
 export async function resetApp() {

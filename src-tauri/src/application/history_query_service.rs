@@ -27,7 +27,7 @@ use crate::{
         classify, AccountId, Activity, ActivityKind, AmbiguousOffset, Classification,
         ComponentOpening, CurrencyCode, DebtCashLink, DebtDrawSpec, DebtPaymentSpec, FeeKind,
         HoldingId, IncomeKind, InstrumentId, LegComponent, MonetaryComponent, MonetaryEndpoint,
-        Money, Quantity, QuantityEndpoint, TradeSpec, UnitPrice,
+        Money, PendingActivityPayload, Quantity, QuantityEndpoint, TradeSpec, UnitPrice,
     },
     error::AppError,
     state::AppState,
@@ -601,6 +601,29 @@ pub async fn preview_activity(
     finish_read_tx(tx, result).await
 }
 
+pub(crate) async fn preview_create_activity_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    input: CreateActivityInput,
+) -> Result<(), AppError> {
+    let fields = input.posting_fields();
+    let command = post_command_from_input(tx, household_id, input).await?;
+    let time = time_spec(&fields)?;
+    activity_service::preview_in_tx(tx, command, Some(time), fields.note.as_deref()).await?;
+    Ok(())
+}
+
+pub(crate) async fn post_create_activity_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    input: CreateActivityInput,
+) -> Result<crate::domain::Activity, AppError> {
+    let fields = input.posting_fields();
+    let command = post_command_from_input(tx, household_id, input).await?;
+    let time = time_spec(&fields)?;
+    activity_service::post_in_tx(tx, command, Some(time), fields.note.as_deref()).await
+}
+
 pub async fn create_activity(
     state: &AppState,
     input: CreateActivityInput,
@@ -619,6 +642,30 @@ pub async fn create_activity(
     }
     .await;
     finish_write_tx(tx, result).await
+}
+
+pub(crate) async fn preview_pending_command_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    base_currency: &str,
+    command: PostCommand,
+    time: ActivityTimeSpec<'_>,
+    note: Option<&str>,
+) -> Result<ActivityPreviewDto, AppError> {
+    let preview = activity_service::preview_in_tx(tx, command, Some(time), note).await?;
+    preview_dto(tx, household_id, base_currency, preview).await
+}
+
+pub(crate) async fn post_pending_command_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    base_currency: &str,
+    command: PostCommand,
+    time: ActivityTimeSpec<'_>,
+    note: Option<&str>,
+) -> Result<ActivityDetailDto, AppError> {
+    let activity = activity_service::post_in_tx(tx, command, Some(time), note).await?;
+    activity_detail(tx, household_id, base_currency, &activity).await
 }
 
 pub async fn reverse_activity(
@@ -1299,6 +1346,199 @@ fn optional_time_spec<'a>(
             "Local date and time must be supplied together.",
         )),
     }
+}
+
+pub(crate) async fn post_command_from_pending_payload(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    payload: PendingActivityPayload,
+) -> Result<PostCommand, AppError> {
+    payload.validate()?;
+    match payload {
+        PendingActivityPayload::Deposit { endpoint, amount } => {
+            Ok(PostCommand::Deposit { endpoint, amount })
+        }
+        PendingActivityPayload::Withdrawal { endpoint, amount } => {
+            Ok(PostCommand::Withdrawal { endpoint, amount })
+        }
+        PendingActivityPayload::Transfer {
+            source,
+            source_amount,
+            destination,
+            destination_amount,
+            fee,
+            fee_kind,
+        } => {
+            let fee = match (fee, fee_kind) {
+                (None, None) => None,
+                (Some(amount), Some(kind)) => Some((amount, kind)),
+                _ => {
+                    return Err(AppError::invalid_pending_activity(
+                        "Transfer fee amount and kind must be supplied together.",
+                    ))
+                }
+            };
+            Ok(PostCommand::CashTransfer {
+                source,
+                destination,
+                source_amount,
+                destination_amount,
+                fee,
+            })
+        }
+        PendingActivityPayload::PositionTransfer {
+            source,
+            destination,
+            quantity,
+        } => Ok(PostCommand::PositionTransfer {
+            source,
+            destination,
+            quantity,
+        }),
+        PendingActivityPayload::Buy {
+            holding_id,
+            instrument_id,
+            quantity,
+            unit_price,
+            gross_amount,
+            fee,
+            confirm_zero_unit_price,
+        } => Ok(PostCommand::Buy(
+            pending_trade_spec(
+                tx,
+                household_id,
+                PendingTradeInput {
+                    holding_id,
+                    instrument_id,
+                    quantity,
+                    unit_price,
+                    gross_amount,
+                    fee,
+                    confirm_zero_unit_price,
+                },
+            )
+            .await?,
+        )),
+        PendingActivityPayload::Sell {
+            holding_id,
+            instrument_id,
+            quantity,
+            unit_price,
+            gross_amount,
+            fee,
+            confirm_zero_unit_price,
+        } => Ok(PostCommand::Sell(
+            pending_trade_spec(
+                tx,
+                household_id,
+                PendingTradeInput {
+                    holding_id,
+                    instrument_id,
+                    quantity,
+                    unit_price,
+                    gross_amount,
+                    fee,
+                    confirm_zero_unit_price,
+                },
+            )
+            .await?,
+        )),
+        PendingActivityPayload::Income {
+            endpoint,
+            amount,
+            income_kind,
+            instrument_id,
+        } => Ok(PostCommand::Income {
+            endpoint,
+            amount,
+            kind: income_kind,
+            instrument_id,
+        }),
+        PendingActivityPayload::Fee {
+            endpoint,
+            amount,
+            fee_kind,
+            instrument_id,
+        } => Ok(PostCommand::Fee {
+            endpoint,
+            amount,
+            kind: fee_kind,
+            instrument_id,
+        }),
+        PendingActivityPayload::DebtDraw {
+            liability_account_id,
+            principal,
+            cash,
+            fx_rate: _,
+        } => Ok(PostCommand::DebtDraw(DebtDrawSpec {
+            liability_account_id,
+            principal,
+            cash: cash.map(|(endpoint, amount)| DebtCashLink { endpoint, amount }),
+        })),
+        PendingActivityPayload::DebtPayment {
+            liability_account_id,
+            principal,
+            cash,
+            fee,
+            fx_rate: _,
+        } => {
+            let (fee, fee_kind) = match fee {
+                None => (None, None),
+                Some((amount, kind)) => (Some(amount), Some(kind)),
+            };
+            Ok(PostCommand::DebtPayment(DebtPaymentSpec {
+                liability_account_id,
+                principal,
+                cash: DebtCashLink {
+                    endpoint: cash.0,
+                    amount: cash.1,
+                },
+                fee,
+                fee_kind,
+            }))
+        }
+    }
+}
+
+struct PendingTradeInput {
+    holding_id: HoldingId,
+    instrument_id: InstrumentId,
+    quantity: Quantity,
+    unit_price: UnitPrice,
+    gross_amount: Money,
+    fee: Option<Money>,
+    confirm_zero_unit_price: bool,
+}
+
+async fn pending_trade_spec(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    input: PendingTradeInput,
+) -> Result<TradeSpec, AppError> {
+    let (_, account_id, actual_instrument_id) = history_repositories::load_holding_endpoint(
+        tx,
+        household_id,
+        &input.holding_id.to_string(),
+    )
+    .await?;
+    let actual_instrument_id = InstrumentId::parse(&actual_instrument_id)?;
+    if actual_instrument_id != input.instrument_id {
+        return Err(AppError::invalid_pending_activity(
+            "The trade instrument does not match the holding.",
+        ));
+    }
+    Ok(TradeSpec {
+        account_id: AccountId::parse(&account_id)?,
+        holding_id: input.holding_id,
+        instrument_id: input.instrument_id,
+        quantity: input.quantity,
+        unit_price: input.unit_price,
+        quote_currency: input.gross_amount.currency(),
+        gross_amount: input.gross_amount,
+        settlement_currency: input.gross_amount.currency(),
+        fee: input.fee,
+        confirm_zero_unit_price: input.confirm_zero_unit_price,
+    })
 }
 
 async fn post_command_from_input(

@@ -7,7 +7,7 @@ use sqlx::Row;
 use super::reference::{begin_write_tx, finish_write_tx, map_read_error, map_write_error};
 use crate::{
     domain::{is_supported_appearance, is_supported_language, Timestamp},
-    error::AppError,
+    error::{AppError, RestartReason},
     state::AppState,
 };
 
@@ -57,11 +57,14 @@ pub async fn delete_all_data(state: &AppState, input: DeleteAllDataInput) -> Res
         ));
     }
 
+    let operation = state.acquire_exclusive_operation().await?;
     let database = state.writable_db()?.clone();
     let database_path = state.database_path().to_path_buf();
+    operation.mark_restart_required(RestartReason::Reset)?;
     database.close().await;
 
     remove_pre_migration_snapshots(&database_path)?;
+    remove_owned_restore_artifacts(&database_path)?;
     for suffix in ["-wal", "-shm"] {
         remove_if_present(&sidecar_path(&database_path, suffix))?;
     }
@@ -89,6 +92,30 @@ fn remove_pre_migration_snapshots(database_path: &Path) -> Result<(), AppError> 
     Ok(())
 }
 
+fn remove_owned_restore_artifacts(database_path: &Path) -> Result<(), AppError> {
+    let Some(parent) = database_path.parent() else {
+        return Err(AppError::DataResetFailed);
+    };
+    let database_name = database_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or(AppError::DataResetFailed)?;
+    let prefixes = [
+        format!("{database_name}.restore-staging-"),
+        format!("{database_name}.restore-rollback-"),
+        format!("{database_name}.recovery-"),
+    ];
+    let entries = fs::read_dir(parent).map_err(|_error| AppError::DataResetFailed)?;
+    for entry in entries {
+        let entry = entry.map_err(|_error| AppError::DataResetFailed)?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if prefixes.iter().any(|prefix| name.starts_with(prefix)) {
+            remove_if_present(&entry.path())?;
+        }
+    }
+    Ok(())
+}
+
 fn sidecar_path(database_path: &Path, suffix: &str) -> std::path::PathBuf {
     let mut path = database_path.as_os_str().to_os_string();
     path.push(suffix);
@@ -96,14 +123,24 @@ fn sidecar_path(database_path: &Path, suffix: &str) -> std::path::PathBuf {
 }
 
 fn remove_if_present(path: &Path) -> Result<(), AppError> {
-    match fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(_error) => {
-            tracing::error!(event = "data.reset", "failed to delete application data");
-            Err(AppError::DataResetFailed)
+            tracing::error!(event = "data.reset", "failed to inspect application data");
+            return Err(AppError::DataResetFailed);
         }
+    };
+    let result = if metadata.is_dir() {
+        fs::remove_dir_all(path)
+    } else {
+        fs::remove_file(path)
+    };
+    if let Err(_error) = result {
+        tracing::error!(event = "data.reset", "failed to delete application data");
+        return Err(AppError::DataResetFailed);
     }
+    Ok(())
 }
 
 async fn update_settings_in_tx(
@@ -191,7 +228,7 @@ mod tests {
         delete_all_data, get_settings, update_settings, DeleteAllDataInput, UpdateSettingsInput,
     };
     use crate::{
-        error::AppError,
+        error::{AppError, RestartReason},
         infrastructure::{
             database::{connect_writable, read_migration_version},
             database_bootstrap::{pre_migration_snapshot_path, MIGRATOR},
@@ -328,13 +365,18 @@ mod tests {
 
             let snapshot = pre_migration_snapshot_path(&path, 2);
             let stray = pre_migration_snapshot_path(&path, 3);
+            let staging =
+                std::path::PathBuf::from(format!("{}.restore-staging-test", path.display()));
+            let rollback =
+                std::path::PathBuf::from(format!("{}.restore-rollback-test", path.display()));
+            let recovery = std::path::PathBuf::from(format!("{}.recovery-test", path.display()));
             let state = AppState::initialize(path.clone()).await;
             assert_eq!(
                 read_migration_version(&path)
                     .await
                     .expect("migrated database should report a version"),
-                4,
-                "initialize must migrate the schema-2 fixture through to schema 4"
+                5,
+                "initialize must migrate the schema-2 fixture through to schema 5"
             );
             assert!(
                 snapshot.exists(),
@@ -343,14 +385,17 @@ mod tests {
             let declarations_table: i64 = sqlx::query_scalar(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'cost_basis_declarations'",
             )
-            .fetch_one(state.writable_db().expect("writable schema-4 database"))
+            .fetch_one(state.writable_db().expect("writable schema-5 database"))
             .await
             .expect("cost_basis_declarations probe");
             assert_eq!(
                 declarations_table, 1,
-                "schema 4 must create cost_basis_declarations before delete_all_data"
+                "schema 5 must retain cost_basis_declarations before delete_all_data"
             );
             std::fs::write(&stray, b"stray pre-migrate-3 snapshot").expect("stray snapshot");
+            std::fs::write(&staging, b"staging").expect("restore staging");
+            std::fs::write(&rollback, b"rollback").expect("restore rollback");
+            std::fs::write(&recovery, b"recovery").expect("recovery copy");
             assert!(path.exists());
 
             delete_all_data(&state, DeleteAllDataInput { confirmed: true })
@@ -360,8 +405,23 @@ mod tests {
             assert!(!path.exists());
             assert!(!snapshot.exists());
             assert!(!stray.exists());
+            assert!(!staging.exists());
+            assert!(!rollback.exists());
+            assert!(!recovery.exists());
             assert!(!super::sidecar_path(&path, "-wal").exists());
             assert!(!super::sidecar_path(&path, "-shm").exists());
+            assert_eq!(
+                state.runtime_state(),
+                crate::state::RuntimeState::RestartRequired {
+                    reason: RestartReason::Reset
+                }
+            );
+            assert!(matches!(
+                state.writable_db(),
+                Err(AppError::AppRestartRequired {
+                    reason: RestartReason::Reset
+                })
+            ));
         });
     }
 }

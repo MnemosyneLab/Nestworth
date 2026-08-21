@@ -68,6 +68,42 @@ mod tests {
         "list_activities",
         "get_activity",
         "create_activity",
+        "create_pending_activity",
+        "update_pending_activity",
+        "list_pending_activities",
+        "preview_pending_activity",
+        "post_pending_activity",
+        "skip_pending_activity",
+        "list_recurring_activity_rules",
+        "create_recurring_activity_rule",
+        "update_recurring_activity_rule",
+        "archive_recurring_activity_rule",
+        "restore_recurring_activity_rule",
+        "generate_due_pending_activities",
+        "create_backup",
+        "inspect_backup",
+        "list_recovery_backups",
+        "inspect_recovery_backup",
+        "restore_backup",
+        "export_canonical_json",
+        "export_csv",
+        "preview_csv_import",
+        "commit_csv_import",
+        "list_import_batches",
+        "get_import_batch",
+        "list_maintenance_items",
+        "list_freshness_policies",
+        "update_freshness_policy",
+        "snooze_maintenance_item",
+        "list_benchmarks",
+        "create_benchmark",
+        "update_benchmark",
+        "archive_benchmark",
+        "restore_benchmark",
+        "list_benchmark_observations",
+        "append_benchmark_observation",
+        "set_default_benchmark",
+        "get_benchmark_comparison",
         "reverse_activity",
         "correct_activity",
         "get_account_timeline",
@@ -84,11 +120,13 @@ mod tests {
         "list_cost_basis_declarations",
         "declare_lot_cost_basis",
         "revoke_lot_cost_basis",
+        "global_search",
     ];
 
     const ALLOWED_PERMISSIONS: &[&str] = &[
         "core:default",
         "dialog:allow-open",
+        "dialog:allow-save",
         "log:allow-log",
         "window-state:allow-filename",
         "window-state:allow-restore-state",
@@ -128,6 +166,22 @@ mod tests {
         "proceeds",
         "return",
         "rate",
+        "sha256",
+        "file_sha256",
+        "database_sha256",
+        "checksum",
+        "hash",
+        "source_namespace",
+        "external_id",
+        "benchmark_id",
+        "backup_id",
+        "inspection_token",
+        "source_path",
+        "destination_path",
+        "canonical_path",
+        "file_size",
+        "byte_length",
+        "manifest",
     ];
 
     #[test]
@@ -155,7 +209,6 @@ mod tests {
                 && !raw.contains("clipboard")
                 && !raw.contains("http")
                 && !raw.contains("dialog:default")
-                && !raw.contains("dialog:allow-save")
                 && !raw.contains("dialog:allow-message"),
             "do not grant filesystem, opener, shell, clipboard, HTTP, or broad dialog access"
         );
@@ -201,6 +254,43 @@ mod tests {
         for needle in [
             "export type CreateActivityInput",
             "kind: \"deposit\"",
+            "TAURI_INVOKE(\"create_backup\"",
+            "TAURI_INVOKE(\"inspect_backup\"",
+            "TAURI_INVOKE(\"list_recovery_backups\"",
+            "TAURI_INVOKE(\"inspect_recovery_backup\"",
+            "TAURI_INVOKE(\"restore_backup\"",
+            "TAURI_INVOKE(\"export_canonical_json\"",
+            "TAURI_INVOKE(\"export_csv\"",
+            "TAURI_INVOKE(\"preview_csv_import\"",
+            "TAURI_INVOKE(\"commit_csv_import\"",
+            "TAURI_INVOKE(\"list_import_batches\"",
+            "TAURI_INVOKE(\"get_import_batch\"",
+            "TAURI_INVOKE(\"list_benchmarks\"",
+            "TAURI_INVOKE(\"create_benchmark\"",
+            "TAURI_INVOKE(\"update_benchmark\"",
+            "TAURI_INVOKE(\"archive_benchmark\"",
+            "TAURI_INVOKE(\"restore_benchmark\"",
+            "TAURI_INVOKE(\"list_benchmark_observations\"",
+            "TAURI_INVOKE(\"append_benchmark_observation\"",
+            "TAURI_INVOKE(\"set_default_benchmark\"",
+            "TAURI_INVOKE(\"get_benchmark_comparison\"",
+            "export type BenchmarkDto",
+            "export type BenchmarkComparisonDto",
+            "export type CanonicalExportDto",
+            "export type CsvExportDto",
+            "export type CsvImportPreviewDto",
+            "export type CsvImportDiagnosticDto",
+            "export type CsvImportCommitDto",
+            "export type ImportBatchPageDto",
+            "export type ImportBatchDetailDto",
+            "IMPORT_FILE_CHANGED",
+            "IMPORT_DUPLICATE_CONFLICT",
+            "IMPORT_COMMIT_FAILED",
+            "export type CsvExportDataset",
+            "export type BackupManifestDto",
+            "export type BackupInspectionDto",
+            "export type RestoreBackupResultDto",
+            "export type RecoveryBackupListDto",
             "TAURI_INVOKE(\"preview_activity\"",
             "TAURI_INVOKE(\"rebuild_history_snapshots\"",
             "TAURI_INVOKE(\"get_net_worth_trend\"",
@@ -214,6 +304,10 @@ mod tests {
             "TAURI_INVOKE(\"list_cost_basis_declarations\"",
             "TAURI_INVOKE(\"declare_lot_cost_basis\"",
             "TAURI_INVOKE(\"revoke_lot_cost_basis\"",
+            "TAURI_INVOKE(\"global_search\"",
+            "export type GlobalSearchInput",
+            "export type GlobalSearchResultDto",
+            "SEARCH_INVALID",
             "SNAPSHOT_REBUILD_FAILED",
             "SNAPSHOT_REBUILD_REQUIRED",
             "ANALYTICS_PERIOD_UNAVAILABLE",
@@ -239,6 +333,7 @@ mod tests {
 
     #[test]
     fn generated_ipc_matches_the_frozen_command_allowlist() {
+        assert_eq!(ALLOWED_COMMANDS.len(), 118);
         let expected = ALLOWED_COMMANDS
             .iter()
             .map(|name| (*name).to_owned())
@@ -251,6 +346,43 @@ mod tests {
         assert_eq!(
             generated_commands, expected,
             "generated TypeScript command names drifted"
+        );
+    }
+
+    #[test]
+    fn every_ipc_command_has_an_explicit_runtime_operation_boundary() {
+        let source = include_str!("ipc.rs");
+        let mut ordinary_commands = Vec::new();
+        let mut exclusive_commands = Vec::new();
+
+        for section in source.split("#[tauri::command]").skip(1) {
+            let Some(signature) = section.split('{').next() else {
+                continue;
+            };
+            let Some(name) = signature
+                .split("pub async fn ")
+                .nth(1)
+                .and_then(|value| value.split('(').next())
+            else {
+                continue;
+            };
+            if ["delete_all_data", "restore_backup"].contains(&name) {
+                exclusive_commands.push(name);
+                continue;
+            }
+            if !section.contains("with_shared_operation!") {
+                ordinary_commands.push(name);
+            }
+        }
+
+        assert!(
+            ordinary_commands.is_empty(),
+            "ordinary IPC commands must acquire a shared operation permit: {ordinary_commands:?}"
+        );
+        assert_eq!(
+            exclusive_commands,
+            vec!["delete_all_data", "restore_backup"],
+            "only destructive reset and restore may bypass the shared permit"
         );
     }
 
