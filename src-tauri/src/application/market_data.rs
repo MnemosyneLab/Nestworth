@@ -147,6 +147,13 @@ impl MarketDataRegistry {
         values
     }
 
+    #[must_use]
+    pub fn capabilities_for(&self, provider_id: &str) -> Option<MarketDataCapabilities> {
+        self.providers
+            .get(provider_id)
+            .map(|provider| provider.capabilities())
+    }
+
     fn provider(&self, id: &str) -> Result<Arc<dyn MarketDataProvider>, AppError> {
         self.providers.get(id).cloned().ok_or_else(|| {
             AppError::market_data_unsupported("The requested provider is unavailable.")

@@ -105,9 +105,10 @@ pub use sustainable::{
 };
 pub use text::{parse_name, parse_optional_note, NOTE_MAX_CHARS};
 pub use time::{
-    closed_day_cutoff, inclusive_closed_day_instant, origin_timezone_from_iana_name,
-    resolve_activity_time, resolve_host_origin_timezone, resolve_local_datetime,
-    validate_activity_time, AmbiguousOffset, CalendarDate, HistoryTimezone, Timestamp,
+    closed_day_cutoff, inclusive_closed_day_instant, local_day_start,
+    origin_timezone_from_iana_name, resolve_activity_time, resolve_host_origin_timezone,
+    resolve_local_datetime, validate_activity_time, AmbiguousOffset, CalendarDate, HistoryTimezone,
+    Timestamp,
 };
 pub use unit_price::UnitPrice;
 pub use valuation::{

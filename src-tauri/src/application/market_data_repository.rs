@@ -56,7 +56,7 @@ impl CoverageTarget {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct CoverageRange {
     pub start: CalendarDate,
     pub end: CalendarDate,

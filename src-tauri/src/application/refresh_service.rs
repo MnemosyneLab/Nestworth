@@ -71,6 +71,10 @@ pub struct RefreshItemResultDto {
     pub key: String,
     pub ok: bool,
     pub status: RefreshStatus,
+    pub inserted_count: u32,
+    pub deduplicated_count: u32,
+    pub coverage_start: Option<String>,
+    pub coverage_end: Option<String>,
     pub error_code: Option<String>,
     pub message: Option<String>,
 }
@@ -181,7 +185,7 @@ async fn load_instrument(state: &AppState, id: &str) -> Result<InstrumentRecordD
     instrument_service::get_instrument(state, id).await
 }
 
-async fn required_pairs(state: &AppState) -> Result<Vec<FxPair>, AppError> {
+pub(crate) async fn required_pairs(state: &AppState) -> Result<Vec<FxPair>, AppError> {
     let database = state.writable_db()?;
     let mut tx = begin_read_tx(database).await?;
     let result = async {
@@ -195,7 +199,7 @@ async fn required_pairs(state: &AppState) -> Result<Vec<FxPair>, AppError> {
     finish_read_tx(tx, result).await
 }
 
-async fn required_refresh_targets(
+pub(crate) async fn required_refresh_targets(
     state: &AppState,
 ) -> Result<(Vec<InstrumentRecordDto>, Vec<FxPair>), AppError> {
     let database = state.writable_db()?;
@@ -412,62 +416,107 @@ async fn current_household(state: &AppState) -> Result<HouseholdId, AppError> {
     finish_read_tx(tx, result).await
 }
 
-fn failed_item(key: &str, error: &AppError) -> RefreshItemResultDto {
+pub(crate) fn failed_item(key: &str, error: &AppError) -> RefreshItemResultDto {
     let command = error.clone().into_command_error();
     let error_code = serde_json::to_value(command.code)
         .ok()
         .and_then(|value| value.as_str().map(str::to_owned))
         .unwrap_or_else(|| "INTERNAL_ERROR".to_owned());
-    RefreshItemResultDto {
-        key: key.to_owned(),
-        ok: false,
-        status: if matches!(error, AppError::ProviderRateLimit) {
+    result_item(
+        key,
+        false,
+        if matches!(error, AppError::ProviderRateLimit) {
             RefreshStatus::RateLimited
         } else {
             RefreshStatus::Failed
         },
-        error_code: Some(error_code),
-        message: Some(command.message),
-    }
+        0,
+        0,
+        None,
+        None,
+        Some(error_code),
+        Some(command.message),
+    )
 }
 
 fn fetched_item(key: &str) -> RefreshItemResultDto {
-    RefreshItemResultDto {
-        key: key.to_owned(),
-        ok: true,
-        status: RefreshStatus::Fetched,
-        error_code: None,
-        message: None,
-    }
+    result_item(
+        key,
+        true,
+        RefreshStatus::Fetched,
+        1,
+        0,
+        None,
+        None,
+        None,
+        None,
+    )
 }
 
 fn cached_item(key: &str) -> RefreshItemResultDto {
-    RefreshItemResultDto {
-        key: key.to_owned(),
-        ok: true,
-        status: RefreshStatus::Cached,
-        error_code: None,
-        message: None,
-    }
+    result_item(
+        key,
+        true,
+        RefreshStatus::Cached,
+        0,
+        1,
+        None,
+        None,
+        None,
+        None,
+    )
 }
 
 fn skipped_item(key: &str) -> RefreshItemResultDto {
-    RefreshItemResultDto {
-        key: key.to_owned(),
-        ok: true,
-        status: RefreshStatus::Skipped,
-        error_code: None,
-        message: None,
-    }
+    result_item(
+        key,
+        true,
+        RefreshStatus::Skipped,
+        0,
+        0,
+        None,
+        None,
+        None,
+        None,
+    )
 }
 
 fn rate_limited_item(key: &str) -> RefreshItemResultDto {
+    result_item(
+        key,
+        false,
+        RefreshStatus::RateLimited,
+        0,
+        0,
+        None,
+        None,
+        Some("PROVIDER_RATE_LIMIT".to_owned()),
+        Some("The quote provider rate limit was reached.".to_owned()),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn result_item(
+    key: &str,
+    ok: bool,
+    status: RefreshStatus,
+    inserted_count: u32,
+    deduplicated_count: u32,
+    coverage_start: Option<String>,
+    coverage_end: Option<String>,
+    error_code: Option<String>,
+    message: Option<String>,
+) -> RefreshItemResultDto {
     RefreshItemResultDto {
         key: key.to_owned(),
-        ok: false,
-        status: RefreshStatus::RateLimited,
-        error_code: Some("PROVIDER_RATE_LIMIT".to_owned()),
-        message: Some("The quote provider rate limit was reached.".to_owned()),
+        ok,
+        status,
+        inserted_count,
+        deduplicated_count,
+        coverage_start,
+        coverage_end,
+        error_code,
+        message,
     }
 }
 

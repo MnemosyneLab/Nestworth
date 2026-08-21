@@ -86,6 +86,10 @@ pub enum AppError {
     MarketDataUnsupported { message: String },
     #[error("market-data response is too large")]
     MarketDataResponseTooLarge,
+    #[error("market-data history range is invalid")]
+    MarketDataHistoryInvalidRange { message: String },
+    #[error("market-data history is unavailable")]
+    MarketDataHistoryUnavailable { message: String },
     #[error("database is unavailable")]
     DatabaseUnavailable,
     #[error("database migration failed")]
@@ -568,6 +572,16 @@ impl AppError {
                 ErrorCode::MarketDataResponseTooLarge,
                 "The market-data response is too large.",
             ),
+            Self::MarketDataHistoryInvalidRange { message } => CommandError {
+                code: ErrorCode::MarketDataHistoryInvalidRange,
+                message,
+                fields: None,
+            },
+            Self::MarketDataHistoryUnavailable { message } => CommandError {
+                code: ErrorCode::MarketDataHistoryUnavailable,
+                message,
+                fields: None,
+            },
             Self::DatabaseUnavailable => CommandError::new(
                 ErrorCode::DatabaseUnavailable,
                 "The database is unavailable.",
@@ -783,6 +797,8 @@ pub enum ErrorCode {
     MalformedProviderResponse,
     MarketDataUnsupported,
     MarketDataResponseTooLarge,
+    MarketDataHistoryInvalidRange,
+    MarketDataHistoryUnavailable,
     MediaInvalid,
     DatabaseError,
     DatabaseUnavailable,

@@ -194,7 +194,10 @@ impl AppState {
         .await
     }
 
-    async fn initialize_with_registry(db_path: PathBuf, market_data: MarketDataRegistry) -> Self {
+    pub(crate) async fn initialize_with_registry(
+        db_path: PathBuf,
+        market_data: MarketDataRegistry,
+    ) -> Self {
         let result = initialize_database(db_path.clone()).await;
         let status = result.status.clone();
         let database = match result.pool {
