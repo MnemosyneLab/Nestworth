@@ -1091,10 +1091,7 @@ pub(crate) fn read_bundle(path: &Path, staging: Option<&Path>) -> Result<BundleR
                 "The backup contains an encrypted or non-regular entry.",
             ));
         }
-        if !matches!(
-            entry.compression(),
-            CompressionMethod::Stored | CompressionMethod::Deflated
-        ) {
+        if entry.compression() != CompressionMethod::Stored {
             return Err(AppError::invalid_backup(
                 "The backup uses an unsupported compression method.",
             ));

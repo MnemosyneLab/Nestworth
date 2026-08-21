@@ -9,6 +9,7 @@ use crate::{error::AppError, state::AppState};
 
 const DEFAULT_LIMIT: i64 = 50;
 const MAX_LIMIT: i64 = 50;
+const MAX_PER_TYPE_LIMIT: i64 = 10;
 const MAX_EXCERPT_CHARS: usize = 160;
 
 #[derive(Debug, Clone, Deserialize, Serialize, Type)]
@@ -71,11 +72,7 @@ async fn global_search_in_tx(
     let household = require_household_tx(tx).await?;
     let escaped = escape_like(query);
     let pattern = format!("%{escaped}%");
-    let per_type_limit = if result_type.is_some() {
-        limit
-    } else {
-        (limit + 5) / 6
-    };
+    let per_type_limit = per_type_limit(limit);
     let mut candidates = Vec::new();
 
     let types = [
@@ -451,6 +448,10 @@ fn validate_limit(limit: Option<i32>) -> Result<i64, AppError> {
     Ok(limit)
 }
 
+fn per_type_limit(limit: i64) -> i64 {
+    limit.min(MAX_PER_TYPE_LIMIT)
+}
+
 fn archive_clause(include_archived: bool) -> &'static str {
     if include_archived {
         ""
@@ -535,6 +536,13 @@ mod tests {
         assert!(validate_query(&"x".repeat(101)).is_err());
         assert_eq!(escape_like(r"a%_\\b"), r"a\%\_\\\\b");
         assert!(validate_limit(Some(51)).is_err());
+    }
+
+    #[test]
+    fn enforces_the_frozen_per_type_search_cap() {
+        assert_eq!(super::per_type_limit(1), 1);
+        assert_eq!(super::per_type_limit(10), 10);
+        assert_eq!(super::per_type_limit(50), 10);
     }
 
     #[test]
