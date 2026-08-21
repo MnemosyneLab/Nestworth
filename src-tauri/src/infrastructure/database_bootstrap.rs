@@ -330,6 +330,19 @@ mod tests {
             .await
             .expect("sustainable schema query should succeed");
             assert_eq!(sustainable_tables, 9);
+            let market_data_tables: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'market_data_daily_coverage'",
+            )
+            .fetch_one(&first_pool)
+            .await
+            .expect("market-data schema query should succeed");
+            assert_eq!(market_data_tables, 1);
+            let coverage_rows: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM market_data_daily_coverage")
+                    .fetch_one(&first_pool)
+                    .await
+                    .expect("coverage row query should succeed");
+            assert_eq!(coverage_rows, 0);
             for table in [
                 "recurring_activity_rules",
                 "pending_activities",
@@ -357,7 +370,7 @@ mod tests {
                 .fetch_one(&first_pool)
                 .await
                 .expect("version");
-            assert_eq!(version, 5);
+            assert_eq!(version, 6);
             let foreign_keys: i64 = sqlx::query_scalar("PRAGMA foreign_keys")
                 .fetch_one(&first_pool)
                 .await
@@ -416,7 +429,7 @@ mod tests {
                 read_migration_version(&path)
                     .await
                     .expect("migrated database should be readable"),
-                5
+                6
             );
 
             remove_database(&path);
@@ -520,7 +533,7 @@ mod tests {
                 result.status,
                 DatabaseBootstrapStatus::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 5,
+                    supported: 6,
                 }
             );
             assert!(result.pool.is_none());
@@ -534,7 +547,7 @@ mod tests {
                 crate::state::DatabaseRuntime::Blocked {
                     status: DatabaseBootstrapStatus::UnsupportedNewerDatabase {
                         found: 999,
-                        supported: 5,
+                        supported: 6,
                     },
                     ..
                 }
@@ -543,7 +556,7 @@ mod tests {
                 app_state.writable_db(),
                 Err(crate::error::AppError::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 5,
+                    supported: 6,
                 })
             ));
 
@@ -622,7 +635,7 @@ mod tests {
                 .fetch_one(&pool)
                 .await
                 .expect("version");
-            assert_eq!(version, 5);
+            assert_eq!(version, 6);
             let declarations: i64 =
                 sqlx::query_scalar("SELECT COUNT(*) FROM cost_basis_declarations")
                     .fetch_one(&pool)
@@ -834,7 +847,7 @@ mod tests {
                 .fetch_one(&pool)
                 .await
                 .expect("migrated version");
-            assert_eq!(version, 5);
+            assert_eq!(version, 6);
             let declarations: i64 =
                 sqlx::query_scalar("SELECT COUNT(*) FROM cost_basis_declarations")
                     .fetch_one(&pool)
@@ -1173,7 +1186,7 @@ mod tests {
                 .fetch_one(&pool)
                 .await
                 .expect("version");
-            assert_eq!(version, 5);
+            assert_eq!(version, 6);
             let declarations: i64 =
                 sqlx::query_scalar("SELECT COUNT(*) FROM cost_basis_declarations")
                     .fetch_one(&pool)
@@ -1461,7 +1474,7 @@ mod tests {
                 read_migration_version(&path)
                     .await
                     .expect("migrated database should be readable"),
-                5
+                6
             );
 
             remove_database(&path);
@@ -1515,19 +1528,19 @@ mod tests {
     }
 
     #[test]
-    fn future_version_6_is_unchanged_and_writes_no_origin_snapshot_or_declaration() {
+    fn future_version_7_is_unchanged_and_writes_no_origin_snapshot_or_declaration() {
         tauri::async_runtime::block_on(async {
-            let path = test_path("future-v5");
+            let path = test_path("future-v6");
             remove_database(&path);
             let migrated = initialize_database(path.clone()).await;
             assert_eq!(migrated.status, DatabaseBootstrapStatus::Migrated);
-            let pool = migrated.pool.expect("schema 5 database");
+            let pool = migrated.pool.expect("schema 6 database");
             sqlx::query(
-                "INSERT INTO _sqlx_migrations (version, description, installed_on, success, checksum, execution_time) VALUES (6, 'future', CURRENT_TIMESTAMP, 1, zeroblob(32), 1)",
+                "INSERT INTO _sqlx_migrations (version, description, installed_on, success, checksum, execution_time) VALUES (7, 'future', CURRENT_TIMESTAMP, 1, zeroblob(32), 1)",
             )
             .execute(&pool)
             .await
-            .expect("version 5 row should be inserted");
+            .expect("version 7 row should be inserted");
             pool.close().await;
 
             let before_hash = stable_sqlite_hash(&path).await;
@@ -1538,8 +1551,8 @@ mod tests {
             assert_eq!(
                 result.status,
                 DatabaseBootstrapStatus::UnsupportedNewerDatabase {
-                    found: 6,
-                    supported: 5,
+                    found: 7,
+                    supported: 6,
                 }
             );
             assert!(result.pool.is_none());
@@ -1600,8 +1613,8 @@ mod tests {
             assert!(matches!(
                 declare,
                 crate::error::AppError::UnsupportedNewerDatabase {
-                    found: 6,
-                    supported: 5
+                    found: 7,
+                    supported: 6
                 }
             ));
             let revoke = crate::application::cost_basis_service::revoke_lot_cost_basis(
@@ -1616,8 +1629,8 @@ mod tests {
             assert!(matches!(
                 revoke,
                 crate::error::AppError::UnsupportedNewerDatabase {
-                    found: 6,
-                    supported: 5
+                    found: 7,
+                    supported: 6
                 }
             ));
             assert_eq!(stable_sqlite_hash(&path).await, before_hash);

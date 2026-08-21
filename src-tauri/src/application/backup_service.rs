@@ -894,12 +894,13 @@ pub(crate) fn expected_schema_objects_for(migration: i64) -> Option<BTreeSet<(St
                 "idx_ownership_member",
             ],
         ),
-        5 => expected_schema_objects(),
+        5 => expected_schema_objects_v5(),
+        6 => expected_schema_objects(),
         _ => return None,
     })
 }
 
-fn expected_schema_objects() -> BTreeSet<(String, String)> {
+fn expected_schema_objects_v5() -> BTreeSet<(String, String)> {
     let tables = [
         "_sqlx_migrations",
         "account_groups",
@@ -1016,6 +1017,16 @@ fn expected_schema_objects() -> BTreeSet<(String, String)> {
                 .map(|name| ("index".to_owned(), name.to_owned())),
         )
         .collect()
+}
+
+fn expected_schema_objects() -> BTreeSet<(String, String)> {
+    let mut objects = expected_schema_objects_v5();
+    objects.insert(("table".to_owned(), "market_data_daily_coverage".to_owned()));
+    objects.insert((
+        "index".to_owned(),
+        "idx_market_data_daily_coverage_lookup".to_owned(),
+    ));
+    objects
 }
 
 pub(crate) fn write_bundle(

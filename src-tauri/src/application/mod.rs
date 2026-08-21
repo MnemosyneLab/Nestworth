@@ -27,6 +27,7 @@ pub mod institution_service;
 pub mod instrument_service;
 pub mod maintenance_service;
 pub mod market_data;
+pub mod market_data_repository;
 pub mod media_service;
 pub mod member_service;
 pub mod onboarding_service;
