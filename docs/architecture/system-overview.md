@@ -40,7 +40,7 @@ Tauri commands expose the public desktop boundary. They accept generated DTO inp
 
 Application services coordinate use cases, authorization to the current Household, transactions, persistence queries, domain construction, and DTO assembly. Overview and portfolio are application-level calculations because they combine several repositories under a consistent read snapshot. ValuationService is the only financial authority for current native-to-base conversion, quote selection, freshness, and completeness. ActivityService is the only authority for posting, previewing, reversing, and correcting ledger facts and their current projections. HistoricalValuationService reconstructs closed-day state from History Origin plus ordered Activities and never starts from current totals. Analytics modules (`analytics_query_service`, `cost_basis_service`, `gain_service`, `return_service`, `attribution_service`, `income_fee_service`, and `currency_decomposition`) are a read-only interpretation of that ledger; they introduce no second valuation path. Cost-basis declaration and revocation are the only analytics writes.
 
-Quote and FX provider adapters live in application code. Production uses unconfigured adapters. Tests inject deterministic fakes. Provider calls do not run during bootstrap, migration, onboarding, ordinary reads, or analytics.
+The application owns the neutral market-data registry and routes the compiled provider boundary to the isolated Yahoo adapter in infrastructure. Production exposes only the user-initiated capabilities returned by that registry; tests inject deterministic fakes. Provider calls do not run during bootstrap, migration, onboarding, ordinary reads, or analytics.
 
 ### Domain
 
@@ -134,7 +134,7 @@ Dependency versions are owned by the manifests and lockfiles, not this document.
 
 ## Evolution Rules
 
-Later releases may add live providers, imports, or sync, but must preserve these boundaries:
+Later releases may add more providers, imports, or sync, but must preserve these boundaries:
 
 - The local store remains usable when integrations fail.
 - Provider implementations remain behind application interfaces.

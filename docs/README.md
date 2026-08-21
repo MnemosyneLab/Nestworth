@@ -29,12 +29,13 @@ This directory contains the product, architecture, engineering, and release docu
 | [v0.1.5 Implementation Plan](releases/v0.1.5-implementation-plan.md) | Dependency-ordered phases, Phase 10–12 evidence, required tests, exit checks, and handoff rules |
 | [v0.1.5 Compatibility Baseline](releases/v0.1.5-baseline.md) | Frozen schema `004`, baseline command surface, runtime/file boundaries, v0.1.4 goldens, and automated evidence |
 | [v0.1.5 Release Evidence](releases/v0.1.5-release-evidence.md) | Exact local arm64 artifact, isolated launch, checksum, signing policy, and remaining publication gates |
-| [v0.1.6 Release Contract](releases/v0.1.6.md) | Planned local market-data scope, Yahoo provider boundary, acceptance, and compatibility promises |
-| [v0.1.6 Technical Design](releases/v0.1.6-technical-design.md) | Planned provider registry, Yahoo normalization, cache, persistence, history, IPC, UI, and security contracts |
-| [v0.1.6 Implementation Plan](releases/v0.1.6-implementation-plan.md) | Planned dependency-ordered market-data delivery phases, tests, and exit checks |
-| [v0.1.6 Compatibility Baseline](releases/v0.1.6-baseline.md) | Schema-005 and v0.1.5 compatibility constraints for the planned schema-006 release |
+| [v0.1.6 Release Contract](releases/v0.1.6.md) | Local market-data scope, Yahoo provider boundary, acceptance, and compatibility promises; implementation complete, release closeout pending |
+| [v0.1.6 Technical Design](releases/v0.1.6-technical-design.md) | Implemented provider registry, Yahoo normalization, cache, persistence, history, IPC, UI, and security contracts |
+| [v0.1.6 Implementation Plan](releases/v0.1.6-implementation-plan.md) | Dependency-ordered market-data delivery phases, current evidence, tests, and remaining exit checks |
+| [v0.1.6 Release Evidence](releases/v0.1.6-release-evidence.md) | Automated checks, isolated bootstrap smoke, exact arm64 artifact, signing state, and remaining distribution gates |
+| [v0.1.6 Compatibility Baseline](releases/v0.1.6-baseline.md) | Schema-005 and v0.1.5 compatibility constraints for the schema-006 release line |
 
-[v0.1.1](releases/v0.1.1.md) remains the household balance-sheet baseline. [v0.1.2](releases/v0.1.2.md), [v0.1.3](releases/v0.1.3.md), and [v0.1.4](releases/v0.1.4.md) are development-complete release-candidate lines with named macOS distribution checks remaining. [v0.1.5](releases/v0.1.5.md) has local Phase 12 release-candidate evidence; public distribution closeout remains pending. [v0.1.6](releases/v0.1.6.md) is planned market-data work and has no implementation evidence yet. No release is marked `Released` without a published, identified artifact and completed distribution policy.
+[v0.1.1](releases/v0.1.1.md) remains the household balance-sheet baseline. [v0.1.2](releases/v0.1.2.md), [v0.1.3](releases/v0.1.3.md), and [v0.1.4](releases/v0.1.4.md) are development-complete release-candidate lines with named macOS distribution checks remaining. [v0.1.5](releases/v0.1.5.md) has local Phase 12 release-candidate evidence; public distribution closeout remains pending. [v0.1.6](releases/v0.1.6.md) has implementation-complete Phases 0–5, automated Phase 6 evidence, and isolated bootstrap evidence; interactive smoke, Developer ID distribution, and publication gates remain pending. No release is marked `Released` without a published, identified artifact and completed distribution policy.
 
 ## Source of Truth
 

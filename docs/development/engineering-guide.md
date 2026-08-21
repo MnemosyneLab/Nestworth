@@ -130,7 +130,7 @@ Rust is authoritative for:
 - Decimal annualization and XIRR using the `rust_decimal` `maths` feature; `f32` and `f64` remain prohibited
 - Database compatibility and integrity checks
 - Media validation and normalization
-- Stable command errors for the current 118-command allowlist
+- Stable command errors for the current 122-command allowlist
 - Quote and FX provider adapters; the frontend never calls a market-data endpoint
 
 Application services return complete DTOs needed by the frontend. A command wrapper should not contain SQL or business branching.
@@ -232,7 +232,7 @@ Before publishing a release:
 Useful local artifact checks include:
 
 ```bash
-hdiutil verify src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/Nestworth_0.1.5_aarch64.dmg
+hdiutil verify src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/Nestworth_0.1.6_aarch64.dmg
 lipo -archs src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Nestworth.app/Contents/MacOS/nestworth
 codesign --verify --deep --strict --verbose=4 src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Nestworth.app
 ```

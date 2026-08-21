@@ -78,13 +78,13 @@ The detailed scope, design, and delivery phases are defined by the [v0.1.5 relea
 
 **Theme:** Keep valuations current with explicit, replaceable data sources.
 
-**Status:** Planned.
+**Status:** Implementation complete; release closeout pending.
 
 Activate the provider boundary already prepared by v0.1.2 with a Rust-owned, user-initiated Yahoo Finance chart adapter. Users can bind market symbols to Instruments, fetch current Instrument prices and required FX rates, and backfill bounded daily close history into existing append-only quote storage. A local coverage cache limits repeated daily requests; historical quote writes mark the normal rebuild range but never rebuild automatically.
 
 **Exit outcome:** A Household can update Provider-selected market and FX valuation inputs and repair eligible daily valuation history without surrendering manual fallback, local-first reads, or financial authority to an external API.
 
-The detailed scope, architecture, phased delivery, and compatibility obligations are defined by the [v0.1.6 release contract](../releases/v0.1.6.md), [technical design](../releases/v0.1.6-technical-design.md), [implementation plan](../releases/v0.1.6-implementation-plan.md), and [compatibility baseline](../releases/v0.1.6-baseline.md). Provider-backed Benchmarks, background refresh, multi-provider user routing, symbol search, OHLCV/chart storage, and account/trade synchronization remain deferred.
+Phases 0–5 are implemented and Phase 6 automated plus isolated-bootstrap evidence is recorded on the current development branch with fixture-backed evidence. The local arm64 `.app`/`.dmg` build succeeds. The detailed scope, architecture, phased delivery, and compatibility obligations are defined by the [v0.1.6 release contract](../releases/v0.1.6.md), [technical design](../releases/v0.1.6-technical-design.md), [implementation plan](../releases/v0.1.6-implementation-plan.md), and [compatibility baseline](../releases/v0.1.6-baseline.md). Interactive isolated-data smoke, Developer ID signing/notarization, and publication gates remain pending. Provider-backed Benchmarks, background refresh, multi-provider user routing, symbol search, OHLCV/chart storage, and account/trade synchronization remain deferred.
 
 ## Capability Matrix
 

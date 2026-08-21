@@ -548,7 +548,8 @@ function ManualPriceForm({
         <p className="text-sm text-muted-foreground">
           {latest.unitPrice}{" "}
           {referenceCurrencyCodeLabel(t, catalog, latest.quoteCurrency)} ·{" "}
-          {freshnessLabel(t, latest.sourceKind)}
+          {freshnessLabel(t, latest.sourceKind)} · {latest.sourceKey} ·{" "}
+          {latest.quotedAt}
         </p>
       ) : (
         <p className="text-sm text-muted-foreground">{t("quotes.noPrice")}</p>

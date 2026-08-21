@@ -132,6 +132,9 @@ export function MarketDataBulkControls({
         <p className="mt-1 text-sm text-muted-foreground">
           {t(kind === "all" ? "marketData.bulkAllHelp" : "marketData.bulkFxHelp")}
         </p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {t("marketData.disclaimer")}
+        </p>
       </div>
       {error ? (
         <p className="text-sm text-destructive" role="alert">
@@ -325,7 +328,9 @@ export function RefreshResultSummary({
   retrying?: boolean;
 }) {
   const { t } = useTranslation();
-  const failed = result.items.filter((item) => item.status === "failed").length;
+  const failed = result.items.filter(
+    (item) => item.status === "failed" || item.status === "rate_limited",
+  ).length;
   return (
     <div className="space-y-1 text-sm" role="status">
       <p>{t("marketData.resultSummary", { count: result.items.length, failed })}</p>
