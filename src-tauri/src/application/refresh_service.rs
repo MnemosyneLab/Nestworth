@@ -90,9 +90,19 @@ pub async fn search_provider_instruments(
     input: SearchProviderInstrumentsInput,
 ) -> Result<Vec<ProviderInstrumentDto>, AppError> {
     let _ = state.writable_db()?;
+    let provider_id = state.market_data().default_provider_id().to_owned();
+    if !state
+        .market_data()
+        .capabilities_for(&provider_id)
+        .is_some_and(|capabilities| capabilities.instrument_search)
+    {
+        return Err(AppError::market_data_unsupported(
+            "Instrument search is unavailable.",
+        ));
+    }
     let found = state
         .market_data()
-        .search_instruments(state.market_data().default_provider_id(), &input.query)
+        .search_instruments(&provider_id, &input.query)
         .await?;
     Ok(found.into_iter().map(provider_instrument_dto).collect())
 }

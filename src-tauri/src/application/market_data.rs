@@ -1,5 +1,8 @@
 use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
+use serde::Serialize;
+use specta::Type;
+
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use super::providers::{
@@ -22,6 +25,24 @@ pub struct MarketDataCapabilities {
     pub latest_fx: bool,
     pub daily_history: bool,
     pub instrument_search: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MarketDataProviderCapabilitiesDto {
+    pub provider_id: String,
+    pub provider_name: String,
+    pub latest_instrument: bool,
+    pub latest_fx: bool,
+    pub daily_history: bool,
+    pub instrument_search: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MarketDataCapabilitiesDto {
+    pub default_provider_id: String,
+    pub providers: Vec<MarketDataProviderCapabilitiesDto>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -154,6 +175,27 @@ impl MarketDataRegistry {
             .map(|provider| provider.capabilities())
     }
 
+    #[must_use]
+    pub fn capabilities_dto(&self) -> MarketDataCapabilitiesDto {
+        MarketDataCapabilitiesDto {
+            default_provider_id: self.default_provider_id.clone(),
+            providers: self
+                .capabilities()
+                .into_iter()
+                .map(
+                    |(provider_id, capabilities)| MarketDataProviderCapabilitiesDto {
+                        provider_name: provider_name(&provider_id),
+                        provider_id,
+                        latest_instrument: capabilities.latest_instrument,
+                        latest_fx: capabilities.latest_fx,
+                        daily_history: capabilities.daily_history,
+                        instrument_search: capabilities.instrument_search,
+                    },
+                )
+                .collect(),
+        }
+    }
+
     fn provider(&self, id: &str) -> Result<Arc<dyn MarketDataProvider>, AppError> {
         self.providers.get(id).cloned().ok_or_else(|| {
             AppError::market_data_unsupported("The requested provider is unavailable.")
@@ -224,6 +266,14 @@ impl MarketDataRegistry {
         let result = provider.fetch_daily_fx(request).await;
         drop(permit);
         result
+    }
+}
+
+fn provider_name(provider_id: &str) -> String {
+    match provider_id {
+        YAHOO_FINANCE_PROVIDER => "Yahoo Finance".to_owned(),
+        FAKE_PROVIDER => "Fixture provider".to_owned(),
+        other => other.to_owned(),
     }
 }
 

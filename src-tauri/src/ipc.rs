@@ -53,6 +53,8 @@ use crate::{
             FreshnessPolicyDto, MaintenancePageDto, MaintenanceSnoozeDto,
             SnoozeMaintenanceItemInput, UpdateFreshnessPolicyInput,
         },
+        market_data::MarketDataCapabilitiesDto,
+        market_data_history_service::{BackfillHistoryRangeInput, BackfillInstrumentHistoryInput},
         media_service::{GetMediaInput, MediaAssetDto, SetMediaInput},
         member_service::{CreateMemberInput, MemberRecordDto, UpdateMemberInput},
         onboarding_service::CompleteOnboardingInput,
@@ -161,8 +163,9 @@ use crate::{
             set_instrument_quote_preference_impl,
         },
         refresh::{
-            refresh_all_impl, refresh_instrument_impl, refresh_required_fx_impl,
-            search_provider_instruments_impl,
+            backfill_all_history_impl, backfill_instrument_history_impl,
+            backfill_required_fx_history_impl, get_market_data_capabilities_impl, refresh_all_impl,
+            refresh_instrument_impl, refresh_required_fx_impl, search_provider_instruments_impl,
         },
         search::global_search_impl,
         settings::{delete_all_data_impl, get_settings_impl, update_settings_impl},
@@ -646,6 +649,14 @@ pub async fn search_provider_instruments(
 
 #[tauri::command]
 #[specta::specta]
+pub async fn get_market_data_capabilities(
+    state: State<'_, AppState>,
+) -> Result<MarketDataCapabilitiesDto, crate::error::CommandError> {
+    with_shared_operation!(&state, get_market_data_capabilities_impl(&state))
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn refresh_instrument(
     state: State<'_, AppState>,
     input: RefreshInstrumentInput,
@@ -667,6 +678,33 @@ pub async fn refresh_all(
     state: State<'_, AppState>,
 ) -> Result<RefreshResultDto, crate::error::CommandError> {
     with_shared_operation!(&state, refresh_all_impl(&state))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn backfill_instrument_history(
+    state: State<'_, AppState>,
+    input: BackfillInstrumentHistoryInput,
+) -> Result<RefreshResultDto, crate::error::CommandError> {
+    with_shared_operation!(&state, backfill_instrument_history_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn backfill_required_fx_history(
+    state: State<'_, AppState>,
+    input: BackfillHistoryRangeInput,
+) -> Result<RefreshResultDto, crate::error::CommandError> {
+    with_shared_operation!(&state, backfill_required_fx_history_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn backfill_all_history(
+    state: State<'_, AppState>,
+    input: BackfillHistoryRangeInput,
+) -> Result<RefreshResultDto, crate::error::CommandError> {
+    with_shared_operation!(&state, backfill_all_history_impl(&state, input))
 }
 
 #[tauri::command]
@@ -1289,9 +1327,13 @@ pub fn command_builder() -> Builder<tauri::Wry> {
         set_fx_quote_preference,
         get_portfolio,
         search_provider_instruments,
+        get_market_data_capabilities,
         refresh_instrument,
         refresh_required_fx,
         refresh_all,
+        backfill_instrument_history,
+        backfill_required_fx_history,
+        backfill_all_history,
         get_media,
         get_settings,
         update_settings,

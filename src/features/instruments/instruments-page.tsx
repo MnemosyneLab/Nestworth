@@ -32,6 +32,10 @@ import {
 } from "@/features/references/reference-page";
 import { freshnessLabel } from "@/features/valuation/status";
 import {
+  InstrumentMarketDataControls,
+  useMarketDataCapabilitiesQuery,
+} from "@/features/market-data/market-data-controls";
+import {
   commands,
   type CommandError,
   type InstrumentQuoteRecordDto,
@@ -66,6 +70,15 @@ export function InstrumentsPage() {
   const [actionError, setActionError] = useState<CommandError | null>(null);
   const bootstrap = useBootstrapQuery();
   const catalog = referenceCatalogFromBootstrap(bootstrap.data);
+  const capabilities = useMarketDataCapabilitiesQuery();
+  const providerReady = Boolean(
+    capabilities.data?.providers.some(
+      (provider) =>
+        provider.providerId === "yahoo_finance" &&
+        provider.latestInstrument &&
+        provider.dailyHistory,
+    ),
+  );
 
   const list = useQuery({
     queryKey: ["instruments", showArchived],
@@ -110,6 +123,7 @@ export function InstrumentsPage() {
         {editor === "create" ? (
           <InstrumentEditor
             catalog={catalog}
+            providerReady={providerReady}
             onCancel={() => setEditor(null)}
             onSaved={async () => {
               setEditor(null);
@@ -122,6 +136,7 @@ export function InstrumentsPage() {
             <InstrumentEditor
               catalog={catalog}
               instrument={instrument}
+              providerReady={providerReady}
               key={instrument.id}
               onCancel={() => setEditor(null)}
               onSaved={async () => {
@@ -146,6 +161,9 @@ export function InstrumentsPage() {
                       ? hasReferenceValue(catalog.countries, instrument.countryCode)
                         ? referenceCountryCodeLabel(t, catalog, instrument.countryCode)
                         : legacyOptionLabel(t, instrument.countryCode)
+                      : null,
+                    instrument.providerKey && instrument.providerSymbol
+                      ? `${t("quotes.preference.provider")}: ${instrument.providerSymbol}`
                       : null,
                   ]
                     .filter((value): value is string => Boolean(value))
@@ -198,11 +216,13 @@ function InstrumentEditor({
   instrument,
   onCancel,
   onSaved,
+  providerReady,
 }: {
   catalog: ReferenceCatalogDto;
   instrument?: InstrumentRecordDto;
   onCancel: () => void;
   onSaved: () => Promise<void>;
+  providerReady: boolean;
 }) {
   const { t } = useTranslation();
   const formId = useId();
@@ -241,6 +261,7 @@ function InstrumentEditor({
         "countryCode",
         "isin",
         "quotePreference",
+        "providerSymbol",
         "note",
       ]);
     },
@@ -266,6 +287,7 @@ function InstrumentEditor({
             "countryCode",
             "isin",
             "quotePreference",
+            "providerSymbol",
             "note",
           ]);
           return;
@@ -399,10 +421,51 @@ function InstrumentEditor({
           />
         </div>
       </div>
-      {instrument?.quotePreference === "provider" ? (
-        <p className="text-sm text-muted-foreground" role="status">
-          {t("quotes.providerUnavailable")}
-        </p>
+      {providerReady || instrument?.quotePreference === "provider" ? (
+        <div className="space-y-2">
+          <label className="text-sm font-medium" htmlFor={`${formId}-preference`}>
+            {t("quotes.preferenceLabel")}
+          </label>
+          <NativeSelect
+            disabled={
+              !providerReady && form.getValues("quotePreference") !== "provider"
+            }
+            id={`${formId}-preference`}
+            {...form.register("quotePreference")}
+          >
+            <option value="manual">{t("quotes.preference.manual")}</option>
+            {providerReady || instrument?.quotePreference === "provider" ? (
+              <option value="provider">{t("quotes.preference.provider")}</option>
+            ) : null}
+          </NativeSelect>
+        </div>
+      ) : null}
+      {form.watch("quotePreference") === "provider" ? (
+        <div className="space-y-3 rounded-lg border border-border px-3 py-3">
+          <div className="space-y-2">
+            <label
+              className="text-sm font-medium"
+              htmlFor={`${formId}-provider-symbol`}
+            >
+              {t("marketData.symbolLabel")}
+            </label>
+            <Input
+              id={`${formId}-provider-symbol`}
+              placeholder={t("marketData.symbolPlaceholder")}
+              {...form.register("providerSymbol")}
+            />
+            <FieldError
+              message={translateReferenceError(
+                t,
+                form.formState.errors.providerSymbol?.message,
+              )}
+            />
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {t("marketData.symbolLookupUnavailable")}
+          </p>
+          <p className="text-sm text-muted-foreground">{t("marketData.disclaimer")}</p>
+        </div>
       ) : null}
       <div className="space-y-2">
         <label className="text-sm font-medium" htmlFor={`${formId}-note`}>
@@ -422,6 +485,14 @@ function InstrumentEditor({
             catalog={catalog}
             instrumentId={instrument.id}
             latest={quotes.data?.[0] ?? null}
+          />
+          <InstrumentMarketDataControls
+            instrumentId={instrument.id}
+            providerReady={
+              providerReady &&
+              instrument.providerKey === "yahoo_finance" &&
+              Boolean(instrument.providerSymbol)
+            }
           />
         </>
       ) : null}

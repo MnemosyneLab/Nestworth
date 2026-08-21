@@ -512,6 +512,22 @@ export function resetCommandMocks() {
     status: "ok",
     data: { items: [] },
   });
+  vi.mocked(commands.getMarketDataCapabilities).mockResolvedValue({
+    status: "ok",
+    data: { defaultProviderId: "yahoo_finance", providers: [] },
+  });
+  vi.mocked(commands.backfillInstrumentHistory).mockResolvedValue({
+    status: "ok",
+    data: { items: [] },
+  });
+  vi.mocked(commands.backfillRequiredFxHistory).mockResolvedValue({
+    status: "ok",
+    data: { items: [] },
+  });
+  vi.mocked(commands.backfillAllHistory).mockResolvedValue({
+    status: "ok",
+    data: { items: [] },
+  });
   vi.mocked(commands.getHistoryOrigin).mockResolvedValue({
     status: "ok",
     data: confirmedHistoryOrigin(),

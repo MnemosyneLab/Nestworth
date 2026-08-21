@@ -19,25 +19,37 @@ export const INSTRUMENT_TYPES = [
   "other",
 ] as const;
 
-export const instrumentSchema = z.object({
-  name: z.string().trim().min(1, "required").max(80, "tooLong"),
-  symbol: z.string().max(80, "tooLong"),
-  instrumentType: z
-    .string()
-    .refine(
-      (value) => INSTRUMENT_TYPES.includes(value as (typeof INSTRUMENT_TYPES)[number]),
-      "required",
-    ),
-  quoteCurrency: z.string().trim().regex(CURRENCY_PATTERN, "currency"),
-  marketCode: z.string().max(80, "tooLong"),
-  countryCode: z
-    .string()
-    .trim()
-    .refine((value) => value === "" || /^[A-Z]{2}$/.test(value), "country"),
-  isin: z.string().max(80, "tooLong"),
-  quotePreference: z.enum(["manual", "provider"]),
-  note: z.string().max(2000, "noteTooLong"),
-});
+export const instrumentSchema = z
+  .object({
+    name: z.string().trim().min(1, "required").max(80, "tooLong"),
+    symbol: z.string().max(80, "tooLong"),
+    instrumentType: z
+      .string()
+      .refine(
+        (value) =>
+          INSTRUMENT_TYPES.includes(value as (typeof INSTRUMENT_TYPES)[number]),
+        "required",
+      ),
+    quoteCurrency: z.string().trim().regex(CURRENCY_PATTERN, "currency"),
+    marketCode: z.string().max(80, "tooLong"),
+    countryCode: z
+      .string()
+      .trim()
+      .refine((value) => value === "" || /^[A-Z]{2}$/.test(value), "country"),
+    isin: z.string().max(80, "tooLong"),
+    quotePreference: z.enum(["manual", "provider"]),
+    providerSymbol: z.string().max(80, "tooLong"),
+    note: z.string().max(2000, "noteTooLong"),
+  })
+  .superRefine((values, context) => {
+    if (values.quotePreference === "provider" && values.providerSymbol.trim() === "") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["providerSymbol"],
+        message: "required",
+      });
+    }
+  });
 
 export type InstrumentFormValues = z.infer<typeof instrumentSchema>;
 
@@ -50,6 +62,7 @@ export const emptyInstrumentValues: InstrumentFormValues = {
   countryCode: "",
   isin: "",
   quotePreference: "manual",
+  providerSymbol: "",
   note: "",
 };
 
@@ -65,6 +78,7 @@ export function instrumentToFormValues(
     countryCode: instrument.countryCode ?? "",
     isin: instrument.isin ?? "",
     quotePreference: instrument.quotePreference === "provider" ? "provider" : "manual",
+    providerSymbol: instrument.providerSymbol ?? "",
     note: instrument.note ?? "",
   };
 }
@@ -80,9 +94,12 @@ export function toCreateInstrumentInput(
     marketCode: emptyToNull(values.marketCode),
     countryCode: emptyToNull(values.countryCode.trim().toUpperCase()),
     isin: emptyToNull(values.isin),
-    providerKey: null,
-    providerSymbol: null,
-    quotePreference: "manual",
+    providerKey: values.quotePreference === "provider" ? "yahoo_finance" : null,
+    providerSymbol:
+      values.quotePreference === "provider"
+        ? emptyToNull(values.providerSymbol.trim())
+        : null,
+    quotePreference: values.quotePreference,
     note: emptyToNull(values.note),
   };
 }
@@ -99,8 +116,11 @@ export function toUpdateInstrumentInput(
     marketCode: emptyToNull(values.marketCode),
     countryCode: emptyToNull(values.countryCode.trim().toUpperCase()),
     isin: emptyToNull(values.isin),
-    providerKey: instrument.providerKey,
-    providerSymbol: instrument.providerSymbol,
+    providerKey: values.quotePreference === "provider" ? "yahoo_finance" : null,
+    providerSymbol:
+      values.quotePreference === "provider"
+        ? emptyToNull(values.providerSymbol.trim())
+        : null,
     quotePreference: values.quotePreference,
     note: emptyToNull(values.note),
   };

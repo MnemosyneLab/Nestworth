@@ -8,6 +8,7 @@ import { commands } from "@/generated/tauri-bindings";
 import {
   commandError,
   deferred,
+  emptyHistoryStatus,
   emptyGainSummary,
   emptyPortfolio,
   renderReadyApp,
@@ -68,6 +69,47 @@ describe("investments page", () => {
     expect(screen.getByText("QQQ")).toBeInTheDocument();
     expect(screen.getAllByText("CNY 14,490").length).toBeGreaterThan(0);
     expect(screen.getByText("SGD 5,000")).toBeInTheDocument();
+  });
+
+  it("backfills daily history only after an explicit confirmed submit", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockPortfolio(qqqPortfolio());
+    vi.mocked(commands.getHistoryStatus).mockResolvedValue({
+      status: "ok",
+      data: {
+        ...emptyHistoryStatus(),
+        lastClosedOn: "2026-08-20",
+      },
+    });
+    vi.mocked(commands.backfillAllHistory).mockResolvedValue({
+      status: "ok",
+      data: {
+        items: [
+          {
+            key: "ins-1",
+            ok: true,
+            status: "fetched",
+            insertedCount: 1,
+            deduplicatedCount: 0,
+            coverageStart: "2026-08-20",
+            coverageEnd: "2026-08-20",
+            errorCode: null,
+            message: null,
+          },
+        ],
+      },
+    });
+    await renderReadyApp();
+    await user.click(await screen.findByRole("link", { name: "Investments" }));
+    await user.click(await screen.findByRole("button", { name: "Backfill history" }));
+    expect(commands.backfillAllHistory).toHaveBeenCalledWith({
+      startLocalDate: "2026-08-20",
+      endLocalDate: "2026-08-20",
+      force: false,
+    });
+    expect(confirm).toHaveBeenCalled();
+    confirm.mockRestore();
   });
 
   it("shows incomplete diagnostics instead of treating missing quotes as zero", async () => {
@@ -237,13 +279,21 @@ describe("investments page", () => {
   it("shows loading, error, and incomplete gain states accessibly", async () => {
     const pending = deferred<{
       status: "ok";
-      data: { items: Array<{ accountId: string; instrumentId: string; gain: GainSummaryIpcDto }> };
+      data: {
+        items: Array<{
+          accountId: string;
+          instrumentId: string;
+          gain: GainSummaryIpcDto;
+        }>;
+      };
     }>();
     mockPortfolio(qqqPortfolio());
     vi.mocked(commands.listHoldingGainSummaries).mockReturnValue(pending.promise);
     await renderReadyApp();
     await router.navigate({ to: "/investments" });
-    expect(await screen.findByRole("heading", { name: "Portfolio" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Portfolio" }),
+    ).toBeInTheDocument();
     expect(await screen.findByText("QQQ")).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("Loading…");
     pending.resolve({
@@ -304,12 +354,8 @@ describe("investments page", () => {
     await screen.findByRole("link", { name: "View analytics for QQQ" });
     expect(vi.mocked(commands.getOverview).mock.calls.length).toBe(overviewCalls);
     expect(vi.mocked(commands.getNetWorthTrend).mock.calls.length).toBe(trendCalls);
-    expect(vi.mocked(commands.getHistoryStatus).mock.calls.length).toBe(
-      historyCalls,
-    );
-    expect(
-      vi.mocked(commands.listActivities).mock.calls.length,
-    ).toBe(activityCalls);
+    expect(vi.mocked(commands.getHistoryStatus).mock.calls.length).toBe(historyCalls);
+    expect(vi.mocked(commands.listActivities).mock.calls.length).toBe(activityCalls);
   });
 
   it("shows per-holding gain when the same instrument is held in two accounts", async () => {
