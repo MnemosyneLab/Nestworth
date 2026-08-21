@@ -1,6 +1,11 @@
 use std::time::Duration;
 
-use reqwest::{Client, StatusCode, Url};
+use reqwest::{
+    header::{
+        HeaderMap, HeaderName, HeaderValue, ACCEPT, ACCEPT_ENCODING, ACCEPT_LANGUAGE, USER_AGENT,
+    },
+    Client, StatusCode, Url,
+};
 use serde_json::Value;
 
 use crate::{
@@ -22,6 +27,21 @@ const CURRENT_BODY_LIMIT: usize = 2 * 1024 * 1024;
 const HISTORY_BODY_LIMIT: usize = 8 * 1024 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(8);
 
+const ACCEPT_VALUE: &str = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7";
+const ACCEPT_ENCODING_VALUE: &str = "gzip, deflate, br, zstd";
+const ACCEPT_LANGUAGE_VALUE: &str = "en-US,en;q=0.9";
+const PRIORITY_VALUE: &str = "u=0, i";
+const SEC_CH_UA_VALUE: &str =
+    "\"Not=A?Brand\";v=\"99\", \"Google Chrome\";v=\"151\", \"Chromium\";v=\"151\"";
+const SEC_CH_UA_MOBILE_VALUE: &str = "?0";
+const SEC_CH_UA_PLATFORM_VALUE: &str = "\"macOS\"";
+const SEC_FETCH_DEST_VALUE: &str = "document";
+const SEC_FETCH_MODE_VALUE: &str = "navigate";
+const SEC_FETCH_SITE_VALUE: &str = "none";
+const SEC_FETCH_USER_VALUE: &str = "?1";
+const UPGRADE_INSECURE_REQUESTS_VALUE: &str = "1";
+const USER_AGENT_VALUE: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36";
+
 #[derive(Clone)]
 pub struct YahooChartProvider {
     client: Client,
@@ -30,6 +50,7 @@ pub struct YahooChartProvider {
 impl YahooChartProvider {
     pub fn new() -> Self {
         let client = Client::builder()
+            .default_headers(browser_headers())
             .https_only(true)
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(REQUEST_TIMEOUT)
@@ -84,6 +105,57 @@ impl YahooChartProvider {
         serde_json::from_slice(&body)
             .map_err(|_| malformed("The quote provider returned an invalid response."))
     }
+}
+
+fn browser_headers() -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert(ACCEPT, HeaderValue::from_static(ACCEPT_VALUE));
+    headers.insert(
+        ACCEPT_ENCODING,
+        HeaderValue::from_static(ACCEPT_ENCODING_VALUE),
+    );
+    headers.insert(
+        ACCEPT_LANGUAGE,
+        HeaderValue::from_static(ACCEPT_LANGUAGE_VALUE),
+    );
+    headers.insert(
+        HeaderName::from_static("priority"),
+        HeaderValue::from_static(PRIORITY_VALUE),
+    );
+    headers.insert(
+        HeaderName::from_static("sec-ch-ua"),
+        HeaderValue::from_static(SEC_CH_UA_VALUE),
+    );
+    headers.insert(
+        HeaderName::from_static("sec-ch-ua-mobile"),
+        HeaderValue::from_static(SEC_CH_UA_MOBILE_VALUE),
+    );
+    headers.insert(
+        HeaderName::from_static("sec-ch-ua-platform"),
+        HeaderValue::from_static(SEC_CH_UA_PLATFORM_VALUE),
+    );
+    headers.insert(
+        HeaderName::from_static("sec-fetch-dest"),
+        HeaderValue::from_static(SEC_FETCH_DEST_VALUE),
+    );
+    headers.insert(
+        HeaderName::from_static("sec-fetch-mode"),
+        HeaderValue::from_static(SEC_FETCH_MODE_VALUE),
+    );
+    headers.insert(
+        HeaderName::from_static("sec-fetch-site"),
+        HeaderValue::from_static(SEC_FETCH_SITE_VALUE),
+    );
+    headers.insert(
+        HeaderName::from_static("sec-fetch-user"),
+        HeaderValue::from_static(SEC_FETCH_USER_VALUE),
+    );
+    headers.insert(
+        HeaderName::from_static("upgrade-insecure-requests"),
+        HeaderValue::from_static(UPGRADE_INSECURE_REQUESTS_VALUE),
+    );
+    headers.insert(USER_AGENT, HeaderValue::from_static(USER_AGENT_VALUE));
+    headers
 }
 
 impl Default for YahooChartProvider {
@@ -454,7 +526,13 @@ fn unavailable() -> AppError {
 mod tests {
     use std::fs;
 
-    use super::{normalize_current_instrument, normalize_daily_instrument};
+    use super::{
+        browser_headers, normalize_current_instrument, normalize_daily_instrument,
+        ACCEPT_ENCODING_VALUE, ACCEPT_LANGUAGE_VALUE, ACCEPT_VALUE, PRIORITY_VALUE,
+        SEC_CH_UA_MOBILE_VALUE, SEC_CH_UA_PLATFORM_VALUE, SEC_CH_UA_VALUE, SEC_FETCH_DEST_VALUE,
+        SEC_FETCH_MODE_VALUE, SEC_FETCH_SITE_VALUE, SEC_FETCH_USER_VALUE,
+        UPGRADE_INSECURE_REQUESTS_VALUE, USER_AGENT_VALUE,
+    };
     use crate::{
         application::market_data::{DailyHistoryRequest, InstrumentMarketIdentity},
         domain::{CurrencyCode, Timestamp},
@@ -522,5 +600,27 @@ mod tests {
         let url = super::chart_url("^NDX/evil", &[]).expect("url");
         assert_eq!(url.host_str(), Some("query1.finance.yahoo.com"));
         assert!(url.as_str().contains("/v8/finance/chart/^NDX%2Fevil"));
+    }
+
+    #[test]
+    fn browser_headers_match_the_configured_request_profile() {
+        let headers = browser_headers();
+        assert_eq!(headers.len(), 13);
+        assert_eq!(headers["accept"], ACCEPT_VALUE);
+        assert_eq!(headers["accept-encoding"], ACCEPT_ENCODING_VALUE);
+        assert_eq!(headers["accept-language"], ACCEPT_LANGUAGE_VALUE);
+        assert_eq!(headers["priority"], PRIORITY_VALUE);
+        assert_eq!(headers["sec-ch-ua"], SEC_CH_UA_VALUE);
+        assert_eq!(headers["sec-ch-ua-mobile"], SEC_CH_UA_MOBILE_VALUE);
+        assert_eq!(headers["sec-ch-ua-platform"], SEC_CH_UA_PLATFORM_VALUE);
+        assert_eq!(headers["sec-fetch-dest"], SEC_FETCH_DEST_VALUE);
+        assert_eq!(headers["sec-fetch-mode"], SEC_FETCH_MODE_VALUE);
+        assert_eq!(headers["sec-fetch-site"], SEC_FETCH_SITE_VALUE);
+        assert_eq!(headers["sec-fetch-user"], SEC_FETCH_USER_VALUE);
+        assert_eq!(
+            headers["upgrade-insecure-requests"],
+            UPGRADE_INSECURE_REQUESTS_VALUE
+        );
+        assert_eq!(headers["user-agent"], USER_AGENT_VALUE);
     }
 }
