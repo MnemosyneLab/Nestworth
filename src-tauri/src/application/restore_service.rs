@@ -573,8 +573,11 @@ mod tests {
             .execute(&pool)
             .await
             .expect("fixture should load");
-        if version == 5 {
+        if version >= 5 {
             apply_migrations(&pool, [5]).await;
+        }
+        if version >= 6 {
+            apply_migrations(&pool, [6]).await;
         }
         let _ = sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
             .execute(&pool)
@@ -714,7 +717,7 @@ mod tests {
     #[test]
     fn schema_fingerprints_match_migrated_empty_databases() {
         tauri::async_runtime::block_on(async {
-            for version in 1..=5 {
+            for version in 1..=6 {
                 let path = test_path("phase6", &format!("fingerprint-{version}"));
                 let _ = fs::remove_file(&path);
                 let pool = connect_writable(&path, true).await.expect("empty db");
@@ -731,7 +734,7 @@ mod tests {
     #[test]
     fn schema_one_through_five_bundles_restore_and_reopen_at_schema_five() {
         tauri::async_runtime::block_on(async {
-            for version in 1..=5 {
+            for version in 1..=6 {
                 let (state, live) = onboarded_state(&format!("restore-schema-{version}")).await;
                 let fixture_path = test_path("phase6", &format!("src-schema-{version}"));
                 let pool = load_schema_fixture(&fixture_path, version).await;
@@ -750,7 +753,7 @@ mod tests {
                 let version_now = read_migration_version(&live)
                     .await
                     .expect("reopened version");
-                assert_eq!(version_now, 5, "schema {version} must reopen at 5");
+                assert_eq!(version_now, 6, "schema {version} must reopen at 6");
                 let household: String = sqlx::query_scalar("SELECT name FROM households LIMIT 1")
                     .fetch_one(reopened.writable_db().expect("writable"))
                     .await
@@ -1297,7 +1300,7 @@ mod tests {
 
             let reopened = AppState::initialize(live.clone()).await;
             let database = reopened.writable_db().expect("restored database");
-            assert_eq!(read_migration_version(&live).await.expect("version"), 5);
+            assert_eq!(read_migration_version(&live).await.expect("version"), 6);
             let origin: (String, i64, String) = sqlx::query_as(
                 "SELECT timezone, timezone_confirmed, origin_local_date FROM history_origins LIMIT 1",
             )

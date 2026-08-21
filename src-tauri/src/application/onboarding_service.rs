@@ -474,7 +474,7 @@ mod tests {
                 state.bootstrap_status(),
                 DatabaseBootstrapStatus::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 5
+                    supported: 6
                 }
             ));
             let before_hash = crate::test_support::stable_sqlite_hash(&path).await;
@@ -486,7 +486,7 @@ mod tests {
                 error,
                 AppError::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 5
+                    supported: 6
                 }
             ));
             assert_eq!(

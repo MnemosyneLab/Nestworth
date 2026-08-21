@@ -779,12 +779,12 @@ mod tests {
     }
 
     #[test]
-    fn v012_goldens_unchanged_after_migrate_to_5() {
+    fn v012_goldens_unchanged_after_migrate_to_6() {
         tauri::async_runtime::block_on(async {
             let (state, path) = load_v012_to_current("v012-goldens").await;
             assert_eq!(
                 scalar_i64(&state, "SELECT MAX(version) FROM _sqlx_migrations").await,
-                5
+                6
             );
             assert_eq!(
                 scalar_i64(&state, "SELECT COUNT(*) FROM cost_basis_declarations").await,
@@ -1119,7 +1119,7 @@ mod tests {
                 error,
                 AppError::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 5
+                    supported: 6
                 }
             ));
             let error = revoke_lot_cost_basis(&state, origin_qqq_revoke())
@@ -1129,7 +1129,7 @@ mod tests {
                 error,
                 AppError::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 5
+                    supported: 6
                 }
             ));
             assert_eq!(stable_sqlite_hash(&path).await, before_hash);

@@ -58,6 +58,10 @@ mod tests {
         "refresh_instrument",
         "refresh_required_fx",
         "refresh_all",
+        "get_market_data_capabilities",
+        "backfill_instrument_history",
+        "backfill_required_fx_history",
+        "backfill_all_history",
         "get_media",
         "get_settings",
         "update_settings",
@@ -299,6 +303,10 @@ mod tests {
             "TAURI_INVOKE(\"get_gain_summary\"",
             "TAURI_INVOKE(\"list_holding_gain_summaries\"",
             "TAURI_INVOKE(\"get_net_worth_attribution\"",
+            "TAURI_INVOKE(\"get_market_data_capabilities\"",
+            "TAURI_INVOKE(\"backfill_instrument_history\"",
+            "TAURI_INVOKE(\"backfill_required_fx_history\"",
+            "TAURI_INVOKE(\"backfill_all_history\"",
             "TAURI_INVOKE(\"list_holding_lots\"",
             "TAURI_INVOKE(\"list_unknown_basis_lots\"",
             "TAURI_INVOKE(\"list_cost_basis_declarations\"",
@@ -333,7 +341,7 @@ mod tests {
 
     #[test]
     fn generated_ipc_matches_the_frozen_command_allowlist() {
-        assert_eq!(ALLOWED_COMMANDS.len(), 118);
+        assert_eq!(ALLOWED_COMMANDS.len(), 122);
         let expected = ALLOWED_COMMANDS
             .iter()
             .map(|name| (*name).to_owned())

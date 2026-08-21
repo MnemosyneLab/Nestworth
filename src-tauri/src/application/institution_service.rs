@@ -627,7 +627,7 @@ mod tests {
                 error,
                 AppError::UnsupportedNewerDatabase {
                     found: 999,
-                    supported: 5
+                    supported: 6
                 }
             ));
             let error = update_institution(

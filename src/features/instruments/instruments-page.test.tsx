@@ -80,4 +80,61 @@ describe("instruments page", () => {
     expect(screen.queryByLabelText("Quote preference")).not.toBeInTheDocument();
     expect(screen.queryByRole("option", { name: "Provider" })).not.toBeInTheDocument();
   });
+
+  it("saves a complete Yahoo provider binding only after capability discovery", async () => {
+    const user = userEvent.setup();
+    vi.mocked(commands.listInstruments).mockResolvedValue({ status: "ok", data: [] });
+    vi.mocked(commands.getMarketDataCapabilities).mockResolvedValue({
+      status: "ok",
+      data: {
+        defaultProviderId: "yahoo_finance",
+        providers: [
+          {
+            providerId: "yahoo_finance",
+            providerName: "Yahoo Finance",
+            latestInstrument: true,
+            latestFx: true,
+            dailyHistory: true,
+            instrumentSearch: false,
+          },
+        ],
+      },
+    });
+    vi.mocked(commands.createInstrument).mockResolvedValue({
+      status: "ok",
+      data: {
+        id: "ins-provider",
+        name: "QQQ",
+        symbol: "QQQ",
+        instrumentType: "etf",
+        quoteCurrency: "USD",
+        marketCode: null,
+        countryCode: null,
+        isin: null,
+        providerKey: "yahoo_finance",
+        providerSymbol: "QQQ",
+        quotePreference: "provider",
+        note: null,
+        logoAssetId: null,
+        sortOrder: 0,
+        createdAt: "2026-08-17T00:00:00.000Z",
+        updatedAt: "2026-08-17T00:00:00.000Z",
+        archivedAt: null,
+      },
+    });
+    await renderReadyApp();
+    await user.click(await screen.findByRole("link", { name: "Instruments" }));
+    await user.click(screen.getByRole("button", { name: "Add instrument" }));
+    await user.type(screen.getByLabelText("Name"), "QQQ");
+    await user.selectOptions(screen.getByLabelText("Quote preference"), "provider");
+    await user.type(screen.getByLabelText("Provider symbol"), "QQQ");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(commands.createInstrument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerKey: "yahoo_finance",
+        providerSymbol: "QQQ",
+        quotePreference: "provider",
+      }),
+    );
+  });
 });

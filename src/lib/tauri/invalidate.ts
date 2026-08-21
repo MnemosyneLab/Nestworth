@@ -30,3 +30,18 @@ export async function invalidateValuation(
       : Promise.resolve(),
   ]);
 }
+
+export async function invalidateMarketData(
+  queryClient: QueryClient,
+  instrumentId?: string,
+) {
+  await Promise.all([
+    invalidateValuation(queryClient),
+    queryClient.invalidateQueries({ queryKey: ["instrument-quotes"] }),
+    queryClient.invalidateQueries({ queryKey: ["fx-quotes"] }),
+    queryClient.invalidateQueries({ queryKey: ["market-data-coverage"] }),
+    instrumentId
+      ? queryClient.invalidateQueries({ queryKey: ["instrument-quotes", instrumentId] })
+      : Promise.resolve(),
+  ]);
+}

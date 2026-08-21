@@ -7,6 +7,10 @@ import { useTranslation } from "react-i18next";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  MarketDataBulkControls,
+  RefreshResultSummary,
+} from "@/features/market-data/market-data-controls";
 import { translateAccountError } from "@/features/accounts/account-form";
 import {
   GainSnippet,
@@ -28,6 +32,7 @@ import {
   type FxQuoteRecordDto,
   type PortfolioDto,
   type ReferenceCatalogDto,
+  type RefreshResultDto,
 } from "@/generated/tauri-bindings";
 import {
   formatReferenceMoney,
@@ -65,8 +70,11 @@ export function InvestmentsPage() {
           </h1>
         </div>
         <p className="mt-2 text-sm text-muted-foreground">
-          {t("investments.manualOnly")}
+          {t("investments.marketDataHelp")}
         </p>
+        <div className="mt-6">
+          <MarketDataBulkControls kind="all" disabled={portfolio.isPending} />
+        </div>
         {portfolio.isPending ? (
           <p className="mt-10" role="status">
             {t("references.loading")}
@@ -222,8 +230,16 @@ function FxQuoteHistory({
             <li key={quote.id}>
               {t("fx.historyItem", {
                 quotedAt: quote.quotedAt,
-                baseCurrency: referenceCurrencyCodeLabel(t, catalog, quote.baseCurrency),
-                quoteCurrency: referenceCurrencyCodeLabel(t, catalog, quote.quoteCurrency),
+                baseCurrency: referenceCurrencyCodeLabel(
+                  t,
+                  catalog,
+                  quote.baseCurrency,
+                ),
+                quoteCurrency: referenceCurrencyCodeLabel(
+                  t,
+                  catalog,
+                  quote.quoteCurrency,
+                ),
                 rate: quote.rate,
               })}
             </li>
@@ -322,9 +338,7 @@ function PositionList({
   const holdingsGainQuery = useQuery({
     queryKey: ["holding-gains", { kind: "all" }],
     queryFn: () =>
-      unwrapResult(
-        commands.listHoldingGainSummaries({ period: { kind: "all" } }),
-      ),
+      unwrapResult(commands.listHoldingGainSummaries({ period: { kind: "all" } })),
   });
   const gainByHolding = new Map(
     (holdingsGainQuery.data?.items ?? []).map((item) => [
@@ -465,12 +479,41 @@ function FxPanel({
   pairs: FxPairStatusDto[];
 }) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const [refreshResult, setRefreshResult] = useState<RefreshResultDto | null>(null);
+  const [refreshError, setRefreshError] = useState<CommandError | null>(null);
+  const refresh = useMutation({
+    mutationFn: () => unwrapResult(commands.refreshRequiredFx()),
+    onSuccess: async (result) => {
+      setRefreshError(null);
+      setRefreshResult(result);
+      await invalidateValuation(queryClient);
+    },
+    onError: (error) => setRefreshError(commandErrorFromUnknown(error)),
+  });
   if (pairs.length === 0) {
     return null;
   }
   return (
     <section className="space-y-3">
-      <h2 className="text-lg font-medium">{t("fx.title")}</h2>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-lg font-medium">{t("fx.title")}</h2>
+        <Button
+          disabled={refresh.isPending}
+          onClick={() => refresh.mutate()}
+          type="button"
+          variant="ghost"
+        >
+          {refresh.isPending ? t("marketData.refreshing") : t("marketData.refreshFx")}
+        </Button>
+      </div>
+      {refreshError ? (
+        <p className="text-sm text-destructive" role="alert">
+          {formatCommandError(t, refreshError)}
+        </p>
+      ) : null}
+      {refreshResult ? <RefreshResultSummary result={refreshResult} /> : null}
+      <MarketDataBulkControls kind="fx" />
       {pairs.map((pair) => (
         <FxPairCard
           catalog={catalog}

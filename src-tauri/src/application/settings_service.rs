@@ -375,8 +375,8 @@ mod tests {
                 read_migration_version(&path)
                     .await
                     .expect("migrated database should report a version"),
-                5,
-                "initialize must migrate the schema-2 fixture through to schema 5"
+                6,
+                "initialize must migrate the schema-2 fixture through to schema 6"
             );
             assert!(
                 snapshot.exists(),
@@ -385,12 +385,12 @@ mod tests {
             let declarations_table: i64 = sqlx::query_scalar(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'cost_basis_declarations'",
             )
-            .fetch_one(state.writable_db().expect("writable schema-5 database"))
+            .fetch_one(state.writable_db().expect("writable schema-6 database"))
             .await
             .expect("cost_basis_declarations probe");
             assert_eq!(
                 declarations_table, 1,
-                "schema 5 must retain cost_basis_declarations before delete_all_data"
+                "schema 6 must retain cost_basis_declarations before delete_all_data"
             );
             std::fs::write(&stray, b"stray pre-migrate-3 snapshot").expect("stray snapshot");
             std::fs::write(&staging, b"staging").expect("restore staging");

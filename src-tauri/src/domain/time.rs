@@ -160,12 +160,24 @@ pub fn closed_day_cutoff(
         .as_naive_date()
         .succ_opt()
         .ok_or_else(|| AppError::invalid_activity_time("The closed local date is out of range."))?;
-    let naive = next_date
+    local_midnight(timezone, next_date)
+}
+
+/// Inclusive-range backfills use the exact UTC instant at the start of a local day.
+pub fn local_day_start(
+    timezone: HistoryTimezone,
+    local_date: CalendarDate,
+) -> Result<Timestamp, AppError> {
+    local_midnight(timezone, local_date.as_naive_date())
+}
+
+fn local_midnight(timezone: HistoryTimezone, date: NaiveDate) -> Result<Timestamp, AppError> {
+    let naive = date
         .and_hms_opt(0, 0, 0)
-        .ok_or_else(|| AppError::invalid_activity_time("The next local midnight is invalid."))?;
+        .ok_or_else(|| AppError::invalid_activity_time("The local midnight is invalid."))?;
     match timezone.0.from_local_datetime(&naive) {
         MappedLocalTime::None => Err(AppError::invalid_activity_time(
-            "The next local midnight does not exist because of a daylight-saving transition.",
+            "The local midnight does not exist because of a daylight-saving transition.",
         )),
         MappedLocalTime::Single(datetime) => Ok(Timestamp::from_utc(datetime.with_timezone(&Utc))),
         MappedLocalTime::Ambiguous(earlier, _later) => {

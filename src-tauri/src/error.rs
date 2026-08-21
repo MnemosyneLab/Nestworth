@@ -82,6 +82,14 @@ pub enum AppError {
     MalformedProviderResponse { message: String },
     #[error("provider symbol is unsupported")]
     UnsupportedProviderSymbol { message: String },
+    #[error("market-data capability is unsupported")]
+    MarketDataUnsupported { message: String },
+    #[error("market-data response is too large")]
+    MarketDataResponseTooLarge,
+    #[error("market-data history range is invalid")]
+    MarketDataHistoryInvalidRange { message: String },
+    #[error("market-data history is unavailable")]
+    MarketDataHistoryUnavailable { message: String },
     #[error("database is unavailable")]
     DatabaseUnavailable,
     #[error("database migration failed")]
@@ -267,6 +275,12 @@ impl AppError {
     }
     pub fn invalid_search(message: &str) -> Self {
         Self::InvalidSearch {
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn market_data_unsupported(message: &str) -> Self {
+        Self::MarketDataUnsupported {
             message: message.to_owned(),
         }
     }
@@ -549,6 +563,25 @@ impl AppError {
                 message,
                 fields: None,
             },
+            Self::MarketDataUnsupported { message } => CommandError {
+                code: ErrorCode::MarketDataUnsupported,
+                message,
+                fields: None,
+            },
+            Self::MarketDataResponseTooLarge => CommandError::new(
+                ErrorCode::MarketDataResponseTooLarge,
+                "The market-data response is too large.",
+            ),
+            Self::MarketDataHistoryInvalidRange { message } => CommandError {
+                code: ErrorCode::MarketDataHistoryInvalidRange,
+                message,
+                fields: None,
+            },
+            Self::MarketDataHistoryUnavailable { message } => CommandError {
+                code: ErrorCode::MarketDataHistoryUnavailable,
+                message,
+                fields: None,
+            },
             Self::DatabaseUnavailable => CommandError::new(
                 ErrorCode::DatabaseUnavailable,
                 "The database is unavailable.",
@@ -762,6 +795,10 @@ pub enum ErrorCode {
     ProviderRateLimit,
     ProviderUnavailable,
     MalformedProviderResponse,
+    MarketDataUnsupported,
+    MarketDataResponseTooLarge,
+    MarketDataHistoryInvalidRange,
+    MarketDataHistoryUnavailable,
     MediaInvalid,
     DatabaseError,
     DatabaseUnavailable,

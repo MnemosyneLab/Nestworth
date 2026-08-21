@@ -422,6 +422,14 @@ async searchProviderInstruments(input: SearchProviderInstrumentsInput) : Promise
     else return { status: "error", error: e  as any };
 }
 },
+async getMarketDataCapabilities() : Promise<Result<MarketDataCapabilitiesDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_market_data_capabilities") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async refreshInstrument(input: RefreshInstrumentInput) : Promise<Result<RefreshResultDto, CommandError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("refresh_instrument", { input }) };
@@ -441,6 +449,30 @@ async refreshRequiredFx() : Promise<Result<RefreshResultDto, CommandError>> {
 async refreshAll() : Promise<Result<RefreshResultDto, CommandError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("refresh_all") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async backfillInstrumentHistory(input: BackfillInstrumentHistoryInput) : Promise<Result<RefreshResultDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("backfill_instrument_history", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async backfillRequiredFxHistory(input: BackfillHistoryRangeInput) : Promise<Result<RefreshResultDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("backfill_required_fx_history", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async backfillAllHistory(input: BackfillHistoryRangeInput) : Promise<Result<RefreshResultDto, CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("backfill_all_history", { input }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -983,6 +1015,8 @@ export type AppendBenchmarkObservationInput = { benchmarkId: string; level: stri
 export type AppendManualFxQuoteInput = { baseCurrency: string; quoteCurrency: string; rate: string; quotedAt: string | null }
 export type AppendManualInstrumentQuoteInput = { instrumentId: string; unitPrice: string; quotedAt: string | null }
 export type AvailableAttributionDto = { startOn: string; endOn: string; startNetWorth: SignedMoneyDto; endNetWorth: SignedMoneyDto; delta: SignedMoneyDto; externalContributions: SignedMoneyDto; externalWithdrawals: SignedMoneyDto; instrumentMovement: SignedMoneyDto; currencyMovement: SignedMoneyDto; income: SignedMoneyDto; fees: SignedMoneyDto; debtPrincipalMovement: SignedMoneyDto; conversionSpread: SignedMoneyDto; unexplained: SignedMoneyDto; unknownBasisFlow: SignedMoneyDto; basisComplete: boolean; methodNote: string }
+export type BackfillHistoryRangeInput = { startLocalDate: string; endLocalDate: string; force: boolean }
+export type BackfillInstrumentHistoryInput = { instrumentId: string; startLocalDate: string; endLocalDate: string; force: boolean }
 export type BackupInspectionDto = { inspectionToken: string; manifest: BackupManifestDto; checksumValid: boolean; databaseValid: boolean; encrypted: boolean }
 export type BackupManifestDto = { formatId: string; formatVersion: string; backupId: string; productVersion: string; databaseMigrationVersion: number; createdAt: string; householdId: string; householdName: string; databaseByteLength: number; databaseSha256: string }
 export type BenchmarkComparisonDto = { startOn: string; endOn: string; selectedBenchmark: SelectedBenchmarkDto | null; portfolioTwr: TwrResultDto; benchmarkReturn: BenchmarkReturnDto; excessReturn: ExcessReturnDto }
@@ -1021,7 +1055,7 @@ export type DateAvailabilityDto = { kind: "available"; value: string } | { kind:
 export type DateRangeAvailabilityDto = { kind: "available"; startLocalDate: string; endLocalDate: string } | { kind: "unavailable"; reason: string; blockingDates: string[] }
 export type DeclareLotCostBasisInput = { lotRef: LotRefDto; instrumentId: string; declaredCost: string; declaredCurrency: string; acquiredOn: string | null; note: string | null }
 export type DeleteAllDataInput = { confirmed: boolean }
-export type ErrorCode = "VALIDATION_ERROR" | "NOT_FOUND" | "CONFLICT" | "ALREADY_ONBOARDED" | "OWNERSHIP_TOTAL_INVALID" | "BASE_CURRENCY_CHANGE_NOT_ALLOWED" | "INVALID_CATEGORY" | "INVALID_MONEY" | "INVALID_QUANTITY" | "INVALID_UNIT_PRICE" | "INVALID_FX_RATE" | "DECIMAL_OVERFLOW" | "INVALID_ACTIVITY" | "INVALID_ACTIVITY_TIME" | "INVALID_ACTIVITY_LEGS" | "INSUFFICIENT_BALANCE" | "INSUFFICIENT_QUANTITY" | "TRANSFER_MISMATCH" | "TRADE_TOTAL_MISMATCH" | "ACTIVITY_ALREADY_REVERSED" | "ACTIVITY_NOT_CORRECTABLE" | "QUOTE_UNAVAILABLE" | "INCOMPLETE_VALUATION" | "DUPLICATE_HOLDING" | "UNSUPPORTED_PROVIDER_SYMBOL" | "PROVIDER_AUTHENTICATION" | "PROVIDER_RATE_LIMIT" | "PROVIDER_UNAVAILABLE" | "MALFORMED_PROVIDER_RESPONSE" | "MEDIA_INVALID" | "DATABASE_ERROR" | "DATABASE_UNAVAILABLE" | "UNSUPPORTED_NEWER_DATABASE" | "MIGRATION_FAILED" | "DATA_RESET_FAILED" | "HISTORY_INITIALIZATION_FAILED" | "HISTORY_TIMEZONE_CONFIRMATION_REQUIRED" | "SNAPSHOT_REBUILD_REQUIRED" | "SNAPSHOT_REBUILD_FAILED" | "ANALYTICS_PERIOD_UNAVAILABLE" | "ANALYTICS_INPUT_INCOMPLETE" | "RETURN_NOT_COMPUTABLE" | "INVALID_COST_BASIS_DECLARATION" | "COST_BASIS_LOT_NOT_FOUND" | "INVALID_RECURRING_RULE" | "INVALID_PENDING_ACTIVITY" | "INVALID_BENCHMARK" | "IMPORT_INVALID" | "EXPORT_FAILED" | "IMPORT_PREVIEW_EXPIRED" | "IMPORT_FILE_CHANGED" | "IMPORT_DUPLICATE_CONFLICT" | "IMPORT_COMMIT_FAILED" | "BACKUP_INVALID" | "BACKUP_CORRUPT" | "BACKUP_CREATE_FAILED" | "BACKUP_UNSUPPORTED_VERSION" | "RESTORE_VALIDATION_FAILED" | "APP_RESTART_REQUIRED" | "SEARCH_INVALID" | "INTERNAL_ERROR"
+export type ErrorCode = "VALIDATION_ERROR" | "NOT_FOUND" | "CONFLICT" | "ALREADY_ONBOARDED" | "OWNERSHIP_TOTAL_INVALID" | "BASE_CURRENCY_CHANGE_NOT_ALLOWED" | "INVALID_CATEGORY" | "INVALID_MONEY" | "INVALID_QUANTITY" | "INVALID_UNIT_PRICE" | "INVALID_FX_RATE" | "DECIMAL_OVERFLOW" | "INVALID_ACTIVITY" | "INVALID_ACTIVITY_TIME" | "INVALID_ACTIVITY_LEGS" | "INSUFFICIENT_BALANCE" | "INSUFFICIENT_QUANTITY" | "TRANSFER_MISMATCH" | "TRADE_TOTAL_MISMATCH" | "ACTIVITY_ALREADY_REVERSED" | "ACTIVITY_NOT_CORRECTABLE" | "QUOTE_UNAVAILABLE" | "INCOMPLETE_VALUATION" | "DUPLICATE_HOLDING" | "UNSUPPORTED_PROVIDER_SYMBOL" | "PROVIDER_AUTHENTICATION" | "PROVIDER_RATE_LIMIT" | "PROVIDER_UNAVAILABLE" | "MALFORMED_PROVIDER_RESPONSE" | "MARKET_DATA_UNSUPPORTED" | "MARKET_DATA_RESPONSE_TOO_LARGE" | "MARKET_DATA_HISTORY_INVALID_RANGE" | "MARKET_DATA_HISTORY_UNAVAILABLE" | "MEDIA_INVALID" | "DATABASE_ERROR" | "DATABASE_UNAVAILABLE" | "UNSUPPORTED_NEWER_DATABASE" | "MIGRATION_FAILED" | "DATA_RESET_FAILED" | "HISTORY_INITIALIZATION_FAILED" | "HISTORY_TIMEZONE_CONFIRMATION_REQUIRED" | "SNAPSHOT_REBUILD_REQUIRED" | "SNAPSHOT_REBUILD_FAILED" | "ANALYTICS_PERIOD_UNAVAILABLE" | "ANALYTICS_INPUT_INCOMPLETE" | "RETURN_NOT_COMPUTABLE" | "INVALID_COST_BASIS_DECLARATION" | "COST_BASIS_LOT_NOT_FOUND" | "INVALID_RECURRING_RULE" | "INVALID_PENDING_ACTIVITY" | "INVALID_BENCHMARK" | "IMPORT_INVALID" | "EXPORT_FAILED" | "IMPORT_PREVIEW_EXPIRED" | "IMPORT_FILE_CHANGED" | "IMPORT_DUPLICATE_CONFLICT" | "IMPORT_COMMIT_FAILED" | "BACKUP_INVALID" | "BACKUP_CORRUPT" | "BACKUP_CREATE_FAILED" | "BACKUP_UNSUPPORTED_VERSION" | "RESTORE_VALIDATION_FAILED" | "APP_RESTART_REQUIRED" | "SEARCH_INVALID" | "INTERNAL_ERROR"
 export type ExcessReturnDto = { kind: "available"; fraction: string; percentagePoints: string } | { kind: "unavailable"; reason: string; blockingDates: string[] }
 export type ExportCanonicalJsonInput = { destinationPath: string; overwriteConfirmed: boolean }
 export type ExportCsvInput = { destinationPath: string; overwriteConfirmed: boolean; dataset: CsvExportDataset }
@@ -1081,6 +1115,8 @@ export type LotRefSourceKind = "originHolding" | "acquisition"
 export type MaintenanceItemDto = { id: string; itemKind: string; policyId: string | null; policyKind: string | null; targetAccountId: string | null; targetInstrumentId: string | null; targetCurrencyA: string | null; targetCurrencyB: string | null; label: string; underlyingStatus: string; status: string; observedOn: string | null; dueOn: string | null; snoozedUntil: string | null; pendingActivity: PendingActivityDto | null }
 export type MaintenancePageDto = { localDate: string; items: MaintenanceItemDto[] }
 export type MaintenanceSnoozeDto = { id: string; policyKind: string; targetAccountId: string | null; targetInstrumentId: string | null; targetCurrencyA: string | null; targetCurrencyB: string | null; snoozedUntil: string; createdAt: string }
+export type MarketDataCapabilitiesDto = { defaultProviderId: string; providers: MarketDataProviderCapabilitiesDto[] }
+export type MarketDataProviderCapabilitiesDto = { providerId: string; providerName: string; latestInstrument: boolean; latestFx: boolean; dailyHistory: boolean; instrumentSearch: boolean }
 export type MediaAssetDto = { mimeType: string; data: string }
 export type MemberDto = { id: string; name: string }
 export type MemberRecordDto = { id: string; name: string; note: string | null; avatarAssetId: string | null; sortOrder: number; createdAt: string; updatedAt: string; archivedAt: string | null }
@@ -1114,8 +1150,9 @@ export type RecurringActivityRuleDto = { id: string; cadence: string; intervalVa
 export type ReferenceCatalogDto = { currencies: ReferenceOptionDto[]; countries: ReferenceOptionDto[]; institutionTypes: ReferenceOptionDto[]; groupIcons: string[]; groupColors: string[]; languages: string[]; appearances: string[] }
 export type ReferenceOptionDto = { value: string; group: string }
 export type RefreshInstrumentInput = { instrumentId: string }
-export type RefreshItemResultDto = { key: string; ok: boolean; errorCode: string | null; message: string | null }
+export type RefreshItemResultDto = { key: string; ok: boolean; status: RefreshStatus; insertedCount: number; deduplicatedCount: number; coverageStart: string | null; coverageEnd: string | null; errorCode: string | null; message: string | null }
 export type RefreshResultDto = { items: RefreshItemResultDto[] }
+export type RefreshStatus = "fetched" | "cached" | "skipped" | "failed" | "rate_limited"
 export type RestoreBackupInput = { inspectionToken: string; confirmed: boolean }
 export type RestoreBackupResultDto = { restartRequired: boolean; reason: string }
 export type ResultingEndpointDto = { accountId: string; accountName: string; componentKind: string; holdingId: string | null; currency: string | null; before: string; after: string }

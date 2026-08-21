@@ -1,0 +1,9 @@
+{
+  "chart": {
+    "result": [
+      {"meta": {"currency": "USD"}},
+      {"meta": {"currency": "USD"}}
+    ],
+    "error": null
+  }
+}
