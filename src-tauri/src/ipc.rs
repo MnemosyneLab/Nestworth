@@ -14,6 +14,9 @@ use crate::{
             ListHoldingGainSummariesInput, ListHoldingLotsInput, ListUnknownBasisLotsInput,
             NetWorthAttributionIpcDto, RevokeLotCostBasisInput,
         },
+        backup_service::{
+            BackupInspectionDto, BackupManifestDto, CreateBackupInput, InspectBackupInput,
+        },
         cash_service::{AccountCashRecordDto, AppendAccountCashInput, ListAccountCashInput},
         group_service::{CreateGroupInput, GroupRecordDto, UpdateGroupInput},
         history_query_service::{
@@ -74,6 +77,7 @@ use crate::{
             list_cost_basis_declarations_impl, list_holding_gain_summaries_impl,
             list_holding_lots_impl, list_unknown_basis_lots_impl, revoke_lot_cost_basis_impl,
         },
+        backup::{create_backup_impl, inspect_backup_impl},
         bootstrap::{bootstrap_impl, BootstrapDto},
         cash::{append_account_cash_impl, list_account_cash_impl},
         groups::{
@@ -833,6 +837,24 @@ pub async fn generate_due_pending_activities(
 
 #[tauri::command]
 #[specta::specta]
+pub async fn create_backup(
+    state: State<'_, AppState>,
+    input: CreateBackupInput,
+) -> Result<BackupManifestDto, crate::error::CommandError> {
+    with_shared_operation!(&state, create_backup_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn inspect_backup(
+    state: State<'_, AppState>,
+    input: InspectBackupInput,
+) -> Result<BackupInspectionDto, crate::error::CommandError> {
+    with_shared_operation!(&state, inspect_backup_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn list_maintenance_items(
     state: State<'_, AppState>,
 ) -> Result<MaintenancePageDto, crate::error::CommandError> {
@@ -1091,6 +1113,8 @@ pub fn command_builder() -> Builder<tauri::Wry> {
         archive_recurring_activity_rule,
         restore_recurring_activity_rule,
         generate_due_pending_activities,
+        create_backup,
+        inspect_backup,
         list_maintenance_items,
         list_freshness_policies,
         update_freshness_policy,

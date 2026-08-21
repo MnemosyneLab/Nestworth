@@ -1,9 +1,11 @@
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU8, Ordering},
-        Arc,
+        Arc, Mutex,
     },
+    time::{Instant, SystemTime},
 };
 
 use sqlx::SqlitePool;
@@ -118,6 +120,18 @@ pub enum DatabaseRuntime {
     },
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub(crate) struct StoredBackupInspection {
+    pub canonical_path: PathBuf,
+    pub file_size: u64,
+    pub modified_at: SystemTime,
+    pub file_device: u64,
+    pub file_inode: u64,
+    pub sha256: String,
+    pub expires_at: Instant,
+}
+
 pub struct AppState {
     database: DatabaseRuntime,
     status: DatabaseBootstrapStatus,
@@ -125,6 +139,7 @@ pub struct AppState {
     quote_provider: QuoteAdapter,
     fx_provider: FxAdapter,
     operation_gate: Arc<OperationGate>,
+    backup_inspections: Mutex<HashMap<String, StoredBackupInspection>>,
 }
 
 impl AppState {
@@ -159,6 +174,7 @@ impl AppState {
             quote_provider,
             fx_provider,
             operation_gate: Arc::new(OperationGate::new()),
+            backup_inspections: Mutex::new(HashMap::new()),
         }
     }
     pub fn unavailable(db_path: PathBuf) -> Self {
@@ -173,6 +189,7 @@ impl AppState {
             quote_provider: QuoteAdapter::Unconfigured,
             fx_provider: FxAdapter::Unconfigured,
             operation_gate: Arc::new(OperationGate::new()),
+            backup_inspections: Mutex::new(HashMap::new()),
         }
     }
 
@@ -216,6 +233,37 @@ impl AppState {
 
     pub fn fx_provider(&self) -> &FxAdapter {
         &self.fx_provider
+    }
+
+    pub(crate) fn issue_backup_inspection(&self, inspection: StoredBackupInspection) -> String {
+        let token = uuid::Uuid::now_v7().to_string();
+        let now = Instant::now();
+        let mut inspections = self
+            .backup_inspections
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        inspections.retain(|_, value| value.expires_at > now);
+        inspections.insert(token.clone(), inspection);
+        token
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn backup_inspection(&self, token: &str) -> Option<StoredBackupInspection> {
+        let now = Instant::now();
+        let mut inspections = self
+            .backup_inspections
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        inspections.retain(|_, value| value.expires_at > now);
+        inspections.get(token).cloned()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn backup_inspection_count(&self) -> usize {
+        self.backup_inspections
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .len()
     }
 
     #[cfg(test)]

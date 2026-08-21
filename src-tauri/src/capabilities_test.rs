@@ -80,6 +80,8 @@ mod tests {
         "archive_recurring_activity_rule",
         "restore_recurring_activity_rule",
         "generate_due_pending_activities",
+        "create_backup",
+        "inspect_backup",
         "list_maintenance_items",
         "list_freshness_policies",
         "update_freshness_policy",
@@ -105,6 +107,7 @@ mod tests {
     const ALLOWED_PERMISSIONS: &[&str] = &[
         "core:default",
         "dialog:allow-open",
+        "dialog:allow-save",
         "log:allow-log",
         "window-state:allow-filename",
         "window-state:allow-restore-state",
@@ -171,7 +174,6 @@ mod tests {
                 && !raw.contains("clipboard")
                 && !raw.contains("http")
                 && !raw.contains("dialog:default")
-                && !raw.contains("dialog:allow-save")
                 && !raw.contains("dialog:allow-message"),
             "do not grant filesystem, opener, shell, clipboard, HTTP, or broad dialog access"
         );
@@ -217,6 +219,10 @@ mod tests {
         for needle in [
             "export type CreateActivityInput",
             "kind: \"deposit\"",
+            "TAURI_INVOKE(\"create_backup\"",
+            "TAURI_INVOKE(\"inspect_backup\"",
+            "export type BackupManifestDto",
+            "export type BackupInspectionDto",
             "TAURI_INVOKE(\"preview_activity\"",
             "TAURI_INVOKE(\"rebuild_history_snapshots\"",
             "TAURI_INVOKE(\"get_net_worth_trend\"",

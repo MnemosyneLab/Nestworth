@@ -6,6 +6,7 @@
   "permissions": [
     "core:default",
     "dialog:allow-open",
+    "dialog:allow-save",
     "log:allow-log",
     "window-state:allow-filename",
     "window-state:allow-restore-state",
