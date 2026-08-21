@@ -59,6 +59,8 @@ struct FakeQuoteState {
     failures: Mutex<HashMap<String, QuoteFailure>>,
     delay: Mutex<Duration>,
     requests: AtomicUsize,
+    active_requests: AtomicUsize,
+    max_active_requests: AtomicUsize,
 }
 
 impl Default for FakeQuoteProvider {
@@ -76,6 +78,8 @@ impl FakeQuoteProvider {
                 failures: Mutex::new(HashMap::new()),
                 delay: Mutex::new(Duration::from_millis(0)),
                 requests: AtomicUsize::new(0),
+                active_requests: AtomicUsize::new(0),
+                max_active_requests: AtomicUsize::new(0),
             }),
         }
     }
@@ -112,6 +116,10 @@ impl FakeQuoteProvider {
         self.inner.requests.load(Ordering::SeqCst)
     }
 
+    pub fn max_active_requests(&self) -> usize {
+        self.inner.max_active_requests.load(Ordering::SeqCst)
+    }
+
     pub async fn search(&self, query: &str) -> Result<Vec<ProviderInstrument>, AppError> {
         let _ = query;
         Ok(self.inner.search.lock().expect("fake search lock").clone())
@@ -119,29 +127,38 @@ impl FakeQuoteProvider {
 
     pub async fn fetch_quote(&self, provider_symbol: &str) -> Result<ProviderQuote, AppError> {
         self.inner.requests.fetch_add(1, Ordering::SeqCst);
-        let delay = *self.inner.delay.lock().expect("delay lock");
-        if !delay.is_zero() {
-            tokio::time::sleep(delay).await;
-        }
-        if let Some(failure) = self
-            .inner
-            .failures
-            .lock()
-            .expect("failure lock")
-            .get(provider_symbol)
-            .cloned()
-        {
-            return Err(map_failure(failure));
-        }
+        let active = self.inner.active_requests.fetch_add(1, Ordering::SeqCst) + 1;
         self.inner
-            .quotes
-            .lock()
-            .expect("quote lock")
-            .get(provider_symbol)
-            .cloned()
-            .ok_or_else(|| AppError::UnsupportedProviderSymbol {
-                message: "The provider does not recognize this symbol.".to_owned(),
-            })
+            .max_active_requests
+            .fetch_max(active, Ordering::SeqCst);
+        let delay = *self.inner.delay.lock().expect("delay lock");
+        let result = async {
+            if !delay.is_zero() {
+                tokio::time::sleep(delay).await;
+            }
+            if let Some(failure) = self
+                .inner
+                .failures
+                .lock()
+                .expect("fake failure lock")
+                .get(provider_symbol)
+                .cloned()
+            {
+                return Err(map_failure(failure));
+            }
+            self.inner
+                .quotes
+                .lock()
+                .expect("quote lock")
+                .get(provider_symbol)
+                .cloned()
+                .ok_or_else(|| AppError::UnsupportedProviderSymbol {
+                    message: "The provider does not recognize this symbol.".to_owned(),
+                })
+        }
+        .await;
+        self.inner.active_requests.fetch_sub(1, Ordering::SeqCst);
+        result
     }
 }
 

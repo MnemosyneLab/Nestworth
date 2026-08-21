@@ -132,6 +132,11 @@ impl MarketDataRegistry {
     }
 
     #[must_use]
+    pub fn is_registered(&self, provider_id: &str) -> bool {
+        self.providers.contains_key(provider_id)
+    }
+
+    #[must_use]
     pub fn capabilities(&self) -> Vec<(String, MarketDataCapabilities)> {
         let mut values = self
             .providers

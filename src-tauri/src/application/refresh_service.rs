@@ -7,7 +7,9 @@ use super::{
     instrument_service::{self, InstrumentRecordDto},
     market_data::{FxMarketIdentity, InstrumentMarketIdentity},
     providers::ProviderInstrument,
-    quote_service::{insert_fx_quote, insert_instrument_quote},
+    quote_service::{
+        append_provider_fx_quote, append_provider_instrument_quote, ProviderQuoteInsertResult,
+    },
     reference::{
         begin_read_tx, begin_write_tx, finish_read_tx, finish_write_tx, require_household_tx,
     },
@@ -21,7 +23,7 @@ use crate::{
     state::AppState,
 };
 
-const MAX_CONCURRENCY: usize = 4;
+const MAX_CONCURRENCY: usize = 2;
 const PROVIDER_TIMEOUT: std::time::Duration = if cfg!(test) {
     std::time::Duration::from_millis(80)
 } else {
@@ -53,11 +55,22 @@ pub struct RefreshInstrumentInput {
     pub instrument_id: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum RefreshStatus {
+    Fetched,
+    Cached,
+    Skipped,
+    Failed,
+    RateLimited,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RefreshItemResultDto {
     pub key: String,
     pub ok: bool,
+    pub status: RefreshStatus,
     pub error_code: Option<String>,
     pub message: Option<String>,
 }
@@ -93,41 +106,75 @@ pub async fn refresh_instrument(
 pub async fn refresh_required_fx(state: &AppState) -> Result<RefreshResultDto, AppError> {
     let pairs = required_pairs(state).await?;
     Ok(RefreshResultDto {
-        items: refresh_fx_chunks(state, &pairs).await,
+        items: refresh_fx_chunks(state, &pairs).await.0,
     })
 }
 
 pub async fn refresh_all(state: &AppState) -> Result<RefreshResultDto, AppError> {
     let (instruments, pairs) = required_refresh_targets(state).await?;
-    let mut items = Vec::new();
-    for chunk in instruments.chunks(MAX_CONCURRENCY) {
-        items.extend(
-            join_all(
-                chunk
-                    .iter()
-                    .map(|instrument| refresh_one_instrument(state, instrument)),
-            )
-            .await,
-        );
+    let (mut items, instruments_rate_limited) =
+        refresh_instrument_chunks(state, &instruments).await;
+    if instruments_rate_limited {
+        items.extend(pairs.iter().map(|pair| rate_limited_item(&pair_key(*pair))));
+    } else {
+        items.extend(refresh_fx_chunks(state, &pairs).await.0);
     }
-    items.extend(refresh_fx_chunks(state, &pairs).await);
     Ok(RefreshResultDto { items })
 }
 
-async fn refresh_fx_chunks(state: &AppState, pairs: &[FxPair]) -> Vec<RefreshItemResultDto> {
+async fn refresh_instrument_chunks(
+    state: &AppState,
+    instruments: &[InstrumentRecordDto],
+) -> (Vec<RefreshItemResultDto>, bool) {
     let mut items = Vec::new();
-    for chunk in pairs.chunks(MAX_CONCURRENCY) {
-        items.extend(
-            join_all(
-                chunk
-                    .iter()
-                    .copied()
-                    .map(|pair| refresh_one_fx(state, pair)),
-            )
-            .await,
-        );
+    for (chunk_start, chunk) in instruments.chunks(MAX_CONCURRENCY).enumerate() {
+        let results = join_all(
+            chunk
+                .iter()
+                .map(|instrument| refresh_one_instrument(state, instrument)),
+        )
+        .await;
+        let rate_limited = results
+            .iter()
+            .any(|item| item.status == RefreshStatus::RateLimited);
+        items.extend(results);
+        if rate_limited {
+            let completed = chunk_start * MAX_CONCURRENCY + chunk.len();
+            for instrument in instruments.iter().skip(completed) {
+                items.push(rate_limited_item(&instrument_key(instrument)));
+            }
+            return (items, true);
+        }
     }
-    items
+    (items, false)
+}
+
+async fn refresh_fx_chunks(
+    state: &AppState,
+    pairs: &[FxPair],
+) -> (Vec<RefreshItemResultDto>, bool) {
+    let mut items = Vec::new();
+    for (chunk_start, chunk) in pairs.chunks(MAX_CONCURRENCY).enumerate() {
+        let results = join_all(
+            chunk
+                .iter()
+                .copied()
+                .map(|pair| refresh_one_fx(state, pair)),
+        )
+        .await;
+        let rate_limited = results
+            .iter()
+            .any(|item| item.status == RefreshStatus::RateLimited);
+        items.extend(results);
+        if rate_limited {
+            let completed = chunk_start * MAX_CONCURRENCY + chunk.len();
+            for pair in pairs.iter().skip(completed) {
+                items.push(rate_limited_item(&pair_key(*pair)));
+            }
+            return (items, true);
+        }
+    }
+    (items, false)
 }
 
 async fn load_instrument(state: &AppState, id: &str) -> Result<InstrumentRecordDto, AppError> {
@@ -189,19 +236,17 @@ async fn refresh_one_instrument(
     state: &AppState,
     instrument: &InstrumentRecordDto,
 ) -> RefreshItemResultDto {
-    let key = instrument
-        .provider_symbol
-        .clone()
-        .unwrap_or_else(|| instrument.id.clone());
+    let key = instrument_key(instrument);
     if instrument.quote_preference != QuoteSourceKind::Provider.as_str() {
-        return RefreshItemResultDto {
-            key,
-            ok: true,
-            error_code: None,
-            message: None,
-        };
+        return skipped_item(&key);
+    }
+    if instrument.archived_at.is_some() {
+        return skipped_item(&key);
     }
     let Some(provider_id) = instrument.provider_key.clone() else {
+        return skipped_item(&key);
+    };
+    if !state.market_data().is_registered(&provider_id) {
         return failed_item(
             &key,
             &AppError::market_data_unsupported("This instrument has no registered provider."),
@@ -224,7 +269,7 @@ async fn refresh_one_instrument(
         state
             .market_data()
             .fetch_latest_instrument(InstrumentMarketIdentity {
-                provider_id,
+                provider_id: provider_id.clone(),
                 provider_symbol: symbol,
                 expected_currency: currency,
             }),
@@ -258,7 +303,7 @@ async fn refresh_one_instrument(
         quote.unit_price,
         quote.quote_currency,
         QuoteSourceKind::Provider,
-        "provider",
+        &provider_id,
         quote.delayed,
         quote.quoted_at,
         Timestamp::now(),
@@ -268,18 +313,14 @@ async fn refresh_one_instrument(
         Err(error) => return failed_item(&key, &error),
     };
     match persist_instrument_quote(state, quote).await {
-        Ok(()) => RefreshItemResultDto {
-            key,
-            ok: true,
-            error_code: None,
-            message: None,
-        },
+        Ok(ProviderQuoteInsertResult::Inserted) => fetched_item(&key),
+        Ok(ProviderQuoteInsertResult::Duplicate) => cached_item(&key),
         Err(error) => failed_item(&key, &error),
     }
 }
 
 async fn refresh_one_fx(state: &AppState, pair: FxPair) -> RefreshItemResultDto {
-    let key = format!("{}/{}", pair.currency_a(), pair.currency_b());
+    let key = pair_key(pair);
     let household = match current_household(state).await {
         Ok(household) => household,
         Err(error) => return failed_item(&key, &error),
@@ -305,13 +346,21 @@ async fn refresh_one_fx(state: &AppState, pair: FxPair) -> RefreshItemResultDto 
             )
         }
     };
+    if quote.base_currency != pair.currency_a() || quote.quote_currency != pair.currency_b() {
+        return failed_item(
+            &key,
+            &AppError::MalformedProviderResponse {
+                message: "The provider returned an FX quote in the wrong orientation.".to_owned(),
+            },
+        );
+    }
     let persisted = FxQuote::new(
         household,
         quote.base_currency,
         quote.quote_currency,
         quote.rate,
         QuoteSourceKind::Provider,
-        "provider",
+        state.market_data().default_provider_id(),
         quote.delayed,
         quote.quoted_at,
         Timestamp::now(),
@@ -320,13 +369,9 @@ async fn refresh_one_fx(state: &AppState, pair: FxPair) -> RefreshItemResultDto 
         Ok(quote) => quote,
         Err(error) => return failed_item(&key, &error),
     };
-    match persist_fx_quote(state, quote).await {
-        Ok(()) => RefreshItemResultDto {
-            key,
-            ok: true,
-            error_code: None,
-            message: None,
-        },
+    match persist_fx_quote(state, pair, quote).await {
+        Ok(ProviderQuoteInsertResult::Inserted) => fetched_item(&key),
+        Ok(ProviderQuoteInsertResult::Duplicate) => cached_item(&key),
         Err(error) => failed_item(&key, &error),
     }
 }
@@ -334,17 +379,25 @@ async fn refresh_one_fx(state: &AppState, pair: FxPair) -> RefreshItemResultDto 
 async fn persist_instrument_quote(
     state: &AppState,
     quote: InstrumentQuote,
-) -> Result<(), AppError> {
+) -> Result<ProviderQuoteInsertResult, AppError> {
     let database = state.writable_db()?;
     let mut tx = begin_write_tx(database).await?;
-    let result = insert_instrument_quote(&mut tx, &quote).await;
+    let household = require_household_tx(&mut tx).await?;
+    let result =
+        append_provider_instrument_quote(&mut tx, &household.id, &quote, quote.source_key()).await;
     finish_write_tx(tx, result).await
 }
 
-async fn persist_fx_quote(state: &AppState, quote: FxQuote) -> Result<(), AppError> {
+async fn persist_fx_quote(
+    state: &AppState,
+    pair: FxPair,
+    quote: FxQuote,
+) -> Result<ProviderQuoteInsertResult, AppError> {
     let database = state.writable_db()?;
     let mut tx = begin_write_tx(database).await?;
-    let result = insert_fx_quote(&mut tx, &quote).await;
+    let household = require_household_tx(&mut tx).await?;
+    let result =
+        append_provider_fx_quote(&mut tx, &household.id, pair, &quote, quote.source_key()).await;
     finish_write_tx(tx, result).await
 }
 
@@ -368,9 +421,65 @@ fn failed_item(key: &str, error: &AppError) -> RefreshItemResultDto {
     RefreshItemResultDto {
         key: key.to_owned(),
         ok: false,
+        status: if matches!(error, AppError::ProviderRateLimit) {
+            RefreshStatus::RateLimited
+        } else {
+            RefreshStatus::Failed
+        },
         error_code: Some(error_code),
         message: Some(command.message),
     }
+}
+
+fn fetched_item(key: &str) -> RefreshItemResultDto {
+    RefreshItemResultDto {
+        key: key.to_owned(),
+        ok: true,
+        status: RefreshStatus::Fetched,
+        error_code: None,
+        message: None,
+    }
+}
+
+fn cached_item(key: &str) -> RefreshItemResultDto {
+    RefreshItemResultDto {
+        key: key.to_owned(),
+        ok: true,
+        status: RefreshStatus::Cached,
+        error_code: None,
+        message: None,
+    }
+}
+
+fn skipped_item(key: &str) -> RefreshItemResultDto {
+    RefreshItemResultDto {
+        key: key.to_owned(),
+        ok: true,
+        status: RefreshStatus::Skipped,
+        error_code: None,
+        message: None,
+    }
+}
+
+fn rate_limited_item(key: &str) -> RefreshItemResultDto {
+    RefreshItemResultDto {
+        key: key.to_owned(),
+        ok: false,
+        status: RefreshStatus::RateLimited,
+        error_code: Some("PROVIDER_RATE_LIMIT".to_owned()),
+        message: Some("The quote provider rate limit was reached.".to_owned()),
+    }
+}
+
+fn instrument_key(instrument: &InstrumentRecordDto) -> String {
+    instrument
+        .provider_symbol
+        .clone()
+        .unwrap_or_else(|| instrument.id.clone())
+}
+
+fn pair_key(pair: FxPair) -> String {
+    format!("{}/{}", pair.currency_a(), pair.currency_b())
 }
 
 fn provider_instrument_dto(item: ProviderInstrument) -> ProviderInstrumentDto {
@@ -388,7 +497,10 @@ fn provider_instrument_dto(item: ProviderInstrument) -> ProviderInstrumentDto {
 
 #[cfg(test)]
 mod tests {
-    use super::{refresh_all, search_provider_instruments, SearchProviderInstrumentsInput};
+    use super::{
+        refresh_all, refresh_instrument, search_provider_instruments, RefreshInstrumentInput,
+        RefreshStatus, SearchProviderInstrumentsInput,
+    };
     use crate::{
         application::{
             account_service::{create_account, CreateAccountInput, OwnershipShareInput},
@@ -486,11 +598,12 @@ mod tests {
     fn three_holdings_of_one_instrument_refresh_once() {
         tauri::async_runtime::block_on(async {
             let quotes = FakeQuoteProvider::new();
+            let observation_at = Timestamp::now();
             quotes.insert_quote(ProviderQuote {
                 provider_symbol: "QQQ".to_owned(),
                 unit_price: UnitPrice::parse("700").expect("price"),
                 quote_currency: CurrencyCode::USD,
-                quoted_at: Timestamp::now(),
+                quoted_at: observation_at.clone(),
                 delayed: false,
             });
             let fx = FakeFxProvider::new();
@@ -540,19 +653,308 @@ mod tests {
                 .await
                 .expect("holding");
             }
+            sqlx::query(
+                "UPDATE history_snapshot_state
+                 SET dirty_from = NULL, last_completed_on = NULL, rebuild_status = 'idle'",
+            )
+            .execute(state.writable_db().expect("database"))
+            .await
+            .expect("clear dirty state");
             let result = refresh_all(&state).await.expect("refresh");
-            assert!(result.items.iter().any(|item| item.key == "QQQ" && item.ok));
+            assert!(result.items.iter().any(|item| {
+                item.key == "QQQ" && item.ok && item.status == RefreshStatus::Fetched
+            }));
             assert_eq!(quotes.request_count(), 1);
+            let dirty_from: Option<String> =
+                sqlx::query_scalar("SELECT dirty_from FROM history_snapshot_state LIMIT 1")
+                    .fetch_one(state.writable_db().expect("database"))
+                    .await
+                    .expect("dirty state");
+            assert!(dirty_from.is_some());
             let stored = list_instrument_quotes(
                 &state,
                 ListInstrumentQuotesInput {
-                    instrument_id: instrument.id,
+                    instrument_id: instrument.id.clone(),
                 },
             )
             .await
             .expect("quotes");
             assert_eq!(stored.len(), 1);
             assert_eq!(stored[0].unit_price, "700");
+            assert_eq!(stored[0].source_key, "fake");
+
+            let repeat = refresh_all(&state).await.expect("repeat refresh");
+            assert!(repeat.items.iter().any(|item| {
+                item.key == "QQQ" && item.ok && item.status == RefreshStatus::Cached
+            }));
+            assert_eq!(quotes.request_count(), 2);
+            assert_eq!(
+                list_instrument_quotes(
+                    &state,
+                    ListInstrumentQuotesInput {
+                        instrument_id: instrument.id.clone(),
+                    },
+                )
+                .await
+                .expect("deduplicated quotes")
+                .len(),
+                1
+            );
+
+            quotes.insert_quote(ProviderQuote {
+                provider_symbol: "QQQ".to_owned(),
+                unit_price: UnitPrice::parse("701").expect("corrected price"),
+                quote_currency: CurrencyCode::USD,
+                quoted_at: observation_at,
+                delayed: false,
+            });
+            let corrected = refresh_all(&state).await.expect("corrected refresh");
+            assert!(corrected.items.iter().any(|item| {
+                item.key == "QQQ" && item.ok && item.status == RefreshStatus::Fetched
+            }));
+            assert_eq!(quotes.request_count(), 3);
+            let corrected_quotes = list_instrument_quotes(
+                &state,
+                ListInstrumentQuotesInput {
+                    instrument_id: instrument.id,
+                },
+            )
+            .await
+            .expect("corrected quotes");
+            assert_eq!(corrected_quotes.len(), 2);
+            assert_eq!(corrected_quotes[0].unit_price, "701");
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn refresh_skips_manual_unbound_archived_and_unknown_targets() {
+        tauri::async_runtime::block_on(async {
+            let quotes = FakeQuoteProvider::new();
+            let fx = FakeFxProvider::new();
+            let path = test_path("phase6", "refresh-eligibility");
+            let state = AppState::initialize_with_providers(
+                path.clone(),
+                QuoteAdapter::Fake(quotes.clone()),
+                FxAdapter::Fake(fx),
+            )
+            .await;
+            crate::application::onboarding_service::complete_onboarding(
+                &state,
+                crate::test_support::valid_onboarding_input(),
+            )
+            .await
+            .expect("onboard");
+
+            let manual = create_instrument(
+                &state,
+                CreateInstrumentInput {
+                    name: "Manual".to_owned(),
+                    symbol: Some("MANUAL".to_owned()),
+                    instrument_type: "etf".to_owned(),
+                    quote_currency: "USD".to_owned(),
+                    market_code: None,
+                    country_code: Some("US".to_owned()),
+                    isin: None,
+                    provider_key: None,
+                    provider_symbol: None,
+                    quote_preference: Some("manual".to_owned()),
+                    note: None,
+                },
+            )
+            .await
+            .expect("manual instrument");
+            let unbound = create_instrument(
+                &state,
+                CreateInstrumentInput {
+                    name: "Unbound".to_owned(),
+                    symbol: Some("UNBOUND".to_owned()),
+                    instrument_type: "etf".to_owned(),
+                    quote_currency: "USD".to_owned(),
+                    market_code: None,
+                    country_code: Some("US".to_owned()),
+                    isin: None,
+                    provider_key: None,
+                    provider_symbol: None,
+                    quote_preference: Some("provider".to_owned()),
+                    note: None,
+                },
+            )
+            .await
+            .expect("unbound instrument");
+            let archived = create_instrument(
+                &state,
+                provider_instrument("Archived", "ARCHIVED", CurrencyCode::USD, "US"),
+            )
+            .await
+            .expect("archived instrument");
+            crate::application::instrument_service::archive_instrument(&state, &archived.id)
+                .await
+                .expect("archive");
+            let mut unsupported_input =
+                provider_instrument("Unsupported", "UNSUPPORTED", CurrencyCode::USD, "US");
+            unsupported_input.provider_key = Some("missing_provider".to_owned());
+            let unsupported = create_instrument(&state, unsupported_input)
+                .await
+                .expect("unsupported instrument");
+
+            for instrument in [&manual, &unbound, &archived] {
+                let result = refresh_instrument(
+                    &state,
+                    RefreshInstrumentInput {
+                        instrument_id: instrument.id.clone(),
+                    },
+                )
+                .await
+                .expect("skipped refresh");
+                assert_eq!(result.items[0].status, RefreshStatus::Skipped);
+            }
+            let unsupported_result = refresh_instrument(
+                &state,
+                RefreshInstrumentInput {
+                    instrument_id: unsupported.id,
+                },
+            )
+            .await
+            .expect("unsupported refresh result");
+            assert_eq!(unsupported_result.items[0].status, RefreshStatus::Failed);
+            assert_eq!(
+                unsupported_result.items[0].error_code.as_deref(),
+                Some("MARKET_DATA_UNSUPPORTED")
+            );
+            assert!(matches!(
+                refresh_instrument(
+                    &state,
+                    RefreshInstrumentInput {
+                        instrument_id: crate::test_support::UNKNOWN_UUID.to_owned(),
+                    },
+                )
+                .await,
+                Err(AppError::NotFound { .. })
+            ));
+            assert_eq!(quotes.request_count(), 0);
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn refresh_uses_at_most_two_provider_requests() {
+        tauri::async_runtime::block_on(async {
+            let quotes = FakeQuoteProvider::new();
+            quotes.set_delay(std::time::Duration::from_millis(20));
+            let fx = FakeFxProvider::new();
+            let path = test_path("phase6", "refresh-concurrency");
+            let state = AppState::initialize_with_providers(
+                path.clone(),
+                QuoteAdapter::Fake(quotes.clone()),
+                FxAdapter::Fake(fx),
+            )
+            .await;
+            crate::application::onboarding_service::complete_onboarding(
+                &state,
+                crate::test_support::valid_onboarding_input(),
+            )
+            .await
+            .expect("onboard");
+            let members = list_members(&state, false).await.expect("members");
+            let account = create_account(&state, holdings_account(&members[0].id, "Broker"))
+                .await
+                .expect("account");
+
+            for symbol in ["A", "B", "C", "D", "E"] {
+                quotes.insert_quote(ProviderQuote {
+                    provider_symbol: symbol.to_owned(),
+                    unit_price: UnitPrice::parse("10").expect("price"),
+                    quote_currency: CurrencyCode::USD,
+                    quoted_at: Timestamp::now(),
+                    delayed: false,
+                });
+                let instrument = create_instrument(
+                    &state,
+                    provider_instrument(symbol, symbol, CurrencyCode::USD, "US"),
+                )
+                .await
+                .expect("instrument");
+                create_holding(
+                    &state,
+                    CreateHoldingInput {
+                        account_id: account.id.clone(),
+                        instrument_id: instrument.id,
+                        quantity: "1".to_owned(),
+                        note: None,
+                    },
+                )
+                .await
+                .expect("holding");
+            }
+
+            let result = refresh_all(&state).await.expect("refresh");
+            assert_eq!(quotes.request_count(), 5);
+            assert_eq!(quotes.max_active_requests(), 2);
+            assert_eq!(
+                result
+                    .items
+                    .iter()
+                    .filter(|item| item.status == RefreshStatus::Fetched)
+                    .count(),
+                5
+            );
+            cleanup(&path);
+        });
+    }
+
+    #[test]
+    fn refresh_stops_unstarted_targets_after_rate_limit() {
+        tauri::async_runtime::block_on(async {
+            let quotes = FakeQuoteProvider::new();
+            for symbol in ["RATE1", "RATE2", "RATE3"] {
+                quotes.fail(symbol, QuoteFailure::RateLimit);
+            }
+            let fx = FakeFxProvider::new();
+            let path = test_path("phase6", "refresh-rate-limit-stop");
+            let state = AppState::initialize_with_providers(
+                path.clone(),
+                QuoteAdapter::Fake(quotes.clone()),
+                FxAdapter::Fake(fx),
+            )
+            .await;
+            crate::application::onboarding_service::complete_onboarding(
+                &state,
+                crate::test_support::valid_onboarding_input(),
+            )
+            .await
+            .expect("onboard");
+            let members = list_members(&state, false).await.expect("members");
+            let account = create_account(&state, holdings_account(&members[0].id, "Broker"))
+                .await
+                .expect("account");
+            for symbol in ["RATE1", "RATE2", "RATE3"] {
+                let instrument = create_instrument(
+                    &state,
+                    provider_instrument(symbol, symbol, CurrencyCode::USD, "US"),
+                )
+                .await
+                .expect("instrument");
+                create_holding(
+                    &state,
+                    CreateHoldingInput {
+                        account_id: account.id.clone(),
+                        instrument_id: instrument.id,
+                        quantity: "1".to_owned(),
+                        note: None,
+                    },
+                )
+                .await
+                .expect("holding");
+            }
+
+            let result = refresh_all(&state).await.expect("refresh");
+            assert_eq!(quotes.request_count(), 2);
+            assert_eq!(result.items.len(), 3);
+            assert!(result
+                .items
+                .iter()
+                .all(|item| item.status == RefreshStatus::RateLimited));
             cleanup(&path);
         });
     }
@@ -717,8 +1119,8 @@ mod tests {
             let quotes = FakeQuoteProvider::new();
             let fx = FakeFxProvider::new();
             fx.insert_quote(ProviderFxQuote {
-                base_currency: CurrencyCode::SGD,
-                quote_currency: CurrencyCode::CNY,
+                base_currency: CurrencyCode::CNY,
+                quote_currency: CurrencyCode::SGD,
                 rate: FxRate::parse("5.3").expect("rate"),
                 quoted_at: Timestamp::now(),
                 delayed: false,
@@ -806,12 +1208,25 @@ mod tests {
             )
             .await
             .expect("sgd provider preference");
+            sqlx::query(
+                "UPDATE history_snapshot_state
+                 SET dirty_from = NULL, last_completed_on = NULL, rebuild_status = 'idle'",
+            )
+            .execute(state.writable_db().expect("database"))
+            .await
+            .expect("clear dirty state");
             let provider_only = refresh_all(&state).await.expect("provider refresh");
             assert_eq!(fx.request_count(), 1);
             assert!(provider_only
                 .items
                 .iter()
                 .any(|item| item.key == "CNY/SGD" && item.ok));
+            let dirty_from: Option<String> =
+                sqlx::query_scalar("SELECT dirty_from FROM history_snapshot_state LIMIT 1")
+                    .fetch_one(state.writable_db().expect("database"))
+                    .await
+                    .expect("dirty state");
+            assert!(dirty_from.is_some());
 
             set_fx_quote_preference(
                 &state,
@@ -836,8 +1251,8 @@ mod tests {
             let preserved = list_fx_quotes(
                 &state,
                 ListFxQuotesInput {
-                    base_currency: "SGD".to_owned(),
-                    quote_currency: "CNY".to_owned(),
+                    base_currency: "CNY".to_owned(),
+                    quote_currency: "SGD".to_owned(),
                 },
             )
             .await

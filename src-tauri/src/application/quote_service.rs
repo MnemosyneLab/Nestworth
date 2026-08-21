@@ -414,6 +414,68 @@ pub(crate) async fn insert_instrument_quote(
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProviderQuoteInsertResult {
+    Inserted,
+    Duplicate,
+}
+
+pub(crate) async fn append_provider_instrument_quote(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    quote: &InstrumentQuote,
+    source_key: &str,
+) -> Result<ProviderQuoteInsertResult, AppError> {
+    let instrument =
+        instrument_service::load_instrument(tx, household_id, &quote.instrument_id().to_string())
+            .await?;
+    if instrument.archived_at.is_some()
+        || instrument.quote_preference != QuoteSourceKind::Provider.as_str()
+        || instrument.provider_key.as_deref() != Some(source_key)
+    {
+        return Err(AppError::market_data_unsupported(
+            "The instrument is no longer eligible for provider quotes.",
+        ));
+    }
+    if quote.source_kind() != QuoteSourceKind::Provider
+        || quote.source_key() != source_key
+        || quote.quote_currency().as_str() != instrument.quote_currency
+    {
+        return Err(AppError::MalformedProviderResponse {
+            message: "The provider quote does not match the instrument binding.".to_owned(),
+        });
+    }
+
+    let duplicate: i64 = sqlx::query_scalar(
+        "SELECT EXISTS(
+            SELECT 1 FROM instrument_quotes
+            WHERE instrument_id = ?
+              AND unit_price = ?
+              AND quote_currency = ?
+              AND source_kind = 'provider'
+              AND source_key = ?
+              AND delayed = ?
+              AND quoted_at = ?
+        )",
+    )
+    .bind(quote.instrument_id().to_string())
+    .bind(quote.unit_price().canonical())
+    .bind(quote.quote_currency().as_str())
+    .bind(source_key)
+    .bind(i64::from(quote.delayed()))
+    .bind(quote.quoted_at().to_rfc3339())
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("instrument_quote.duplicate_check_failed", error))?;
+    if duplicate != 0 {
+        return Ok(ProviderQuoteInsertResult::Duplicate);
+    }
+
+    insert_instrument_quote(tx, quote).await?;
+    activity_service::mark_dirty_for_household(tx, household_id, quote.quoted_at()).await?;
+    Ok(ProviderQuoteInsertResult::Inserted)
+}
+
 pub(crate) async fn insert_fx_quote(
     tx: &mut Transaction<'_, Sqlite>,
     quote: &FxQuote,
@@ -437,6 +499,62 @@ pub(crate) async fn insert_fx_quote(
     .await
     .map_err(|error| map_write_error("fx_quote.insert_failed", error))?;
     Ok(())
+}
+
+pub(crate) async fn append_provider_fx_quote(
+    tx: &mut Transaction<'_, Sqlite>,
+    household_id: &str,
+    pair: FxPair,
+    quote: &FxQuote,
+    source_key: &str,
+) -> Result<ProviderQuoteInsertResult, AppError> {
+    let current_preference = current_fx_preference(tx, household_id, pair).await?;
+    if current_preference != Some(QuoteSourceKind::Provider) {
+        return Err(AppError::market_data_unsupported(
+            "The FX pair is no longer eligible for provider quotes.",
+        ));
+    }
+    if quote.household_id().to_string() != household_id
+        || quote.base_currency() != pair.currency_a()
+        || quote.quote_currency() != pair.currency_b()
+        || quote.source_kind() != QuoteSourceKind::Provider
+        || quote.source_key() != source_key
+    {
+        return Err(AppError::MalformedProviderResponse {
+            message: "The provider FX quote does not match the requested pair.".to_owned(),
+        });
+    }
+
+    let duplicate: i64 = sqlx::query_scalar(
+        "SELECT EXISTS(
+            SELECT 1 FROM fx_quotes
+            WHERE household_id = ?
+              AND base_currency = ?
+              AND quote_currency = ?
+              AND rate = ?
+              AND source_kind = 'provider'
+              AND source_key = ?
+              AND delayed = ?
+              AND quoted_at = ?
+        )",
+    )
+    .bind(household_id)
+    .bind(quote.base_currency().as_str())
+    .bind(quote.quote_currency().as_str())
+    .bind(quote.rate().canonical())
+    .bind(source_key)
+    .bind(i64::from(quote.delayed()))
+    .bind(quote.quoted_at().to_rfc3339())
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(|error| map_read_error("fx_quote.duplicate_check_failed", error))?;
+    if duplicate != 0 {
+        return Ok(ProviderQuoteInsertResult::Duplicate);
+    }
+
+    insert_fx_quote(tx, quote).await?;
+    activity_service::mark_dirty_for_household(tx, household_id, quote.quoted_at()).await?;
+    Ok(ProviderQuoteInsertResult::Inserted)
 }
 
 pub(crate) async fn upsert_fx_preference(
