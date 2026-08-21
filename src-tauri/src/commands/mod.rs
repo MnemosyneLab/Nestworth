@@ -19,4 +19,5 @@ pub mod pending;
 pub mod portfolio;
 pub mod quotes;
 pub mod refresh;
+pub mod search;
 pub mod settings;

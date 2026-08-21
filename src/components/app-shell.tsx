@@ -9,6 +9,7 @@ import {
   type AccountSearch,
 } from "@/features/accounts/search";
 import { Brand } from "@/components/brand";
+import { CommandPalette } from "@/components/command-palette";
 import { useBootstrapQuery } from "@/lib/tauri/bootstrap";
 import { cn } from "@/lib/utils";
 
@@ -39,6 +40,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         className="flex h-full min-h-0 w-56 shrink-0 flex-col gap-1 overflow-y-auto overscroll-contain border-r border-border bg-card px-3 py-6"
       >
         <Brand className="mb-5 px-3" size="md" />
+        <CommandPalette />
         <NavLink active={pathname === "/overview"} to="/overview">
           {t("nav.overview")}
         </NavLink>
@@ -50,6 +52,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         </NavLink>
         <NavLink active={pathname === "/analytics"} to="/analytics">
           {t("nav.analytics")}
+        </NavLink>
+        <NavLink active={pathname === "/maintenance"} to="/maintenance">
+          {t("nav.maintenance")}
         </NavLink>
         <div>
           <NavLink active={accountsActive} search={{}} to="/accounts">
@@ -126,6 +131,7 @@ function NavLink({
     | "/investments"
     | "/activity"
     | "/analytics"
+    | "/maintenance"
     | "/instruments"
     | "/accounts"
     | "/groups"

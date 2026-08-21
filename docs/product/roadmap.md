@@ -66,7 +66,7 @@ The detailed scope, design, and delivery phases are defined by the [v0.1.4 relea
 
 **Theme:** Make Nestworth easy to maintain for years.
 
-**Status:** Planned; design complete, implementation not started.
+**Status:** Phase 10 implementation complete; integrity and release closeout remain planned.
 
 Add review-before-post pending and recurring Activities, configurable valuation-review reminders, full-fidelity local Backup/Restore, canonical JSON export, strict atomic CSV import/export, manually maintained Benchmark series and relative return, bounded global search, a command palette, and keyboard-focused workflows. Automation never posts automatically, Restore is staged and recoverable, and every workflow remains offline-capable.
 

@@ -18,6 +18,7 @@ import { InvestmentsRoute } from "@/routes/investments";
 import { OnboardingRoute } from "@/routes/onboarding";
 import { SettingsGeneralRoute } from "@/routes/settings-general";
 import { MembersRoute } from "@/routes/settings-members";
+import { MaintenanceRoute } from "@/routes/maintenance";
 
 const rootRoute = createRootRoute({ component: RootRoute });
 const indexRoute = createRoute({
@@ -51,6 +52,11 @@ const analyticsRoute = createRoute({
   path: "/analytics",
   component: lazyRouteComponent(() => import("@/routes/analytics")),
   validateSearch: validateAnalyticsSearch,
+});
+const maintenanceRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/maintenance",
+  component: MaintenanceRoute,
 });
 const instrumentsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -102,6 +108,7 @@ const routeTree = rootRoute.addChildren([
   investmentsRoute,
   activityRoute,
   analyticsRoute,
+  maintenanceRoute,
   instrumentsRoute,
   accountsRoute,
   accountDetailRoute,

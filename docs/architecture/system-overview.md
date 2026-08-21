@@ -89,7 +89,7 @@ Onboarding validates the complete request before opening its write transaction, 
 
 ## Frontend Structure and State
 
-TanStack Router defines explicit routes for startup, onboarding, overview, activity, analytics, investments, instruments, account list and detail, institutions, groups, general settings, and member settings. Primary feature pages load through route-level code splitting. Account owner, category, institution, and group filters, plus Activity and Analytics list filters, live in URL search parameters so refresh and detail navigation preserve context. `/analytics` is a read-only interpretation surface over the ledger; it posts no Activity and changes no current total.
+TanStack Router defines explicit routes for startup, onboarding, overview, activity, analytics, maintenance, investments, instruments, account list and detail, institutions, groups, general settings, and member settings. Primary feature pages load through route-level code splitting. Account owner, category, institution, and group filters, plus Activity and Analytics list filters, live in URL search parameters so refresh and detail navigation preserve context. `/maintenance` is a read-before-write queue for pending Activities, recurring rules, and freshness reminders. The AppShell mounts one keyboard-accessible command palette that combines static safe actions with bounded Rust global search. `/analytics` is a read-only interpretation surface over the ledger; it posts no Activity and changes no current total.
 
 State ownership is divided by lifetime:
 

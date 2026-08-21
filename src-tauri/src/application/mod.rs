@@ -39,6 +39,7 @@ pub mod reference;
 pub mod refresh_service;
 pub mod restore_service;
 pub mod return_service;
+pub mod search_service;
 pub mod settings_service;
 pub mod sustainable_repositories;
 pub mod valuation_service;

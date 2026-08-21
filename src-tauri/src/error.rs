@@ -149,6 +149,8 @@ pub enum AppError {
     AnalyticsInputIncomplete { reason: String },
     #[error("the return is not computable")]
     ReturnNotComputable { reason: String },
+    #[error("search request is invalid")]
+    InvalidSearch { message: String },
     #[error("internal application error")]
     Internal,
 }
@@ -260,6 +262,11 @@ impl AppError {
 
     pub fn invalid_pending_activity(message: &str) -> Self {
         Self::InvalidPendingActivity {
+            message: message.to_owned(),
+        }
+    }
+    pub fn invalid_search(message: &str) -> Self {
+        Self::InvalidSearch {
             message: message.to_owned(),
         }
     }
@@ -704,6 +711,11 @@ impl AppError {
                 ErrorCode::ReturnNotComputable,
                 "The return cannot be computed for this period.",
             ),
+            Self::InvalidSearch { message } => CommandError {
+                code: ErrorCode::SearchInvalid,
+                message,
+                fields: None,
+            },
             Self::Internal => CommandError::new(
                 ErrorCode::InternalError,
                 "An internal application error occurred.",
@@ -780,6 +792,7 @@ pub enum ErrorCode {
     BackupUnsupportedVersion,
     RestoreValidationFailed,
     AppRestartRequired,
+    SearchInvalid,
     InternalError,
 }
 

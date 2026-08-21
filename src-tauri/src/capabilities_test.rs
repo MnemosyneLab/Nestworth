@@ -120,6 +120,7 @@ mod tests {
         "list_cost_basis_declarations",
         "declare_lot_cost_basis",
         "revoke_lot_cost_basis",
+        "global_search",
     ];
 
     const ALLOWED_PERMISSIONS: &[&str] = &[
@@ -287,6 +288,10 @@ mod tests {
             "TAURI_INVOKE(\"list_cost_basis_declarations\"",
             "TAURI_INVOKE(\"declare_lot_cost_basis\"",
             "TAURI_INVOKE(\"revoke_lot_cost_basis\"",
+            "TAURI_INVOKE(\"global_search\"",
+            "export type GlobalSearchInput",
+            "export type GlobalSearchResultDto",
+            "SEARCH_INVALID",
             "SNAPSHOT_REBUILD_FAILED",
             "SNAPSHOT_REBUILD_REQUIRED",
             "ANALYTICS_PERIOD_UNAVAILABLE",

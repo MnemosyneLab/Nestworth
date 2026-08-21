@@ -81,6 +81,7 @@ use crate::{
             RestoreBackupResultDto,
         },
         return_service::PerformanceSummaryDto,
+        search_service::{GlobalSearchInput, GlobalSearchResultDto},
         settings_service::{AppSettingsDto, DeleteAllDataInput, UpdateSettingsInput},
     },
     commands::{
@@ -163,6 +164,7 @@ use crate::{
             refresh_all_impl, refresh_instrument_impl, refresh_required_fx_impl,
             search_provider_instruments_impl,
         },
+        search::global_search_impl,
         settings::{delete_all_data_impl, get_settings_impl, update_settings_impl},
     },
     state::AppState,
@@ -1083,6 +1085,15 @@ pub async fn get_benchmark_comparison(
 
 #[tauri::command]
 #[specta::specta]
+pub async fn global_search(
+    state: State<'_, AppState>,
+    input: GlobalSearchInput,
+) -> Result<Vec<GlobalSearchResultDto>, crate::error::CommandError> {
+    with_shared_operation!(&state, global_search_impl(&state, input))
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn reverse_activity(
     state: State<'_, AppState>,
     input: ReverseActivityInput,
@@ -1342,6 +1353,7 @@ pub fn command_builder() -> Builder<tauri::Wry> {
         list_unknown_basis_lots,
         list_cost_basis_declarations,
         declare_lot_cost_basis,
-        revoke_lot_cost_basis
+        revoke_lot_cost_basis,
+        global_search
     ])
 }

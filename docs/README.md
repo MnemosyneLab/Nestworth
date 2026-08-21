@@ -24,12 +24,12 @@ This directory contains the product, architecture, engineering, and release docu
 | [v0.1.4 Technical Design](releases/v0.1.4-technical-design.md) | Implemented lot ledger, cost basis, gain, currency decomposition, return, attribution, persistence, IPC, and UI contracts |
 | [v0.1.4 Implementation Plan](releases/v0.1.4-implementation-plan.md) | Dependency-ordered v0.1.4 phases, required tests, exit checks, and Agent handoff rules |
 | [v0.1.4 Compatibility Baseline](releases/v0.1.4-baseline.md) | Frozen schema `004`, 81-command allowlist, ledger facts available to analytics, goldens, decimal contract, and query counts |
-| [v0.1.5 Release Contract](releases/v0.1.5.md) | Planned sustainable-use scope, locked product decisions, acceptance scenarios, and compatibility promises |
-| [v0.1.5 Technical Design](releases/v0.1.5-technical-design.md) | Planned pending, recurrence, freshness, Backup/Restore, import/export, Benchmark, search, persistence, IPC, and UI contracts |
-| [v0.1.5 Implementation Plan](releases/v0.1.5-implementation-plan.md) | Dependency-ordered v0.1.5 phases, required tests, exit checks, and Agent handoff rules |
-| [v0.1.5 Compatibility Baseline](releases/v0.1.5-baseline.md) | Frozen schema `004`, 81-command surface, runtime/file boundaries, v0.1.4 goldens, and current automated evidence |
+| [v0.1.5 Release Contract](releases/v0.1.5.md) | Sustainable-use scope, locked product decisions, acceptance scenarios, and compatibility promises |
+| [v0.1.5 Technical Design](releases/v0.1.5-technical-design.md) | Pending, recurrence, freshness, Backup/Restore, import/export, Benchmark, search, persistence, IPC, and UI contracts |
+| [v0.1.5 Implementation Plan](releases/v0.1.5-implementation-plan.md) | Dependency-ordered phases, Phase 10 evidence, required tests, exit checks, and handoff rules |
+| [v0.1.5 Compatibility Baseline](releases/v0.1.5-baseline.md) | Frozen schema `004`, baseline command surface, runtime/file boundaries, v0.1.4 goldens, and automated evidence |
 
-[v0.1.1](releases/v0.1.1.md) remains the household balance-sheet baseline. [v0.1.2](releases/v0.1.2.md) is development-complete and in release-candidate validation; it uses manual valuation with unconfigured production quote adapters. [v0.1.3](releases/v0.1.3.md) is development-complete and in release-candidate validation; Activity ledger, History Origin, snapshots, `/activity`, and Overview trend are implemented. Isolated-data launch, keyboard/VoiceOver, arm64 packaging, and signing remain named Phase 10 macOS checks. [v0.1.4](releases/v0.1.4.md) is development-complete and in release-candidate validation; FIFO lots, gain, currency decomposition, TWR/XIRR, attribution, and `/analytics` are implemented. [v0.1.5](releases/v0.1.5.md) is design-complete and planned; no v0.1.5 feature phase is implemented. Later direction is summarized in the [product roadmap](product/roadmap.md).
+[v0.1.1](releases/v0.1.1.md) remains the household balance-sheet baseline. [v0.1.2](releases/v0.1.2.md), [v0.1.3](releases/v0.1.3.md), and [v0.1.4](releases/v0.1.4.md) are development-complete release-candidate lines with named macOS distribution checks remaining. [v0.1.5](releases/v0.1.5.md) has Phases 0–10 implemented; integrity closeout and release closeout remain planned. No release is marked `Released` without a published, identified artifact and completed distribution policy.
 
 ## Source of Truth
 

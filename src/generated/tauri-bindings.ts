@@ -941,6 +941,14 @@ async revokeLotCostBasis(input: RevokeLotCostBasisInput) : Promise<Result<CostBa
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+async globalSearch(input: GlobalSearchInput) : Promise<Result<GlobalSearchResultDto[], CommandError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("global_search", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -1013,7 +1021,7 @@ export type DateAvailabilityDto = { kind: "available"; value: string } | { kind:
 export type DateRangeAvailabilityDto = { kind: "available"; startLocalDate: string; endLocalDate: string } | { kind: "unavailable"; reason: string; blockingDates: string[] }
 export type DeclareLotCostBasisInput = { lotRef: LotRefDto; instrumentId: string; declaredCost: string; declaredCurrency: string; acquiredOn: string | null; note: string | null }
 export type DeleteAllDataInput = { confirmed: boolean }
-export type ErrorCode = "VALIDATION_ERROR" | "NOT_FOUND" | "CONFLICT" | "ALREADY_ONBOARDED" | "OWNERSHIP_TOTAL_INVALID" | "BASE_CURRENCY_CHANGE_NOT_ALLOWED" | "INVALID_CATEGORY" | "INVALID_MONEY" | "INVALID_QUANTITY" | "INVALID_UNIT_PRICE" | "INVALID_FX_RATE" | "DECIMAL_OVERFLOW" | "INVALID_ACTIVITY" | "INVALID_ACTIVITY_TIME" | "INVALID_ACTIVITY_LEGS" | "INSUFFICIENT_BALANCE" | "INSUFFICIENT_QUANTITY" | "TRANSFER_MISMATCH" | "TRADE_TOTAL_MISMATCH" | "ACTIVITY_ALREADY_REVERSED" | "ACTIVITY_NOT_CORRECTABLE" | "QUOTE_UNAVAILABLE" | "INCOMPLETE_VALUATION" | "DUPLICATE_HOLDING" | "UNSUPPORTED_PROVIDER_SYMBOL" | "PROVIDER_AUTHENTICATION" | "PROVIDER_RATE_LIMIT" | "PROVIDER_UNAVAILABLE" | "MALFORMED_PROVIDER_RESPONSE" | "MEDIA_INVALID" | "DATABASE_ERROR" | "DATABASE_UNAVAILABLE" | "UNSUPPORTED_NEWER_DATABASE" | "MIGRATION_FAILED" | "DATA_RESET_FAILED" | "HISTORY_INITIALIZATION_FAILED" | "HISTORY_TIMEZONE_CONFIRMATION_REQUIRED" | "SNAPSHOT_REBUILD_REQUIRED" | "SNAPSHOT_REBUILD_FAILED" | "ANALYTICS_PERIOD_UNAVAILABLE" | "ANALYTICS_INPUT_INCOMPLETE" | "RETURN_NOT_COMPUTABLE" | "INVALID_COST_BASIS_DECLARATION" | "COST_BASIS_LOT_NOT_FOUND" | "INVALID_RECURRING_RULE" | "INVALID_PENDING_ACTIVITY" | "INVALID_BENCHMARK" | "IMPORT_INVALID" | "EXPORT_FAILED" | "IMPORT_PREVIEW_EXPIRED" | "IMPORT_FILE_CHANGED" | "IMPORT_DUPLICATE_CONFLICT" | "IMPORT_COMMIT_FAILED" | "BACKUP_INVALID" | "BACKUP_CORRUPT" | "BACKUP_CREATE_FAILED" | "BACKUP_UNSUPPORTED_VERSION" | "RESTORE_VALIDATION_FAILED" | "APP_RESTART_REQUIRED" | "INTERNAL_ERROR"
+export type ErrorCode = "VALIDATION_ERROR" | "NOT_FOUND" | "CONFLICT" | "ALREADY_ONBOARDED" | "OWNERSHIP_TOTAL_INVALID" | "BASE_CURRENCY_CHANGE_NOT_ALLOWED" | "INVALID_CATEGORY" | "INVALID_MONEY" | "INVALID_QUANTITY" | "INVALID_UNIT_PRICE" | "INVALID_FX_RATE" | "DECIMAL_OVERFLOW" | "INVALID_ACTIVITY" | "INVALID_ACTIVITY_TIME" | "INVALID_ACTIVITY_LEGS" | "INSUFFICIENT_BALANCE" | "INSUFFICIENT_QUANTITY" | "TRANSFER_MISMATCH" | "TRADE_TOTAL_MISMATCH" | "ACTIVITY_ALREADY_REVERSED" | "ACTIVITY_NOT_CORRECTABLE" | "QUOTE_UNAVAILABLE" | "INCOMPLETE_VALUATION" | "DUPLICATE_HOLDING" | "UNSUPPORTED_PROVIDER_SYMBOL" | "PROVIDER_AUTHENTICATION" | "PROVIDER_RATE_LIMIT" | "PROVIDER_UNAVAILABLE" | "MALFORMED_PROVIDER_RESPONSE" | "MEDIA_INVALID" | "DATABASE_ERROR" | "DATABASE_UNAVAILABLE" | "UNSUPPORTED_NEWER_DATABASE" | "MIGRATION_FAILED" | "DATA_RESET_FAILED" | "HISTORY_INITIALIZATION_FAILED" | "HISTORY_TIMEZONE_CONFIRMATION_REQUIRED" | "SNAPSHOT_REBUILD_REQUIRED" | "SNAPSHOT_REBUILD_FAILED" | "ANALYTICS_PERIOD_UNAVAILABLE" | "ANALYTICS_INPUT_INCOMPLETE" | "RETURN_NOT_COMPUTABLE" | "INVALID_COST_BASIS_DECLARATION" | "COST_BASIS_LOT_NOT_FOUND" | "INVALID_RECURRING_RULE" | "INVALID_PENDING_ACTIVITY" | "INVALID_BENCHMARK" | "IMPORT_INVALID" | "EXPORT_FAILED" | "IMPORT_PREVIEW_EXPIRED" | "IMPORT_FILE_CHANGED" | "IMPORT_DUPLICATE_CONFLICT" | "IMPORT_COMMIT_FAILED" | "BACKUP_INVALID" | "BACKUP_CORRUPT" | "BACKUP_CREATE_FAILED" | "BACKUP_UNSUPPORTED_VERSION" | "RESTORE_VALIDATION_FAILED" | "APP_RESTART_REQUIRED" | "SEARCH_INVALID" | "INTERNAL_ERROR"
 export type ExcessReturnDto = { kind: "available"; fraction: string; percentagePoints: string } | { kind: "unavailable"; reason: string; blockingDates: string[] }
 export type ExportCanonicalJsonInput = { destinationPath: string; overwriteConfirmed: boolean }
 export type ExportCsvInput = { destinationPath: string; overwriteConfirmed: boolean; dataset: CsvExportDataset }
@@ -1032,6 +1040,8 @@ export type GetMediaInput = { assetId: string }
 export type GetNetWorthAttributionInput = { scope: AnalyticsScopeDto; period: AnalyticsPeriodDto }
 export type GetNetWorthTrendInput = { range: string }
 export type GetPerformanceSummaryInput = { scope: AnalyticsScopeDto; period: AnalyticsPeriodDto }
+export type GlobalSearchInput = { query: string; resultType: string | null; includeArchived: boolean; limit: number | null }
+export type GlobalSearchResultDto = { resultType: string; id: string; label: string; excerpt: string | null; archived: boolean; destination: SearchDestinationDto }
 export type GroupRecordDto = { id: string; name: string; iconKey: string | null; color: string | null; description: string | null; logoAssetId: string | null; sortOrder: number; createdAt: string; updatedAt: string; archivedAt: string | null }
 export type HistoryOriginDto = { id: string; timezone: string; timezoneConfirmed: boolean; originAt: string; originLocalDate: string; source: string; schemaVersion: number; createdAt: string; accountValues: OriginComponentDto[]; cashValues: OriginComponentDto[]; holdings: OriginHoldingDto[] }
 export type HistoryStatusDto = { timezone: string; timezoneConfirmed: boolean; originAt: string; originLocalDate: string; dirtyFrom: string | null; lastCompletedOn: string | null; lastClosedOn: string | null; rebuildStatus: string; rebuildCursorOn: string | null }
@@ -1111,6 +1121,7 @@ export type RestoreBackupResultDto = { restartRequired: boolean; reason: string 
 export type ResultingEndpointDto = { accountId: string; accountName: string; componentKind: string; holdingId: string | null; currency: string | null; before: string; after: string }
 export type ReverseActivityInput = { id: string; localDate: string | null; localTime: string | null; ambiguousOffset: string | null }
 export type RevokeLotCostBasisInput = { lotRef: LotRefDto }
+export type SearchDestinationDto = { path: string }
 export type SearchProviderInstrumentsInput = { query: string }
 export type SelectedBenchmarkDto = { id: string; name: string; currency: string; seriesKind: string; maxCarryDays: number; archived: boolean }
 export type SetDefaultBenchmarkInput = { benchmarkId: string }

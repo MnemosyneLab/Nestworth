@@ -4,15 +4,21 @@ All notable changes to Nestworth are recorded here. The project follows semantic
 
 ## [0.1.5] - Unreleased
 
-v0.1.5 is the active planned development line. Its design contract is complete; no feature phase is implemented or released.
+v0.1.5 is under active development. Phases 0–10 are implemented; integrity closeout, macOS accessibility/distribution checks, and release publication remain outstanding.
 
-### Planning
+### Added
 
-- Add the v0.1.5 release contract, technical design, implementation plan, and compatibility baseline.
-- Select review-before-post automation, maintenance reminders, recoverable local Backup/Restore, controlled export/import, manually maintained Benchmarks, global search, and keyboard productivity as the release scope.
-- Require explicit posting, staged Restore, atomic CSV commit, offline operation, and Rust authority over every financial or Benchmark result.
-- A declared cost basis is not an imported transaction and must not be converted into fabricated acquisition history.
-- Existing FIFO results and declarations must not be silently reinterpreted.
+- Maintenance route with review-before-post pending Activities, recurring rule generation, freshness policies, snoozes, and explicit preview/post/skip workflows.
+- Settings Data Management workflows for verified local Backup/Restore, recovery inspection, canonical JSON and CSV export, strict CSV preview/commit, and import history.
+- Analytics Benchmark catalog, append-only observations, default selection, and Rust-computed comparison with portfolio TWR and excess return.
+- Bounded Rust global search across household records and an accessible `Command+K` palette with safe static navigation actions.
+- English and Simplified Chinese product copy, route-gate coverage, generated command mocks, and Phase 10 behavior tests.
+
+### Engineering
+
+- Added the `global_search` IPC command with escaped, bounded, deterministic Household-scoped queries and no financial-value search.
+- Kept selected-file content Rust-owned; the frontend uses only the typed dialog and generated command surfaces.
+- Added Phase 10 frontend smoke coverage for explicit generation and palette focus restoration.
 
 ## [0.1.4] - Unreleased
 
